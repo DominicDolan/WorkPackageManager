@@ -1,0 +1,45 @@
+{
+  "name": "work-task-manager",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Repo-local development task tracker with visual before/after evidence, driven by aio-visual-regression.",
+  "bin": {
+    "tasks": "./bin/tasks"
+  },
+  "files": [
+    "bin/**/*",
+    "src/**/*",
+    "dist/**/*",
+    "vite.config.ts",
+    "tsconfig.json",
+    "README.md"
+  ],
+  "keywords": [
+    "tasks",
+    "cli",
+    "visual-regression",
+    "developer-tools"
+  ],
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "scripts": {
+    "cli": "bun run src/cli/index.ts",
+    "serve": "bun run src/server/index.ts",
+    "dev:api": "bun --watch run src/server/index.ts",
+    "dev:web": "vite",
+    "build": "vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "prepack": "vite build"
+  },
+  "dependencies": {
+    "vue": "^3.5.40"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.0",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5",
+    "vue-tsc": "^3.1.1"
+  }
+}
