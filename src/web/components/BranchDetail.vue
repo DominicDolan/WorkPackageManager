@@ -8,12 +8,14 @@ const emit = defineEmits<{
   changed: [CombinedBranchDetail];
   forgotten: [string];
   openTask: [string];
+  continueCombine: [string];
 }>();
 
 const busy = ref<string | null>(null);
 const error = ref<string | null>(null);
 const notice = ref<string | null>(null);
 const draft = ref({ title: '', body: '' });
+const branchSettings = ref({ name: '', base: '' });
 const draftDraftPr = ref(false);
 const showCommits = ref(false);
 
@@ -23,6 +25,7 @@ watch(
   () => [props.branch.branchName, props.branch.updatedAt] as const,
   () => {
     draft.value = { title: props.branch.prTitle ?? '', body: props.branch.prBody ?? '' };
+    branchSettings.value = { name: props.branch.branchName, base: props.branch.baseBranch ?? '' };
     error.value = null;
     notice.value = null;
   },
@@ -56,6 +59,13 @@ async function run(label: string, action: () => Promise<CombinedBranchDetail>): 
 }
 
 const generate = () => run('describe', () => api.describeBranch(props.branch.branchName));
+
+const saveBranchSettings = () => run('branch-settings', () =>
+  api.updateBranch(props.branch.branchName, {
+    branchName: branchSettings.value.name,
+    baseBranch: branchSettings.value.base,
+  }),
+);
 
 const save = () =>
   run('save', () =>
@@ -122,6 +132,24 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
       <span class="spacer" />
       <a v-if="branch.prUrl" :href="branch.prUrl" target="_blank" rel="noreferrer">Open on GitHub ↗</a>
       <button class="danger" :disabled="!!busy" @click="forget">Forget</button>
+    </div>
+
+    <div class="section">
+      <h3>Branch settings</h3>
+      <div class="panel">
+        <div class="field"><label for="branch-name">Branch name</label><input id="branch-name" v-model="branchSettings.name" /></div>
+        <div class="field"><label for="branch-base">PR target branch</label><input id="branch-base" v-model="branchSettings.base" placeholder="master" /></div>
+        <p class="faint">The target branch is the branch the pull request will be opened into. It does not change the commits already combined.</p>
+        <button :disabled="!!busy || !branchSettings.name.trim() || !branchSettings.base.trim()" @click="saveBranchSettings">
+          {{ busy === 'branch-settings' ? 'Saving…' : 'Save branch settings' }}
+        </button>
+      </div>
+    </div>
+
+    <div v-if="branch.combineState === 'conflict'" class="banner warn">
+      <strong>Combine paused: resolve the Git conflict.</strong>
+      <p>Resolve and stage the conflicted files on <code class="mono">{{ branch.branchName }}</code>, then continue the merge.</p>
+      <button class="primary" @click="emit('continueCombine', branch.branchName)">Continue</button>
     </div>
 
     <p v-if="!branch.git.exists" class="banner warn">

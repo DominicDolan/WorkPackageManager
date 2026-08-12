@@ -5,24 +5,52 @@ import { resolveArtifact, workspace } from '../config/paths';
 import { aioVrAvailable, captureAfter, captureBefore, cleanCheckpoint } from './aiovr';
 import {
   addNote,
+  createInvestigation,
   createTask,
+  deleteInvestigation,
   deleteTask,
   deleteCombinedBranch,
   findTask,
+  getInvestigationDetail,
   getTaskDetail,
+  isInvestigationStatus,
   isPriority,
   isStatus,
   listCombinedBranches,
+  listInvestigations,
   listTasks,
+  moveTask,
   recordCombine,
+  renameCombinedBranch,
+  reorderTasks,
   requireCombinedBranch,
   requireTask,
   recordCombinedBranch,
+  setInvestigationStatus,
   updateCombinedBranch,
+  updateInvestigation,
   updateTask,
+  updateTaskBranchName,
   setStatus,
 } from './repo';
 import {
+  addAttachment,
+  createNote,
+  deleteNote,
+  initNotes,
+  listFolders,
+  listNotes,
+  listTags,
+  notesWorkspaceInfo,
+  readNote,
+  removeAttachment,
+  resolveNoteAsset,
+  resolveNoteLink,
+  syncNotes,
+  updateNote,
+} from './notes';
+import {
+  branchExists,
   createPullRequest,
   defaultBaseBranch,
   generatePrDescription,
@@ -30,9 +58,11 @@ import {
   toolAvailability,
 } from './branches';
 import {
+  INVESTIGATION_STATUSES,
   PRIORITIES,
   STATUSES,
   type CombinedBranchDetail,
+  type InvestigationStatus,
   type Status,
   type Task,
 } from '../shared/types';
@@ -52,11 +82,12 @@ function fail(message: string, status = 400): Response {
   return json({ error: message }, status);
 }
 
-/** Turn a thrown error into the response the UI expects. `requireTask` is the
- *  only routine that throws a "not found", so it maps to 404. */
+/** Turn a thrown error into the response the UI expects. The `require*` lookups
+ *  are the only routines that throw a "not found", so those map to 404. */
 function errorResponse(error: unknown): Response {
   const message = error instanceof Error ? error.message : String(error);
-  return fail(message, /^No task with ref/.test(message) ? 404 : 400);
+  const missing = /^No (task|investigation) with ref/.test(message) || /^No note at /.test(message);
+  return fail(message, missing ? 404 : 400);
 }
 
 async function body<T>(request: Request): Promise<T> {
@@ -78,6 +109,12 @@ function git(args: string[]): { code: number; stdout: string; stderr: string } {
   return { code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
 
+function cherryPickInProgress(): boolean {
+  // Use Git rather than assuming `.git` is a directory: linked worktrees store
+  // their state in Git's real directory.
+  return git(['rev-parse', '--verify', '--quiet', 'CHERRY_PICK_HEAD']).code === 0;
+}
+
 /** Build one linear branch by cherry-picking each selected task branch, in the
  * order chosen. This produces ordinary commits on one branch, precisely the
  * form a cherry-pick-based PR copy can move to another repository. */
@@ -89,13 +126,34 @@ async function closeTask(ref: string): Promise<ReturnType<typeof getTaskDetail>>
   return getTaskDetail(task.ref);
 }
 
-async function combineTasks(refs: string[], requestedBranch: string, closeTasks: boolean): Promise<{ branchName: string; tasks: ReturnType<typeof getTaskDetail>[] }> {
+async function finishCombine(branchName: string, taskRefs: string[], closeTasks: boolean): Promise<ReturnType<typeof getTaskDetail>[]> {
+  const tasks = taskRefs.map((ref) => getTaskDetail(ref));
+  for (const task of tasks) recordCombinedBranch(task.ref, branchName);
+  const branch = requireCombinedBranch(branchName);
+  recordCombine({ branchName, baseBranch: branch.baseBranch, taskRefs, combineCloseTasks: closeTasks });
+  if (closeTasks) for (const task of tasks) await closeTask(task.ref);
+  return tasks.map((task) => getTaskDetail(task.ref));
+}
+
+async function combineTasks(refs: string[], requestedBranch: string, closeTasks: boolean): Promise<{ branchName: string; tasks: ReturnType<typeof getTaskDetail>[]; conflicted: boolean }> {
   const branchName = validateBranchName(requestedBranch);
   const uniqueRefs = [...new Set(refs)];
   if (uniqueRefs.length < 2) throw new Error('Select at least two tasks to combine.');
-  const tasks = uniqueRefs.map((ref) => getTaskDetail(ref));
+  let tasks = uniqueRefs.map((ref) => getTaskDetail(ref));
   for (const task of tasks) {
     if (!task.branchName) throw new Error(`${task.ref} has no assigned branch.`);
+    if (!branchExists(task.branchName)) {
+      // Older generated names were truncated. If Git has exactly one branch for
+      // this task ref, repair that stale database assignment automatically.
+      const needle = `/${task.ref.toLowerCase()}-`;
+      const candidates = git(['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
+        .stdout.trim().split('\n').filter((name) => name.toLowerCase().includes(needle));
+      if (candidates.length === 1) {
+        updateTaskBranchName(task.ref, candidates[0]!);
+      } else {
+        throw new Error(`${task.ref}'s assigned branch '${task.branchName}' does not exist locally. Update the task's branch assignment to the renamed Git branch before combining.`);
+      }
+    }
     if (task.status !== 'dev_complete' && task.status !== 'verified') {
       throw new Error(`${task.ref} must be Dev Complete or Verified before it can be combined.`);
     }
@@ -105,7 +163,14 @@ async function combineTasks(refs: string[], requestedBranch: string, closeTasks:
   }
 
   const current = git(['branch', '--show-current']).stdout.trim();
-  if (!current) throw new Error('Cannot combine from a detached HEAD. Switch to the base branch first.');
+  if (!current) throw new Error('Cannot combine from a detached HEAD. Switch to a branch first.');
+  // A delivery branch may be cut while another branch is checked out, but its
+  // PR target is the repository's configured/default branch—not its new name
+  // or necessarily the branch currently checked out.
+  const baseBranch = defaultBaseBranch();
+  if (cherryPickInProgress()) {
+    throw new Error(`A cherry-pick is already paused on '${current}'. Resolve and stage its conflicts, then use the delivery branch's Continue button (or run 'git cherry-pick --abort' to cancel it) before starting another combine.`);
+  }
   if (git(['status', '--porcelain']).stdout.trim()) throw new Error('Working tree must be clean before combining tasks.');
   if (git(['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`]).code === 0) {
     throw new Error(`Branch '${branchName}' already exists.`);
@@ -113,34 +178,48 @@ async function combineTasks(refs: string[], requestedBranch: string, closeTasks:
 
   const create = git(['switch', '-c', branchName]);
   if (create.code !== 0) throw new Error(create.stderr.trim() || `Could not create '${branchName}'.`);
+  // The branch name can have been corrected after the task detail was loaded.
+  tasks = uniqueRefs.map((ref) => getTaskDetail(ref));
+  const commitsToPick: string[] = [];
   for (const task of tasks) {
-    // Pick the complete, oldest-first commit range unique to this task branch;
-    // cherry-picking only its tip would silently omit all earlier task commits.
     const base = git(['merge-base', 'HEAD', task.branchName!]);
-    if (base.code !== 0 || !base.stdout.trim()) {
-      throw new Error(`Could not find a common ancestor for ${task.ref} (${task.branchName}).`);
-    }
+    if (base.code !== 0 || !base.stdout.trim()) throw new Error(`Could not find a common ancestor for ${task.ref} (${task.branchName}).`);
     const commits = git(['rev-list', '--reverse', `${base.stdout.trim()}..${task.branchName}`]);
-    if (commits.code !== 0 || !commits.stdout.trim()) {
-      throw new Error(`${task.ref} (${task.branchName}) has no commits to combine.`);
-    }
-    for (const commit of commits.stdout.trim().split('\n')) {
-      const pick = git(['cherry-pick', commit]);
-      if (pick.code !== 0) {
-        throw new Error(`Cherry-pick of ${task.ref} (${task.branchName}) conflicted. Resolve it, run 'git cherry-pick --continue', then keep or delete '${branchName}' manually.`);
-      }
+    if (commits.code !== 0 || !commits.stdout.trim()) throw new Error(`${task.ref} (${task.branchName}) has no commits to combine.`);
+    commitsToPick.push(...commits.stdout.trim().split('\n'));
+  }
+  for (let index = 0; index < commitsToPick.length; index++) {
+    if (git(['cherry-pick', commitsToPick[index]!]).code !== 0) {
+      recordCombine({ branchName, baseBranch, taskRefs: tasks.map((task) => task.ref), combineState: 'conflict', combinePendingCommits: commitsToPick.slice(index + 1), combineCloseTasks: closeTasks });
+      return { branchName, tasks, conflicted: true };
     }
   }
-  for (const task of tasks) recordCombinedBranch(task.ref, branchName);
-  // Recorded before the optional close, so the branch is listed in the Branches
-  // view even if cleaning a checkpoint fails partway through.
-  recordCombine({ branchName, baseBranch: current, taskRefs: tasks.map((task) => task.ref) });
-  if (closeTasks) {
-    // All Git work succeeded before cleanup starts; a task becomes closed only
-    // after aio-vr clean completes successfully for that task.
-    for (const task of tasks) await closeTask(task.ref);
+  // `finishCombine` marks the selected tasks and needs the durable delivery
+  // branch record. Record it before finishing so a conflict-free combine does
+  // not try to look up a branch that has not been saved yet.
+  recordCombine({ branchName, baseBranch, taskRefs: tasks.map((task) => task.ref), combineCloseTasks: closeTasks });
+  return { branchName, tasks: await finishCombine(branchName, tasks.map((task) => task.ref), closeTasks), conflicted: false };
+}
+
+async function continueCombine(branchName: string): Promise<{ branchName: string; tasks: ReturnType<typeof getTaskDetail>[] }> {
+  const branch = requireCombinedBranch(branchName);
+  if (branch.combineState !== 'conflict') throw new Error(`Combine for '${branchName}' is not waiting for a conflict resolution.`);
+  if (git(['branch', '--show-current']).stdout.trim() !== branchName) throw new Error(`Switch to '${branchName}' before continuing the combine.`);
+  // The user may have already run `git cherry-pick --continue` while resolving
+  // the conflict. In that case Git has removed CHERRY_PICK_HEAD, but the saved
+  // delivery-branch state still says conflict. Treat the button as “finish the
+  // combine”: only ask Git to continue when a pick is actually paused.
+  if (cherryPickInProgress()) {
+    const continued = git(['cherry-pick', '--continue']);
+    if (continued.code !== 0) throw new Error(continued.stderr.trim() || 'Resolve all conflicts and stage the files before continuing.');
   }
-  return { branchName, tasks: tasks.map((task) => getTaskDetail(task.ref)) };
+  for (let index = 0; index < branch.combinePendingCommits.length; index++) {
+    if (git(['cherry-pick', branch.combinePendingCommits[index]!]).code !== 0) {
+      recordCombine({ branchName, baseBranch: branch.baseBranch, taskRefs: branch.taskRefs, combineState: 'conflict', combinePendingCommits: branch.combinePendingCommits.slice(index + 1), combineCloseTasks: branch.combineCloseTasks });
+      return { branchName, tasks: branch.taskRefs.map((ref) => getTaskDetail(ref)) };
+    }
+  }
+  return { branchName, tasks: await finishCombine(branchName, branch.taskRefs, branch.combineCloseTasks) };
 }
 
 /* -------------------------------------------------------------- branches */
@@ -178,17 +257,33 @@ async function handleBranches(request: Request, rest: string[]): Promise<Respons
 
     if (request.method === 'PATCH') {
       const input = await body<{
+        branchName?: string;
         baseBranch?: string;
         prTitle?: string;
         prBody?: string;
       }>(request);
+      let savedName = name;
+      if (input.branchName !== undefined) {
+        const next = validateBranchName(input.branchName);
+        if (next !== name) {
+          if (branchExists(next)) return fail(`Branch '${next}' already exists locally.`);
+          const renamed = git(['branch', '-m', name, next]);
+          if (renamed.code !== 0) return fail(renamed.stderr.trim() || `Could not rename '${name}'.`);
+          renameCombinedBranch(name, next);
+          savedName = next;
+        }
+      }
 
-      updateCombinedBranch(name, {
+      if (input.baseBranch !== undefined) {
+        const base = validateBranchName(input.baseBranch);
+        if (!branchExists(base)) return fail(`PR target branch '${base}' does not exist locally. Use an existing branch such as 'master'.`);
+      }
+      updateCombinedBranch(savedName, {
         baseBranch: input.baseBranch === undefined ? undefined : validateBranchName(input.baseBranch),
         prTitle: input.prTitle,
         prBody: input.prBody,
       });
-      return json({ branch: branchDetail(name) });
+      return json({ branch: branchDetail(savedName) });
     }
 
     // Forgets the branch here only; the Git branch and any PR are left alone.
@@ -220,13 +315,15 @@ async function handleBranches(request: Request, rest: string[]): Promise<Respons
     const branch = requireCombinedBranch(name);
 
     if (branch.prUrl) throw new Error(`A pull request was already opened: ${branch.prUrl}`);
+    const base = branch.baseBranch ?? defaultBaseBranch();
+    if (!branchExists(base)) throw new Error(`PR target branch '${base}' does not exist locally. Update branch settings and choose an existing target such as 'master'.`);
     if (!branch.prTitle?.trim()) {
       throw new Error('Generate or write a description before opening the pull request.');
     }
 
     const result = await createPullRequest({
       branch: branch.branchName,
-      base: branch.baseBranch ?? defaultBaseBranch(),
+      base,
       title: branch.prTitle,
       body: branch.prBody ?? '',
       draft: input.draft ?? false,
@@ -237,6 +334,198 @@ async function handleBranches(request: Request, rest: string[]): Promise<Respons
       if (findTask(ref)) addNote(ref, `Pull request opened: ${result.url}`);
     }
     return json({ branch: branchDetail(name), pushed: result.pushed });
+  }
+
+  return fail('Unknown endpoint.', 404);
+}
+
+/* -------------------------------------------------------- investigations */
+
+async function handleInvestigations(request: Request, url: URL, rest: string[]): Promise<Response> {
+  const [ref, action] = rest;
+
+  // /api/investigations
+  if (!ref) {
+    if (request.method === 'GET') {
+      const status = url.searchParams.get('status') ?? undefined;
+      if (status && !isInvestigationStatus(status)) {
+        return fail(`Unknown investigation status '${status}'.`);
+      }
+      return json({
+        investigations: listInvestigations({ status: status as InvestigationStatus | undefined }),
+      });
+    }
+
+    if (request.method === 'POST') {
+      const input = await body<{ title?: string; brief?: string }>(request);
+      if (!input.title) return fail('An investigation needs a title.');
+      return json(
+        { investigation: getInvestigationDetail(createInvestigation(input as { title: string; brief?: string }).ref) },
+        201,
+      );
+    }
+
+    return fail('Method not allowed.', 405);
+  }
+
+  // /api/investigations/:ref
+  if (!action) {
+    if (request.method === 'GET') return json({ investigation: getInvestigationDetail(ref) });
+
+    if (request.method === 'PATCH') {
+      const input = await body<{ title?: string; brief?: string; findings?: string }>(request);
+      updateInvestigation(ref, input);
+      return json({ investigation: getInvestigationDetail(ref) });
+    }
+
+    if (request.method === 'DELETE') {
+      deleteInvestigation(ref);
+      return json({ deleted: ref });
+    }
+
+    return fail('Method not allowed.', 405);
+  }
+
+  // /api/investigations/:ref/status
+  if (action === 'status') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    const input = await body<{ status?: string }>(request);
+    if (!input.status || !isInvestigationStatus(input.status)) {
+      return fail(`status must be one of: ${INVESTIGATION_STATUSES.join(', ')}.`);
+    }
+    setInvestigationStatus(ref, input.status);
+    return json({ investigation: getInvestigationDetail(ref) });
+  }
+
+  return fail('Unknown endpoint.', 404);
+}
+
+/* ----------------------------------------------------------------- notes */
+
+/**
+ * Notes are files, so these routes are thin: read the folder, write the folder,
+ * and let `notes.ts` do the resolving. A note's path is its identity and it
+ * contains slashes, so — like a branch name — it travels as one percent-encoded
+ * segment with the action after it.
+ */
+async function handleNotes(request: Request, url: URL, rest: string[]): Promise<Response> {
+  const [rawPath, action, attachmentName] = rest;
+
+  // /api/notes/asset — an image or file streamed out of the notes folder. Named
+  // rather than pathed, so it cannot collide with a note (those all end `.md`).
+  if (rawPath === 'asset') {
+    if (request.method !== 'GET') return fail('Method not allowed.', 405);
+    // Either a root-relative path, or a link exactly as it is written inside a
+    // note — the preview passes the latter and lets the server resolve it.
+    const note = url.searchParams.get('note');
+    const href = url.searchParams.get('href');
+    const direct = url.searchParams.get('path');
+    const path = note && href ? resolveNoteLink(note, href) : direct;
+    if (!path) return fail('An asset path is required.');
+
+    const absolute = resolveNoteAsset(path);
+    if (!absolute) return fail('No such file inside the notes folder.', 404);
+    // Attachments are immutable once written — a re-upload gets a new name — so
+    // unlike the checkpoint artefacts these are safe to cache.
+    return new Response(Bun.file(absolute), { headers: { 'cache-control': 'private, max-age=300' } });
+  }
+
+  if (rawPath === 'init') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    return json({ init: initNotes(), workspace: notesWorkspaceInfo() });
+  }
+
+  if (rawPath === 'sync') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    const input = await body<{ push?: boolean; message?: string }>(request).catch(
+      () => ({}) as { push?: boolean; message?: string },
+    );
+    return json(syncNotes({ push: input.push ?? false, message: input.message }));
+  }
+
+  // /api/notes
+  if (!rawPath) {
+    if (request.method === 'GET') {
+      return json({
+        notes: listNotes({
+          tag: url.searchParams.get('tag') ?? undefined,
+          folder: url.searchParams.get('folder') ?? undefined,
+          search: url.searchParams.get('q') ?? undefined,
+        }),
+        folders: listFolders(),
+        tags: listTags(),
+        workspace: notesWorkspaceInfo(),
+      });
+    }
+
+    if (request.method === 'POST') {
+      const input = await body<{ title?: string; folder?: string; path?: string; body?: string; tags?: unknown }>(request);
+      if (!input.title?.trim()) return fail('A note needs a title.');
+      return json(
+        {
+          note: createNote({
+            title: input.title,
+            folder: input.folder,
+            path: input.path,
+            body: input.body,
+            tags: parseTags(input.tags),
+          }),
+        },
+        201,
+      );
+    }
+
+    return fail('Method not allowed.', 405);
+  }
+
+  const path = decodeURIComponent(rawPath);
+
+  // /api/notes/:path
+  if (!action) {
+    if (request.method === 'GET') return json({ note: readNote(path) });
+
+    if (request.method === 'PATCH') {
+      const input = await body<{ title?: string; body?: string; tags?: unknown; path?: string }>(request);
+      return json({
+        note: updateNote(path, {
+          title: input.title,
+          body: input.body,
+          tags: parseTags(input.tags),
+          path: input.path,
+        }),
+      });
+    }
+
+    if (request.method === 'DELETE') return json({ deleted: deleteNote(path) });
+
+    return fail('Method not allowed.', 405);
+  }
+
+  // /api/notes/:path/attachments — a paste, a drop, or a file picker.
+  if (action === 'attachments') {
+    if (attachmentName !== undefined) {
+      if (request.method !== 'DELETE') return fail('Method not allowed.', 405);
+      removeAttachment(path, decodeURIComponent(attachmentName));
+      return json({ note: readNote(path) });
+    }
+
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return fail('Attachments must be uploaded as multipart/form-data.');
+    }
+
+    const uploaded = form.getAll('file').filter((entry): entry is File => entry instanceof File);
+    if (!uploaded.length) return fail('No file was uploaded.');
+
+    const added = [];
+    for (const file of uploaded) {
+      added.push(addAttachment(path, file.name || 'attachment', await file.arrayBuffer()));
+    }
+    return json({ added, note: readNote(path) }, 201);
   }
 
   return fail('Unknown endpoint.', 404);
@@ -256,11 +545,16 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
       aioVrDir: ws.aioVrDir,
       aioVrInstalled: aioVrAvailable(),
       aioVrWorkspaceExists: existsSync(ws.aioVrDir),
+      notes: notesWorkspaceInfo(),
       tools: toolAvailability(),
     });
   }
 
   if (head === 'branches') return handleBranches(request, rest);
+
+  if (head === 'notes') return handleNotes(request, url, rest);
+
+  if (head === 'investigations') return handleInvestigations(request, url, rest);
 
   // Screenshots are streamed from disk rather than copied into the database.
   if (head === 'image') {
@@ -291,6 +585,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
         tasks: listTasks({
           status: status as Status | undefined,
           tag: url.searchParams.get('tag') ?? undefined,
+          investigationRef: url.searchParams.get('investigation') ?? undefined,
         }),
       });
     }
@@ -302,6 +597,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
         priority?: string;
         tags?: unknown;
         branchName?: string;
+        investigationRef?: string;
       }>(request);
 
       if (!input.title) return fail('A task needs a title.');
@@ -317,6 +613,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
             priority: input.priority as never,
             tags: parseTags(input.tags),
             branchName: input.branchName,
+            investigationRef: input.investigationRef,
           }),
         },
         201,
@@ -324,6 +621,37 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
     }
 
     return fail('Method not allowed.', 405);
+  }
+
+  // /api/tasks/reorder — the whole list, or just the rows a filtered view shows.
+  if (rest[0] === 'reorder') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    const input = await body<{ refs?: unknown }>(request);
+    if (!Array.isArray(input.refs) || !input.refs.every((ref) => typeof ref === 'string')) {
+      return fail('refs must be an array of task references, in their new order.');
+    }
+
+    reorderTasks(input.refs as string[]);
+    return json({ tasks: listTasks() });
+  }
+
+  if (rest[0] === 'combine' && rest[1] === 'preview') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    const input = await body<{ refs?: unknown }>(request);
+    if (!Array.isArray(input.refs) || !input.refs.every((ref) => typeof ref === 'string')) return fail('refs must be an array of task references.');
+    const localBranches = git(['for-each-ref', '--format=%(refname:short)', 'refs/heads']).stdout.trim().split('\n').filter(Boolean);
+    return json({ tasks: [...new Set(input.refs as string[])].map((ref) => {
+      const task = getTaskDetail(ref);
+      const candidates = localBranches.filter((name) => name.toLowerCase().includes(`/${ref.toLowerCase()}-`));
+      return { task, exists: !!task.branchName && localBranches.includes(task.branchName), candidates };
+    }) });
+  }
+
+  if (rest[0] === 'combine' && rest[1] === 'continue') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    const input = await body<{ branchName?: unknown }>(request);
+    if (typeof input.branchName !== 'string') return fail('A branch name is required.');
+    return json(await continueCombine(input.branchName));
   }
 
   if (rest[0] === 'combine') {
@@ -356,17 +684,21 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
         description?: string;
         priority?: string;
         tags?: unknown;
+        investigationRef?: string | null;
+        branchName?: string;
       }>(request);
 
       if (input.priority && !isPriority(input.priority)) {
         return fail(`Unknown priority '${input.priority}'.`);
       }
 
+      if (input.branchName !== undefined) updateTaskBranchName(ref!, input.branchName);
       updateTask(ref!, {
         title: input.title,
         description: input.description,
         priority: input.priority as never,
         tags: parseTags(input.tags),
+        investigationRef: input.investigationRef,
       });
       return json({ task: getTaskDetail(ref!) });
     }
@@ -399,6 +731,20 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
 
     addNote(ref!, input.note);
     return json({ task: getTaskDetail(ref!) });
+  }
+
+  // /api/tasks/:ref/move — one task, relative to the list it is already in.
+  if (action === 'move') {
+    const input = await body<{ to?: string; ref?: string }>(request);
+    const to = input.to;
+    if (to === 'top' || to === 'bottom' || to === 'up' || to === 'down') {
+      return json({ tasks: moveTask(ref!, { to }) });
+    }
+    if (to === 'before' || to === 'after') {
+      if (!input.ref) return fail(`Moving '${to}' needs the ref to move ${to}.`);
+      return json({ tasks: moveTask(ref!, { to, ref: input.ref }) });
+    }
+    return fail("to must be one of: top, bottom, up, down, before, after.");
   }
 
   // /api/tasks/:ref/checkpoint/:phase

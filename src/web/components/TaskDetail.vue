@@ -11,7 +11,11 @@ import { api } from '../api';
 import ComparisonCard from './ComparisonCard.vue';
 
 const props = defineProps<{ task: TaskDetail; aioVrReady: boolean }>();
-const emit = defineEmits<{ changed: [TaskDetail]; deleted: [string] }>();
+const emit = defineEmits<{
+  changed: [TaskDetail];
+  deleted: [string];
+  openInvestigation: [string];
+}>();
 
 const busy = ref<string | null>(null);
 const error = ref<string | null>(null);
@@ -194,6 +198,15 @@ const eventText = (event: TaskDetail['events'][number]): string => {
         <span class="badge" :class="task.status">{{ STATUS_LABELS[task.status] }}</span>
         <span :class="`priority-${task.priority}`">{{ task.priority }}</span>
         <span v-for="tag in task.tags" :key="tag" class="faint">#{{ tag }}</span>
+        <button
+          v-if="task.investigationRef"
+          class="task-chip"
+          :title="`Open ${task.investigationRef}`"
+          @click="emit('openInvestigation', task.investigationRef!)"
+        >
+          <span class="faint">from</span>
+          <span class="mono">{{ task.investigationRef }}</span>
+        </button>
         <span class="spacer" />
         <button :disabled="!!busy" @click="beginEdit">Edit</button>
         <button class="danger" :disabled="!!busy" @click="remove">Delete</button>

@@ -6,21 +6,50 @@ import { CONFIG_FILENAME, DEFAULT_CONFIG } from '../config/config';
 import { aioVrAvailable, captureAfter, captureBefore, checkpointExists } from '../server/aiovr';
 import {
   addNote,
+  createInvestigation,
   createTask,
+  deleteInvestigation,
   deleteTask,
+  getInvestigationDetail,
   getTaskDetail,
+  isInvestigationStatus,
   isPriority,
   isStatus,
   latestRun,
+  listInvestigations,
   listTasks,
+  moveTask,
+  requireInvestigation,
   requireTask,
+  setInvestigationStatus,
   setStatus,
+  updateInvestigation,
   updateTask,
+  type MoveTarget,
 } from '../server/repo';
 import {
+  addAttachment,
+  commitNotes,
+  createNote,
+  deleteNote,
+  initNotes,
+  isNotesRepo,
+  listNotes,
+  notesDir,
+  notesDirExists,
+  notesGitInfo,
+  normalizeNotePath,
+  readNote,
+  syncNotes,
+  updateNote,
+} from '../server/notes';
+import {
+  INVESTIGATION_STATUS_LABELS,
+  INVESTIGATION_STATUSES,
   STATUS_LABELS,
   STATUSES,
   type Comparison,
+  type InvestigationStatus,
   type Priority,
   type Status,
   type Task,
@@ -130,6 +159,16 @@ function statusBadge(status: Status): string {
   return STATUS_COLOR[status](STATUS_LABELS[status]);
 }
 
+const INVESTIGATION_COLOR: Record<InvestigationStatus, (text: string) => string> = {
+  draft: dim,
+  investigating: cyan,
+  complete: green,
+};
+
+function investigationBadge(status: InvestigationStatus): string {
+  return INVESTIGATION_COLOR[status](INVESTIGATION_STATUS_LABELS[status]);
+}
+
 // Accepts a not-yet-persisted comparison too, so a fresh capture and one read
 // back from the database print through the same code.
 function comparisonLine(comparison: Omit<Comparison, 'id' | 'runId'>): string {
@@ -169,6 +208,7 @@ function commandList(args: Args): void {
   const tasks = listTasks({
     status: status as Status | undefined,
     tag: flagList(args, 'tag')?.[0],
+    investigationRef: flagString(args, 'investigation'),
   });
 
   if (flagBool(args, 'json')) {
@@ -181,14 +221,55 @@ function commandList(args: Args): void {
     return;
   }
 
+  printTaskLines(tasks);
+  print(dim(`  ${tasks.length} task(s), in list order — the top one is next up`));
   print();
-  for (const task of tasks) {
+}
+
+/** The shared list rendering. The leading number is the row's place in the
+ *  manual order, which is what `tasks move` and the web UI rearrange. */
+function printTaskLines(tasks: Task[]): void {
+  print();
+  tasks.forEach((task, index) => {
     const tags = task.tags.length ? dim(`  [${task.tags.join(', ')}]`) : '';
     const priority = task.priority === 'high' ? red('!') : task.priority === 'low' ? dim('.') : ' ';
-    print(`  ${bold(task.ref.padEnd(6))} ${priority} ${statusBadge(task.status).padEnd(22)} ${task.title}${tags}`);
-  }
+    const place = dim(String(index + 1).padStart(3));
+    print(`${place}  ${bold(task.ref.padEnd(6))} ${priority} ${statusBadge(task.status).padEnd(22)} ${task.title}${tags}`);
+  });
   print();
-  print(dim(`  ${tasks.length} task(s)`));
+}
+
+const MOVE_USAGE =
+  'Usage: tasks move <ref> [--top | --bottom | --up | --down | --before <ref> | --after <ref>]';
+
+function commandMove(args: Args): void {
+  const ref = args.positional[1];
+  if (!ref) throw new Error(MOVE_USAGE);
+
+  const before = flagString(args, 'before');
+  const after = flagString(args, 'after');
+  const relative: MoveTarget[] = [];
+  if (before) relative.push({ to: 'before', ref: before });
+  if (after) relative.push({ to: 'after', ref: after });
+  for (const to of ['top', 'bottom', 'up', 'down'] as const) {
+    if (flagBool(args, to)) relative.push({ to });
+  }
+
+  if (relative.length !== 1) {
+    throw new Error(
+      relative.length ? `Pick exactly one destination. ${MOVE_USAGE}` : MOVE_USAGE,
+    );
+  }
+
+  const tasks = moveTask(ref, relative[0]!);
+
+  if (flagBool(args, 'json')) {
+    emitJson({ tasks });
+    return;
+  }
+
+  printTaskLines(tasks);
+  print(dim(`  moved ${requireTask(ref).ref}`));
   print();
 }
 
@@ -247,6 +328,7 @@ function commandNew(args: Args): void {
     priority: priority as Priority | undefined,
     tags: flagList(args, 'tag'),
     branchName: flagString(args, 'branch'),
+    investigationRef: flagString(args, 'investigation'),
   });
 
   if (flagBool(args, 'json')) {
@@ -255,6 +337,7 @@ function commandNew(args: Args): void {
   }
 
   print(`${green('created')}  ${bold(task.ref)}  ${task.title}`);
+  if (task.investigationRef) print(dim(`from investigation ${task.investigationRef}`));
   print(dim(`branch: '${task.branchName}'`));
   print(dim(`checkpoint name will be '${task.checkpointName}'`));
 }
@@ -276,11 +359,14 @@ function commandEdit(args: Args): void {
     setStatus(ref, status);
   }
 
+  // `--no-investigation` parses to false, which is how a link gets removed.
+  const investigation = args.flags.investigation;
   const task = updateTask(ref, {
     title: flagString(args, 'title'),
     description: flagString(args, 'desc') ?? flagString(args, 'description'),
     priority: priority as Priority | undefined,
     tags: flagList(args, 'tag'),
+    investigationRef: investigation === false ? null : flagString(args, 'investigation'),
   });
 
   if (flagBool(args, 'json')) {
@@ -311,6 +397,476 @@ function commandRemove(args: Args): void {
   deleteTask(task.ref);
   print(`${green('deleted')}  ${bold(task.ref)}  ${task.title}`);
   print(dim(`The '${task.checkpointName}' checkpoint on disk was left alone.`));
+}
+
+/* -------------------------------------------------------- investigations */
+
+const INVESTIGATION_USAGE =
+  'Usage: tasks investigation <list|show|new|edit|start|complete|rm> [...]';
+
+/** Read a body of text from a flag, or from stdin when the flag is `-`. An
+ *  agent's findings are long and multi-line; piping them in beats quoting. */
+async function textFlag(args: Args, name: string): Promise<string | undefined> {
+  const value = flagString(args, name);
+  if (value === undefined) return undefined;
+  if (value !== '-') return value;
+  return await Bun.stdin.text();
+}
+
+function investigationList(args: Args): void {
+  const status = flagString(args, 'status');
+  if (status && !isInvestigationStatus(status)) {
+    throw new Error(
+      `Unknown status '${status}'. Expected one of: ${INVESTIGATION_STATUSES.join(', ')}.`,
+    );
+  }
+
+  const investigations = listInvestigations({ status: status as InvestigationStatus | undefined });
+
+  if (flagBool(args, 'json')) {
+    emitJson({ investigations });
+    return;
+  }
+
+  if (!investigations.length) {
+    print(dim('No investigations yet. Write one with `tasks investigation new "<title>"`.'));
+    return;
+  }
+
+  print();
+  for (const investigation of investigations) {
+    const taskCount = listTasks({
+      investigationRef: investigation.ref,
+      includeClosed: true,
+    }).length;
+    const tasks = taskCount ? dim(`  ${taskCount} task(s)`) : '';
+    print(
+      `  ${bold(investigation.ref.padEnd(6))} ${investigationBadge(investigation.status).padEnd(22)} ${investigation.title}${tasks}`,
+    );
+  }
+  print();
+  print(dim(`  ${investigations.length} investigation(s)`));
+  print();
+}
+
+function investigationShow(args: Args): void {
+  const ref = args.positional[2];
+  if (!ref) throw new Error('Usage: tasks investigation show <ref>');
+
+  const detail = getInvestigationDetail(ref);
+
+  if (flagBool(args, 'json')) {
+    emitJson({ investigation: detail });
+    return;
+  }
+
+  print();
+  print(`  ${bold(detail.ref)}  ${detail.title}`);
+  print(`  ${investigationBadge(detail.status)}`);
+
+  if (detail.brief) {
+    print();
+    print(`  ${dim('brief')}`);
+    for (const line of detail.brief.split('\n')) print(`  ${line}`);
+  }
+
+  if (detail.findings) {
+    print();
+    print(`  ${dim('findings')}`);
+    for (const line of detail.findings.split('\n')) print(`  ${line}`);
+  }
+
+  print();
+  if (detail.tasks.length) {
+    print(`  ${dim('tasks filed')}`);
+    for (const task of detail.tasks) {
+      print(`    ${bold(task.ref.padEnd(6))} ${statusBadge(task.status).padEnd(22)} ${task.title}`);
+    }
+  } else {
+    print(dim('  No tasks filed from this investigation yet.'));
+  }
+  print();
+}
+
+async function investigationNew(args: Args): Promise<void> {
+  const title = args.positional.slice(2).join(' ');
+  if (!title) throw new Error('Usage: tasks investigation new "<title>" [--brief <text>]');
+
+  const investigation = createInvestigation({
+    title,
+    brief: await textFlag(args, 'brief'),
+  });
+
+  if (flagBool(args, 'json')) {
+    emitJson({ investigation: getInvestigationDetail(investigation.ref) });
+    return;
+  }
+
+  print(`${green('created')}  ${bold(investigation.ref)}  ${investigation.title}`);
+  print(dim(`Write the brief in \`tasks web\`, then run: /plan-tasks ${investigation.ref}`));
+}
+
+async function investigationEdit(args: Args): Promise<void> {
+  const ref = args.positional[2];
+  if (!ref) {
+    throw new Error('Usage: tasks investigation edit <ref> [--title <t>] [--brief <text>] [--findings <text>]');
+  }
+
+  const status = flagString(args, 'status');
+  if (status) {
+    if (!isInvestigationStatus(status)) {
+      throw new Error(
+        `Unknown status '${status}'. Expected one of: ${INVESTIGATION_STATUSES.join(', ')}.`,
+      );
+    }
+    setInvestigationStatus(ref, status);
+  }
+
+  const investigation = updateInvestigation(ref, {
+    title: flagString(args, 'title'),
+    brief: await textFlag(args, 'brief'),
+    findings: await textFlag(args, 'findings'),
+  });
+
+  if (flagBool(args, 'json')) {
+    emitJson({ investigation: getInvestigationDetail(investigation.ref) });
+    return;
+  }
+  print(`${green('updated')}  ${bold(investigation.ref)}  ${investigation.title}  ${investigationBadge(investigation.status)}`);
+}
+
+/** start / complete. `complete` is what an agent calls once it has filed the
+ *  tasks; `--findings` is the write-up that stops the next reader repeating it. */
+async function investigationTransition(args: Args, status: InvestigationStatus): Promise<void> {
+  const ref = args.positional[2];
+  if (!ref) throw new Error(`Usage: tasks investigation ${args.positional[1]} <ref>`);
+
+  const findings = await textFlag(args, 'findings');
+  if (findings !== undefined) updateInvestigation(ref, { findings });
+  const investigation = setInvestigationStatus(ref, status);
+
+  if (flagBool(args, 'json')) {
+    emitJson({ investigation: getInvestigationDetail(investigation.ref) });
+    return;
+  }
+
+  const detail = getInvestigationDetail(investigation.ref);
+  print(`${green(INVESTIGATION_STATUS_LABELS[status].toLowerCase())}  ${bold(detail.ref)}  ${detail.title}`);
+  if (status === 'complete') print(dim(`${detail.tasks.length} task(s) filed from it`));
+}
+
+function investigationRemove(args: Args): void {
+  const ref = args.positional[2];
+  if (!ref) throw new Error('Usage: tasks investigation rm <ref>');
+
+  const investigation = requireInvestigation(ref);
+  const filed = getInvestigationDetail(investigation.ref).tasks.length;
+  deleteInvestigation(investigation.ref);
+  print(`${green('deleted')}  ${bold(investigation.ref)}  ${investigation.title}`);
+  if (filed) print(dim(`${filed} task(s) it filed were kept, no longer linked to it.`));
+}
+
+async function commandInvestigation(args: Args): Promise<void> {
+  switch (args.positional[1]) {
+    case 'list':
+    case 'ls':
+    case undefined:
+      return investigationList(args);
+    case 'show':
+    case 'get':
+      return investigationShow(args);
+    case 'new':
+    case 'add':
+    case 'create':
+      return investigationNew(args);
+    case 'edit':
+    case 'update':
+      return investigationEdit(args);
+    case 'start':
+      return investigationTransition(args, 'investigating');
+    case 'complete':
+    case 'done':
+      return investigationTransition(args, 'complete');
+    case 'rm':
+    case 'delete':
+      return investigationRemove(args);
+    default:
+      throw new Error(`Unknown investigation subcommand '${args.positional[1]}'. ${INVESTIGATION_USAGE}`);
+  }
+}
+
+/* ---------------------------------------------------------------- notes */
+
+const NOTES_USAGE =
+  'Usage: tasks notes <list|show|new|edit|open|attach|rm|sync|status|init> [...]';
+
+function notesList(args: Args): void {
+  const notes = listNotes({
+    tag: flagList(args, 'tag')?.[0],
+    folder: flagString(args, 'folder'),
+    search: flagString(args, 'search') ?? args.positional[2],
+  });
+
+  if (flagBool(args, 'json')) {
+    emitJson({ notes, notesDir: notesDir() });
+    return;
+  }
+
+  if (!notesDirExists()) {
+    print(dim(`No notes folder at ${notesDir()}. Create it with \`tasks notes init\`.`));
+    return;
+  }
+
+  if (!notes.length) {
+    print(dim('No notes yet. Write one with `tasks notes new "<title>"`.'));
+    return;
+  }
+
+  print();
+  for (const note of notes) {
+    const tags = note.tags.length ? dim(`  [${note.tags.join(', ')}]`) : '';
+    print(`  ${bold(note.title)}${tags}`);
+    print(`  ${dim(note.path.padEnd(40))} ${dim(note.updatedAt.slice(0, 16).replace('T', ' '))}`);
+    if (note.excerpt) print(`    ${dim(note.excerpt.slice(0, 100))}`);
+    print();
+  }
+  print(dim(`  ${notes.length} note(s) in ${notesDir()}`));
+  print();
+}
+
+function notesShow(args: Args): void {
+  const path = args.positional[2];
+  if (!path) throw new Error('Usage: tasks notes show <path> [--raw]');
+
+  const note = readNote(path);
+
+  if (flagBool(args, 'json')) {
+    emitJson({ note });
+    return;
+  }
+
+  // `--raw` prints the body alone, so it pipes into anything without the
+  // decoration a human reading at a terminal wants.
+  if (flagBool(args, 'raw')) {
+    print(note.body);
+    return;
+  }
+
+  print();
+  print(`  ${bold(note.title)}`);
+  print(`  ${dim(note.path)}   ${dim(`updated ${note.updatedAt.slice(0, 16).replace('T', ' ')}`)}`);
+  if (note.tags.length) print(`  ${dim(`tags: ${note.tags.join(', ')}`)}`);
+  print();
+  for (const line of note.body.split('\n')) print(`  ${line}`);
+  if (note.attachments.length) {
+    print();
+    print(`  ${dim('attachments')}`);
+    for (const attachment of note.attachments) {
+      print(`    ${attachment.name}  ${dim(`${Math.ceil(attachment.size / 1024)} KB`)}`);
+    }
+  }
+  print();
+}
+
+async function notesNew(args: Args): Promise<void> {
+  const title = args.positional.slice(2).join(' ');
+  if (!title) throw new Error('Usage: tasks notes new "<title>" [--folder <f>] [--body <text>|-] [--tag <t>]');
+
+  const note = createNote({
+    title,
+    folder: flagString(args, 'folder'),
+    path: flagString(args, 'path'),
+    body: await textFlag(args, 'body'),
+    tags: flagList(args, 'tag'),
+  });
+
+  if (flagBool(args, 'json')) {
+    emitJson({ note });
+    return;
+  }
+  print(`${green('created')}  ${bold(note.path)}  ${note.title}`);
+  print(dim(`Edit it with: tasks notes open ${note.path}`));
+}
+
+async function notesEdit(args: Args): Promise<void> {
+  const path = args.positional[2];
+  if (!path) {
+    throw new Error('Usage: tasks notes edit <path> [--title <t>] [--body <text>|-] [--append <text>|-] [--tag <t>] [--rename <path>]');
+  }
+
+  const append = await textFlag(args, 'append');
+  const body = await textFlag(args, 'body');
+  if (append !== undefined && body !== undefined) {
+    throw new Error('Use --body to replace the note or --append to add to it, not both.');
+  }
+
+  const current = readNote(path);
+  const note = updateNote(path, {
+    title: flagString(args, 'title'),
+    body:
+      append === undefined
+        ? body
+        : `${current.body.replace(/\s+$/, '')}${current.body.trim() ? '\n\n' : ''}${append.trim()}`,
+    tags: flagList(args, 'tag'),
+    path: flagString(args, 'rename'),
+  });
+
+  if (flagBool(args, 'json')) {
+    emitJson({ note });
+    return;
+  }
+  print(`${green('updated')}  ${bold(note.path)}  ${note.title}`);
+}
+
+/**
+ * Hand the file to $EDITOR and commit whatever comes back.
+ *
+ * Editing the file directly rather than round-tripping the body through this
+ * process is the point: the frontmatter is part of the note, `vim` on the real
+ * path gets swap files and undo history in the right place, and nothing is lost
+ * if the editor is killed.
+ */
+async function notesOpen(args: Args): Promise<void> {
+  const path = args.positional[2];
+  if (!path) throw new Error('Usage: tasks notes open <path>');
+
+  const note = readNote(path);
+  const editor = flagString(args, 'editor') ?? process.env.VISUAL ?? process.env.EDITOR;
+  if (!editor) throw new Error('No editor set. Export $EDITOR, or pass --editor <command>.');
+
+  const absolute = join(notesDir(), note.path);
+  const child = Bun.spawn([...editor.split(' ').filter(Boolean), absolute], {
+    stdin: 'inherit',
+    stdout: 'inherit',
+    stderr: 'inherit',
+  });
+  if ((await child.exited) !== 0) throw new Error(`${editor} exited with a non-zero status; nothing was committed.`);
+
+  const committed = commitNotes(`notes: edit ${note.path}`);
+  print(`${green('saved')}  ${bold(note.path)}${committed ? dim(`  committed ${committed}`) : ''}`);
+}
+
+function notesAttach(args: Args): void {
+  const path = args.positional[2];
+  const files = args.positional.slice(3);
+  if (!path || !files.length) throw new Error('Usage: tasks notes attach <path> <file>... [--no-link]');
+
+  const note = readNote(path);
+  const snippets: string[] = [];
+  for (const file of files) {
+    if (!existsSync(file)) throw new Error(`No such file: ${file}`);
+    const { attachment, markdown } = addAttachment(note.path, file, readFileSync(file));
+    snippets.push(markdown);
+    print(`${green('attached')}  ${attachment.name}  ${dim(attachment.path)}`);
+  }
+
+  // Linking it into the body is what makes the attachment visible; --no-link
+  // stores the file without touching the prose.
+  if (flagBool(args, 'link', true)) {
+    const updated = readNote(note.path);
+    updateNote(note.path, {
+      body: `${updated.body.replace(/\s+$/, '')}${updated.body.trim() ? '\n\n' : ''}${snippets.join('\n')}`,
+    });
+    print(dim(`linked into ${note.path}`));
+  }
+}
+
+function notesRemove(args: Args): void {
+  const path = args.positional[2];
+  if (!path) throw new Error('Usage: tasks notes rm <path> [--keep-attachments]');
+
+  const note = readNote(path);
+  deleteNote(note.path, { keepAttachments: flagBool(args, 'keep-attachments') });
+  print(`${green('deleted')}  ${bold(note.path)}  ${note.title}`);
+}
+
+function notesSync(args: Args): void {
+  const result = syncNotes({ push: flagBool(args, 'push'), message: flagString(args, 'message') });
+
+  if (flagBool(args, 'json')) {
+    emitJson(result);
+    return;
+  }
+
+  print(result.committed ? `${green('committed')}  ${result.committed}` : dim('Nothing to commit.'));
+  if (result.pushed) print(`${green('pushed')}  ${result.git.upstream ?? ''}`);
+}
+
+function notesStatus(args: Args): void {
+  const git = notesGitInfo();
+
+  if (flagBool(args, 'json')) {
+    emitJson({ dir: notesDir(), exists: notesDirExists(), git, notes: listNotes().length });
+    return;
+  }
+
+  print();
+  print(`  ${dim('folder ')}  ${notesDir()}${notesDirExists() ? '' : red('  (missing)')}`);
+  print(`  ${dim('notes  ')}  ${listNotes().length}`);
+  if (!git.repo) {
+    print(`  ${dim('git    ')}  ${yellow('not a Git repository')} — run \`tasks notes init\``);
+  } else {
+    print(`  ${dim('git    ')}  ${git.branch ?? '(detached)'}  ${git.dirty ? yellow(`${git.dirty} uncommitted`) : green('clean')}`);
+    if (git.lastCommit) print(`  ${dim('last   ')}  ${git.lastCommit.shortSha}  ${git.lastCommit.subject}`);
+    if (git.upstream) print(`  ${dim('remote ')}  ${git.upstream}${git.unpushed ? yellow(`  ${git.unpushed} unpushed`) : ''}`);
+  }
+  print();
+}
+
+function notesInit(args: Args): void {
+  const result = initNotes();
+
+  if (flagBool(args, 'json')) {
+    emitJson(result);
+    return;
+  }
+
+  print();
+  print(`  ${result.created ? green('created') : dim('exists ')}  ${result.dir}`);
+  print(`  ${result.repoCreated ? green('git init') : dim('git     ')}  ${isNotesRepo() ? 'repository ready' : 'not a repository'}`);
+  if (result.excluded === 'added') print(`  ${green('ignored')}  added to the host repo's .git/info/exclude`);
+  print();
+  print(dim('  Write the first note with: tasks notes new "<title>"'));
+  print();
+}
+
+async function commandNotes(args: Args): Promise<void> {
+  switch (args.positional[1]) {
+    case 'list':
+    case 'ls':
+    case undefined:
+      return notesList(args);
+    case 'show':
+    case 'cat':
+    case 'get':
+      return notesShow(args);
+    case 'new':
+    case 'add':
+    case 'create':
+      return notesNew(args);
+    case 'edit':
+    case 'update':
+      return notesEdit(args);
+    case 'open':
+      return notesOpen(args);
+    case 'attach':
+      return notesAttach(args);
+    case 'rm':
+    case 'delete':
+      return notesRemove(args);
+    case 'sync':
+      return notesSync(args);
+    case 'status':
+      return notesStatus(args);
+    case 'init':
+      return notesInit(args);
+    default:
+      // A bare path is the common case: `tasks notes ideas/gantt.md` shows it.
+      if (args.positional[1]?.includes('/') || args.positional[1]?.endsWith('.md')) {
+        return notesShow({ ...args, positional: ['notes', 'show', normalizeNotePath(args.positional[1]!)] });
+      }
+      throw new Error(`Unknown notes subcommand '${args.positional[1]}'. ${NOTES_USAGE}`);
+  }
 }
 
 /** The repository `init` should scaffold, preferring the Git root over $PWD so
@@ -608,13 +1164,33 @@ ${bold('tasks')} — development task tracker with visual before/after evidence
 ${bold('Setup')}
   tasks init [--dir <path>] [--track]   scaffold .tasks/ in this repository
 
+${bold('Investigations')}   what to look into, before anyone looks
+  tasks investigation list [--status draft|investigating|complete] [--json]
+  tasks investigation show <ref> [--json]     the brief, the findings, the tasks filed
+  tasks investigation new "<title>" [--brief <text>]
+  tasks investigation edit <ref> [--title <t>] [--brief <text>] [--findings <text>]
+  tasks investigation start <ref>             mark it as being worked on
+  tasks investigation complete <ref> [--findings <text>]
+  tasks investigation rm <ref>                the tasks it filed are kept
+    --brief -  /  --findings -                read the text from stdin instead
+
+  Run one with the ${bold('/plan-tasks')} slash command; it files tasks against the ref.
+
 ${bold('Tasks')}
-  tasks list [--status <s>] [--tag <t>] [--json]
+  tasks list [--status <s>] [--tag <t>] [--investigation <ref>] [--json]
   tasks show <ref> [--json]
   tasks new "<title>" [--branch <name>] [--desc <text>] [--priority low|medium|high] [--tag <t>]
+                      [--investigation <ref>]
   tasks edit <ref> [--title <t>] [--desc <t>] [--priority <p>] [--status <s>] [--tag <t>]
+                   [--investigation <ref> | --no-investigation]
   tasks note <ref> <text>
   tasks rm <ref>
+
+${bold('List order')}   the list is the queue; ${bold('/work-task')} takes the task at the top
+  tasks move <ref> --top | --bottom | --up | --down
+  tasks move <ref> --before <ref> | --after <ref>
+    New tasks are appended, so filing one never jumps the queue.
+    Drag the rows in ${bold('tasks web')} to do the same thing by hand.
 
 ${bold('Workflow')}   backlog → in_progress → dev_complete → verified
   tasks branch <ref>             create/switch to the task's assigned branch
@@ -633,6 +1209,19 @@ ${bold('Visual checkpoints')} (wraps aio-vr)
     --min-percent <n>            'after': treat diffs at or below n% as unchanged
     --allow-missing              'after': warn instead of failing on scenario drift
 
+${bold('Notes')}   Markdown files in their own Git repository, not the database
+  tasks notes list [--tag <t>] [--folder <f>] [--search <q>] [--json]
+  tasks notes show <path> [--raw] [--json]
+  tasks notes new "<title>" [--folder <f>] [--body <text>|-] [--tag <t>]
+  tasks notes edit <path> [--title <t>] [--body <text>|-] [--append <text>|-] [--rename <path>]
+  tasks notes open <path>        edit the file itself in $EDITOR, then commit it
+  tasks notes attach <path> <file>...   copy files in and link them [--no-link]
+  tasks notes rm <path>          [--keep-attachments]
+  tasks notes sync [--push]      commit anything outstanding
+  tasks notes status             where the notes are, and their Git state
+  tasks notes init               create the folder and \`git init\` it
+    --body -  /  --append -      read the text from stdin instead
+
 ${bold('Web UI')}
   tasks web [--port <n>]         serve the UI (port from the repo's config)
   tasks web --dev                hot-reloading dev server (needs a checkout)
@@ -644,6 +1233,7 @@ ${dim(`package:   ${packageRoot}`)}
 ${dim(`workspace: ${ws?.tasksDir ?? '(none found — run `tasks init`)'}`)}
 ${dim(`config:    ${ws ? join(ws.tasksDir, CONFIG_FILENAME) : '(none)'}`)}
 ${dim(`database:  ${ws?.dbPath ?? '(none)'}`)}
+${dim(`notes:     ${ws ? `${notesDir()}${notesDirExists() ? '' : ' (not created)'}` : '(none)'}`)}
 ${dim(`aio-vr:    ${ws && aioVrAvailable() ? 'installed' : 'NOT on PATH'}`)}
 `);
 }
@@ -672,6 +1262,16 @@ async function main(): Promise<void> {
       return commandEdit(args);
     case 'note':
       return commandNote(args);
+    case 'move':
+    case 'mv':
+      return commandMove(args);
+    case 'investigation':
+    case 'investigations':
+    case 'inv':
+      return commandInvestigation(args);
+    case 'notes':
+    case 'note-file':
+      return commandNotes(args);
     case 'rm':
     case 'delete':
       return commandRemove(args);

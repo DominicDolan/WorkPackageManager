@@ -24,6 +24,20 @@ export interface TasksConfig {
   aioVrDir: string;
   /** The aio-vr executable to drive. */
   aioVrBin: string;
+  /**
+   * Where notes live, resolved relative to `.tasks/`. Markdown files and their
+   * attachments, and normally a Git repository in its own right — which is why
+   * the default sits beside the workspace rather than inside it, and why a
+   * sibling of the repo (`../../SomethingNotes`) is a perfectly ordinary value.
+   */
+  notesDir: string;
+  /**
+   * Commit each notes change as it is made, when the notes folder is a Git
+   * repository. The point of keeping notes on disk is that their history is
+   * Git's; leaving every edit uncommitted would defeat it. Set false to commit
+   * by hand with `tasks notes sync`.
+   */
+  notesAutoCommit: boolean;
   /** Port the API/web server listens on. */
   apiPort: number;
   /** Port `tasks web --dev` serves the Vite dev server on. */
@@ -45,6 +59,8 @@ export const DEFAULT_CONFIG: TasksConfig = {
   baseBranch: null,
   aioVrDir: '../.aio-vr',
   aioVrBin: 'aio-vr',
+  notesDir: '../.notes',
+  notesAutoCommit: true,
   apiPort: 5199,
   webPort: 5200,
   prAgent: ['pi', '--no-session', '-p', '--no-tools'],
@@ -60,7 +76,7 @@ function fail(message: string): never {
 function merge(raw: Record<string, unknown>): TasksConfig {
   const config = { ...DEFAULT_CONFIG };
 
-  for (const key of ['branchPrefix', 'checkpointPrefix', 'aioVrDir', 'aioVrBin'] as const) {
+  for (const key of ['branchPrefix', 'checkpointPrefix', 'aioVrDir', 'aioVrBin', 'notesDir'] as const) {
     const value = raw[key];
     if (value === undefined || value === null) continue;
     if (typeof value !== 'string' || !value.trim()) fail(`'${key}' must be a non-empty string.`);
@@ -94,6 +110,11 @@ function merge(raw: Record<string, unknown>): TasksConfig {
     } else {
       fail("'prAgent' must be a command string, an array of non-empty strings, or null.");
     }
+  }
+
+  if (raw.notesAutoCommit !== undefined && raw.notesAutoCommit !== null) {
+    if (typeof raw.notesAutoCommit !== 'boolean') fail("'notesAutoCommit' must be true or false.");
+    config.notesAutoCommit = raw.notesAutoCommit;
   }
 
   for (const key of ['apiPort', 'webPort'] as const) {

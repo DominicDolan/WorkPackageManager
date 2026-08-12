@@ -25,6 +25,10 @@ export interface Workspace {
   dbPath: string;
   /** The aio-vr workspace, whether or not it exists yet. */
   aioVrDir: string;
+  /** The notes folder, whether or not it exists yet. Unlike the others this one
+   *  is routinely *outside* the repo — a sibling directory with its own Git
+   *  history — so nothing may assume it sits under `repoRoot`. */
+  notesDir: string;
   /** Built SPA assets, shipped with the package. */
   distDir: string;
   /** This repository's resolved settings. */
@@ -76,6 +80,9 @@ export function workspace(startDir = process.cwd()): Workspace {
     aioVrDir: process.env.AIO_VR_DIR
       ? resolve(process.env.AIO_VR_DIR)
       : resolve(tasksDir, config.aioVrDir),
+    notesDir: process.env.TASKS_NOTES_DIR
+      ? resolve(process.env.TASKS_NOTES_DIR)
+      : resolve(tasksDir, config.notesDir),
     distDir: join(packageRoot, 'dist', 'web'),
     config,
   };

@@ -1,0 +1,754 @@
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
+import { workspace } from '../config/paths';
+import type {
+  Note,
+  NoteAttachment,
+  NoteSummary,
+  NotesGitInfo,
+  NotesWorkspaceInfo,
+} from '../shared/types';
+
+/**
+ * Notes, backed by the file system rather than the database.
+ *
+ * Everything else this tool tracks is workflow state and belongs in SQLite.
+ * Notes are prose, and prose wants to be a file: greppable, editable in any
+ * editor, diffable, and above all versioned by Git rather than by a table nobody
+ * can read without the app. So the folder *is* the store — this module only
+ * knows how to read and write it, and the on-disk layout is the schema:
+ *
+ * ```text
+ * <notesDir>/                  its own Git repository
+ *   ideas/gantt-is-slow.md     a note: YAML-ish frontmatter, then Markdown
+ *   attachments/
+ *     ideas/gantt-is-slow/     one folder per note
+ *       screenshot.png
+ * ```
+ *
+ * A note's identity is its path. There is no id and nothing mirrored in the
+ * database, because a note renamed or rewritten by another editor — or pulled in
+ * from a clone on another machine — has to keep working, and anything cached
+ * here would be a second source of truth waiting to disagree.
+ */
+
+/** Resolved lazily, never at import: `tasks help` and `tasks init` load this
+ *  module from outside a workspace, where resolving one throws. */
+const ws = () => workspace();
+
+/** Where attachments live, relative to the notes root. */
+const ATTACHMENTS = 'attachments';
+
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.bmp']);
+
+/* ------------------------------------------------------------------ paths */
+
+export function notesDir(): string {
+  return ws().notesDir;
+}
+
+export function notesDirExists(): boolean {
+  return existsSync(ws().notesDir) && statSync(ws().notesDir).isDirectory();
+}
+
+/** Create the folder, and make it a Git repository unless it already is one or
+ *  is inside somebody else's. Idempotent — safe to call before every write. */
+export function ensureNotesDir(): void {
+  if (!existsSync(ws().notesDir)) mkdirSync(ws().notesDir, { recursive: true });
+}
+
+function requireNotesDir(): string {
+  if (!notesDirExists()) {
+    throw new Error(
+      `The notes folder ${ws().notesDir} does not exist. Create it with \`tasks notes init\`, ` +
+        "or point 'notesDir' in tasks.config.json at an existing one.",
+    );
+  }
+  return ws().notesDir;
+}
+
+/**
+ * Turn user input into a safe notes-root-relative path.
+ *
+ * The web UI sends these straight off a text field and the CLI off the command
+ * line, so this is the boundary that stops `../../.ssh/id_rsa` from being a note
+ * — every path that reaches the file system goes through here or through
+ * `resolveInNotes`, and nothing else builds one by concatenation.
+ */
+export function normalizeNotePath(input: string, { extension = true } = {}): string {
+  const cleaned = String(input).trim().replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!cleaned) throw new Error('A note path is required.');
+  if (cleaned.includes('\0')) throw new Error('A note path may not contain null bytes.');
+
+  const parts = cleaned.split('/').filter(Boolean);
+  if (!parts.length) throw new Error('A note path is required.');
+  for (const part of parts) {
+    if (part === '.' || part === '..') throw new Error(`Invalid note path '${input}'.`);
+    if (part.startsWith('.')) throw new Error('Note path segments may not start with a dot.');
+  }
+  if (parts[0] === ATTACHMENTS) throw new Error(`'${ATTACHMENTS}/' is reserved for attachments.`);
+
+  const path = parts.join('/');
+  if (!extension) return path;
+  return path.toLowerCase().endsWith('.md') ? path : `${path}.md`;
+}
+
+/**
+ * Resolve a notes-root-relative path to disk, refusing anything that escapes the
+ * folder. The same guard `resolveArtifact` gives the aio-vr workspace, and for
+ * the same reason: attachments are streamed straight off disk by path.
+ */
+export function resolveInNotes(relativePath: string): string | null {
+  if (!relativePath || relativePath.includes('\0')) return null;
+  const root = ws().notesDir;
+  const absolute = resolve(root, relativePath.replace(/\\/g, '/'));
+  const prefix = root.endsWith(sep) ? root : root + sep;
+  if (absolute !== root && !absolute.startsWith(prefix)) return null;
+  return absolute;
+}
+
+/** As above, but only when the file is really there. */
+export function resolveNoteAsset(relativePath: string): string | null {
+  const absolute = resolveInNotes(relativePath);
+  if (!absolute || !existsSync(absolute) || !statSync(absolute).isFile()) return null;
+  return absolute;
+}
+
+/** A filename-safe slug, used when a note is created from a title alone. */
+export function slugify(title: string): string {
+  return (
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'note'
+  );
+}
+
+/* ----------------------------------------------------------- frontmatter */
+
+interface Frontmatter {
+  title?: string;
+  tags?: string[];
+  created?: string;
+  updated?: string;
+}
+
+/**
+ * Split `---` frontmatter off the top of a file.
+ *
+ * Deliberately not a YAML parser: the four keys written here are flat strings
+ * and one list, and pulling in a YAML dependency to read them would be the
+ * heaviest thing in the package. Anything it does not understand is left alone
+ * rather than dropped — a note edited in Obsidian keeps whatever else it put up
+ * there, because unknown lines are preserved on write.
+ */
+function splitFrontmatter(raw: string): { fields: Map<string, string>; body: string } {
+  const fields = new Map<string, string>();
+  const normalized = raw.replace(/^\uFEFF/, '');
+  if (!normalized.startsWith('---')) return { fields, body: normalized.replace(/^\n+/, '') };
+
+  const lines = normalized.split('\n');
+  let end = -1;
+  for (let index = 1; index < lines.length; index += 1) {
+    if (lines[index]!.trim() === '---') {
+      end = index;
+      break;
+    }
+  }
+  if (end === -1) return { fields, body: normalized };
+
+  for (const line of lines.slice(1, end)) {
+    const separator = line.indexOf(':');
+    if (separator === -1) continue;
+    const key = line.slice(0, separator).trim();
+    if (key) fields.set(key, line.slice(separator + 1).trim());
+  }
+
+  return { fields, body: lines.slice(end + 1).join('\n').replace(/^\n+/, '') };
+}
+
+function unquote(value: string): string {
+  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+    return value.slice(1, -1).replace(/\\(["\\])/g, '$1');
+  }
+  if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) return value.slice(1, -1);
+  return value;
+}
+
+function quote(value: string): string {
+  return `"${value.replace(/([\\"])/g, '\\$1')}"`;
+}
+
+function parseTags(value: string | undefined): string[] {
+  if (!value) return [];
+  const inner = value.startsWith('[') && value.endsWith(']') ? value.slice(1, -1) : value;
+  return inner
+    .split(',')
+    .map((tag) => unquote(tag.trim()).replace(/^#/, '').trim())
+    .filter(Boolean);
+}
+
+function readFrontmatter(fields: Map<string, string>): Frontmatter {
+  return {
+    title: fields.has('title') ? unquote(fields.get('title')!) : undefined,
+    tags: fields.has('tags') ? parseTags(fields.get('tags')!) : undefined,
+    created: fields.has('created') ? unquote(fields.get('created')!) : undefined,
+    updated: fields.has('updated') ? unquote(fields.get('updated')!) : undefined,
+  };
+}
+
+/** Rebuild the file: our four keys first, then any others the file already had. */
+function serialize(
+  meta: { title: string; tags: string[]; createdAt: string; updatedAt: string },
+  body: string,
+  existing = new Map<string, string>(),
+): string {
+  const lines = [
+    `title: ${quote(meta.title)}`,
+    `tags: [${meta.tags.map((tag) => quote(tag)).join(', ')}]`,
+    `created: ${meta.createdAt}`,
+    `updated: ${meta.updatedAt}`,
+  ];
+
+  for (const [key, value] of existing) {
+    if (!['title', 'tags', 'created', 'updated'].includes(key)) lines.push(`${key}: ${value}`);
+  }
+
+  const trimmed = body.replace(/^\n+/, '').replace(/\s+$/, '');
+  return `---\n${lines.join('\n')}\n---\n\n${trimmed}\n`;
+}
+
+/** The first prose line or two, with Markdown syntax knocked off the front. */
+function excerptOf(body: string): string {
+  const text = body
+    .split('\n')
+    .filter((line) => !/^\s*(#{1,6}\s|```|---\s*$|\|)/.test(line))
+    .join(' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.length > 180 ? `${text.slice(0, 177)}…` : text;
+}
+
+/* -------------------------------------------------------------- reading */
+
+function isoOf(value: Date): string {
+  return value.toISOString();
+}
+
+function summarize(path: string, raw: string, absolute: string): { summary: NoteSummary; body: string; fields: Map<string, string> } {
+  const { fields, body } = splitFrontmatter(raw);
+  const meta = readFrontmatter(fields);
+  const stats = statSync(absolute);
+
+  return {
+    fields,
+    body,
+    summary: {
+      path,
+      title: meta.title?.trim() || basename(path, '.md').replace(/[-_]+/g, ' '),
+      tags: meta.tags ?? [],
+      folder: dirname(path) === '.' ? '' : dirname(path),
+      excerpt: excerptOf(body),
+      createdAt: meta.created || isoOf(stats.birthtime ?? stats.mtime),
+      updatedAt: meta.updated || isoOf(stats.mtime),
+    },
+  };
+}
+
+/** Every `.md` file under the notes root, newest first. Dot-directories, the
+ *  attachments tree and `.git` are skipped — the last of those matters, since a
+ *  Git repo is full of files this would otherwise happily walk. */
+export function listNotes(options: { tag?: string; folder?: string; search?: string } = {}): NoteSummary[] {
+  if (!notesDirExists()) return [];
+  const root = ws().notesDir;
+  const found: NoteSummary[] = [];
+
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name.startsWith('.')) continue;
+      const absolute = join(directory, entry.name);
+      const path = relative(root, absolute).split(sep).join('/');
+
+      if (entry.isDirectory()) {
+        if (path === ATTACHMENTS) continue;
+        walk(absolute);
+        continue;
+      }
+      if (!entry.isFile() || extname(entry.name).toLowerCase() !== '.md') continue;
+
+      try {
+        found.push(summarize(path, readFileSync(absolute, 'utf8'), absolute).summary);
+      } catch {
+        // An unreadable file should cost one row, not the whole list.
+      }
+    }
+  };
+
+  walk(root);
+
+  const search = options.search?.trim().toLowerCase();
+  return found
+    .filter((note) => (options.tag ? note.tags.includes(options.tag) : true))
+    .filter((note) => (options.folder ? note.folder === options.folder : true))
+    .filter((note) =>
+      search
+        ? note.title.toLowerCase().includes(search) ||
+          note.path.toLowerCase().includes(search) ||
+          note.excerpt.toLowerCase().includes(search)
+        : true,
+    )
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+/** Every folder that holds at least one note, for the sidebar's filter. */
+export function listFolders(): string[] {
+  return [...new Set(listNotes().map((note) => note.folder).filter(Boolean))].sort();
+}
+
+/** Every tag in use, most-used first. */
+export function listTags(): string[] {
+  const counts = new Map<string, number>();
+  for (const note of listNotes()) {
+    for (const tag of note.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([tag]) => tag);
+}
+
+/** Where a note's attachments live, relative to the notes root. */
+function attachmentsFolder(notePath: string): string {
+  return `${ATTACHMENTS}/${notePath.replace(/\.md$/i, '')}`;
+}
+
+/** The path as it should be written in the Markdown: relative to the note, so
+ *  the file keeps working in Obsidian, on GitHub, or in any other reader. */
+function hrefFor(notePath: string, assetPath: string): string {
+  const from = dirname(notePath);
+  const href = relative(from === '.' ? '' : from, assetPath).split(sep).join('/');
+  return href.startsWith('.') ? href : `./${href}`;
+}
+
+function readAttachments(notePath: string): NoteAttachment[] {
+  const folder = attachmentsFolder(notePath);
+  const absolute = resolveInNotes(folder);
+  if (!absolute || !existsSync(absolute)) return [];
+
+  return readdirSync(absolute, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && !entry.name.startsWith('.'))
+    .map((entry) => {
+      const path = `${folder}/${entry.name}`;
+      return {
+        name: entry.name,
+        path,
+        href: hrefFor(notePath, path),
+        size: statSync(join(absolute, entry.name)).size,
+        isImage: IMAGE_EXTENSIONS.has(extname(entry.name).toLowerCase()),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function noteExists(path: string): boolean {
+  const absolute = resolveInNotes(normalizeNotePath(path));
+  return !!absolute && existsSync(absolute) && statSync(absolute).isFile();
+}
+
+export function readNote(path: string): Note {
+  requireNotesDir();
+  const notePath = normalizeNotePath(path);
+  const absolute = resolveInNotes(notePath);
+  if (!absolute || !existsSync(absolute)) throw new Error(`No note at '${notePath}'.`);
+
+  const { summary, body } = summarize(notePath, readFileSync(absolute, 'utf8'), absolute);
+  return { ...summary, body, attachments: readAttachments(notePath) };
+}
+
+/* -------------------------------------------------------------- writing */
+
+/** Add `-2`, `-3`… until the name is free. Used for both notes and uploads, so
+ *  neither a same-titled note nor a second `screenshot.png` overwrites anything. */
+function uniquePath(candidate: string): string {
+  const absolute = resolveInNotes(candidate)!;
+  if (!existsSync(absolute)) return candidate;
+
+  const extension = extname(candidate);
+  const stem = candidate.slice(0, candidate.length - extension.length);
+  for (let index = 2; index < 1000; index += 1) {
+    const next = `${stem}-${index}${extension}`;
+    if (!existsSync(resolveInNotes(next)!)) return next;
+  }
+  throw new Error(`Could not find a free filename near '${candidate}'.`);
+}
+
+export interface CreateNoteInput {
+  title: string;
+  /** Folder to file it under. Optional; the root by default. */
+  folder?: string;
+  /** Explicit path, overriding the slug generated from the title. */
+  path?: string;
+  body?: string;
+  tags?: string[];
+}
+
+export function createNote(input: CreateNoteInput): Note {
+  ensureNotesDir();
+  const title = input.title.trim();
+  if (!title) throw new Error('A note needs a title.');
+
+  const folder = input.folder ? normalizeNotePath(input.folder, { extension: false }) : '';
+  const requested = input.path
+    ? normalizeNotePath(input.path)
+    : normalizeNotePath(folder ? `${folder}/${slugify(title)}` : slugify(title));
+
+  const path = uniquePath(requested);
+  const absolute = resolveInNotes(path)!;
+  mkdirSync(dirname(absolute), { recursive: true });
+
+  const now = new Date().toISOString();
+  writeFileSync(
+    absolute,
+    serialize({ title, tags: input.tags ?? [], createdAt: now, updatedAt: now }, input.body ?? ''),
+  );
+
+  autoCommit(`notes: add ${path}`);
+  return readNote(path);
+}
+
+export interface UpdateNoteInput {
+  title?: string;
+  body?: string;
+  tags?: string[];
+  /** Move or rename the note. Its attachments folder moves with it. */
+  path?: string;
+}
+
+export function updateNote(path: string, input: UpdateNoteInput): Note {
+  const notePath = normalizeNotePath(path);
+  const absolute = resolveInNotes(notePath);
+  if (!absolute || !existsSync(absolute)) throw new Error(`No note at '${notePath}'.`);
+
+  const raw = readFileSync(absolute, 'utf8');
+  const { fields, body } = splitFrontmatter(raw);
+  const current = summarize(notePath, raw, absolute).summary;
+
+  const title = input.title?.trim() || current.title;
+  const nextBody = input.body ?? body;
+  const tags = input.tags ?? current.tags;
+  const now = new Date().toISOString();
+
+  // Rename first: writing the new contents to the old path and moving it after
+  // would leave the note at neither path if the move failed.
+  let finalPath = notePath;
+  if (input.path !== undefined) {
+    const requested = normalizeNotePath(input.path);
+    if (requested !== notePath) {
+      const target = resolveInNotes(requested)!;
+      if (existsSync(target)) throw new Error(`A note already exists at '${requested}'.`);
+      mkdirSync(dirname(target), { recursive: true });
+      renameSync(absolute, target);
+      moveAttachments(notePath, requested);
+      finalPath = requested;
+    }
+  }
+
+  writeFileSync(
+    resolveInNotes(finalPath)!,
+    serialize({ title, tags, createdAt: current.createdAt, updatedAt: now }, nextBody, fields),
+  );
+
+  autoCommit(finalPath === notePath ? `notes: update ${finalPath}` : `notes: rename ${notePath} → ${finalPath}`);
+  return readNote(finalPath);
+}
+
+/** Append to a note without reading it first — how the CLI's `--append` and an
+ *  agent jotting something down both write. */
+export function appendToNote(path: string, text: string): Note {
+  const note = readNote(path);
+  const separator = note.body.trim() ? '\n\n' : '';
+  return updateNote(note.path, { body: `${note.body.replace(/\s+$/, '')}${separator}${text.trim()}` });
+}
+
+function moveAttachments(fromNote: string, toNote: string): void {
+  const from = resolveInNotes(attachmentsFolder(fromNote));
+  if (!from || !existsSync(from)) return;
+  const to = resolveInNotes(attachmentsFolder(toNote))!;
+  mkdirSync(dirname(to), { recursive: true });
+  renameSync(from, to);
+}
+
+export function deleteNote(path: string, { keepAttachments = false } = {}): string {
+  const notePath = normalizeNotePath(path);
+  const absolute = resolveInNotes(notePath);
+  if (!absolute || !existsSync(absolute)) throw new Error(`No note at '${notePath}'.`);
+
+  rmSync(absolute);
+  if (!keepAttachments) {
+    const attachments = resolveInNotes(attachmentsFolder(notePath));
+    if (attachments && existsSync(attachments)) rmSync(attachments, { recursive: true, force: true });
+  }
+
+  autoCommit(`notes: delete ${notePath}`);
+  return notePath;
+}
+
+/* ---------------------------------------------------------- attachments */
+
+/** Strip a client-supplied filename down to a basename that is safe to write. */
+function safeFilename(name: string): string {
+  const base = basename(String(name).replace(/\\/g, '/')).trim();
+  const cleaned = base.replace(/[^A-Za-z0-9._ -]+/g, '-').replace(/^[.\-]+/, '').slice(0, 120);
+  return cleaned || `file-${Date.now()}`;
+}
+
+/**
+ * Store a file beside a note and hand back the Markdown that links to it.
+ *
+ * The caller — a paste into the editor, a drag-and-drop, `tasks notes attach` —
+ * gets the snippet rather than being trusted to build the path itself, so there
+ * is exactly one place that decides where attachments live.
+ */
+export function addAttachment(
+  notePath: string,
+  filename: string,
+  data: Uint8Array | ArrayBuffer,
+): { attachment: NoteAttachment; markdown: string } {
+  const note = normalizeNotePath(notePath);
+  if (!noteExists(note)) throw new Error(`No note at '${note}'.`);
+
+  const folder = attachmentsFolder(note);
+  mkdirSync(resolveInNotes(folder)!, { recursive: true });
+
+  const path = uniquePath(`${folder}/${safeFilename(filename)}`);
+  const absolute = resolveInNotes(path)!;
+  writeFileSync(absolute, new Uint8Array(data instanceof Uint8Array ? data : new Uint8Array(data)));
+
+  const attachment: NoteAttachment = {
+    name: basename(path),
+    path,
+    href: hrefFor(note, path),
+    size: statSync(absolute).size,
+    isImage: IMAGE_EXTENSIONS.has(extname(path).toLowerCase()),
+  };
+
+  autoCommit(`notes: attach ${attachment.name} to ${note}`);
+  return {
+    attachment,
+    markdown: `${attachment.isImage ? '!' : ''}[${attachment.name}](${encodeURI(attachment.href)})`,
+  };
+}
+
+export function removeAttachment(notePath: string, name: string): void {
+  const note = normalizeNotePath(notePath);
+  const path = `${attachmentsFolder(note)}/${safeFilename(name)}`;
+  const absolute = resolveNoteAsset(path);
+  if (!absolute) throw new Error(`No attachment '${name}' on '${note}'.`);
+  rmSync(absolute);
+  autoCommit(`notes: remove ${name} from ${note}`);
+}
+
+/**
+ * Resolve a link written inside a note (`./attachments/x.png`, `../shared.png`)
+ * to a notes-root-relative path, so the preview can ask the server for it.
+ * Absolute URLs and anything escaping the notes folder come back null.
+ */
+export function resolveNoteLink(notePath: string, href: string): string | null {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//') || href.startsWith('#')) return null;
+  const note = normalizeNotePath(notePath);
+  const folder = dirname(note) === '.' ? '' : dirname(note);
+  const decoded = decodeURI(href.split('#')[0]!.split('?')[0]!);
+  const joined = href.startsWith('/') ? decoded.slice(1) : `${folder ? `${folder}/` : ''}${decoded}`;
+  const absolute = resolveInNotes(joined);
+  if (!absolute) return null;
+  return relative(ws().notesDir, absolute).split(sep).join('/');
+}
+
+/* ---------------------------------------------------------------- git */
+
+function git(args: string[], cwd = ws().notesDir): { code: number; stdout: string; stderr: string } {
+  const result = Bun.spawnSync(['git', ...args], {
+    cwd,
+    // Never inherit stdio: a credential prompt on a push would hang the request.
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  return {
+    code: result.exitCode ?? 1,
+    stdout: result.stdout.toString(),
+    stderr: result.stderr.toString(),
+  };
+}
+
+/** Whether the notes folder is the root of a Git repository. A folder that
+ *  merely sits *inside* one does not count — committing it would write to the
+ *  enclosing repo, which is never what a notes folder means. */
+export function isNotesRepo(): boolean {
+  if (!notesDirExists()) return false;
+  const top = git(['rev-parse', '--show-toplevel']);
+  return top.code === 0 && resolve(top.stdout.trim()) === resolve(ws().notesDir);
+}
+
+export function notesGitInfo(): NotesGitInfo {
+  if (!isNotesRepo()) {
+    return { repo: false, branch: null, dirty: 0, lastCommit: null, upstream: null, unpushed: null };
+  }
+
+  const branch = git(['branch', '--show-current']).stdout.trim() || null;
+  const status = git(['status', '--porcelain']);
+  const dirty = status.stdout.split('\n').filter((line) => line.trim()).length;
+
+  const log = git(['log', '-1', '--format=%h%x1f%s%x1f%aI']);
+  const [shortSha, subject, date] = log.stdout.trim().split('\x1f');
+  const lastCommit = log.code === 0 && shortSha ? { shortSha, subject: subject ?? '', date: date ?? '' } : null;
+
+  const upstreamResult = git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']);
+  const upstream = upstreamResult.code === 0 ? upstreamResult.stdout.trim() || null : null;
+
+  let unpushed: number | null = null;
+  if (upstream) {
+    const counted = git(['rev-list', '--count', `${upstream}..HEAD`]);
+    if (counted.code === 0) unpushed = Number(counted.stdout.trim()) || 0;
+  }
+
+  return { repo: true, branch, dirty, lastCommit, upstream, unpushed };
+}
+
+export function notesWorkspaceInfo(): NotesWorkspaceInfo {
+  return {
+    dir: ws().notesDir,
+    exists: notesDirExists(),
+    autoCommit: ws().config.notesAutoCommit,
+    git: notesGitInfo(),
+  };
+}
+
+/**
+ * Commit whatever is outstanding in the notes folder.
+ *
+ * Returns null when there was nothing to commit, which is the common case and
+ * not an error: two saves in a row with no change between them, or a folder that
+ * is not a repository at all.
+ */
+export function commitNotes(message: string): string | null {
+  if (!isNotesRepo()) return null;
+  if (!git(['status', '--porcelain']).stdout.trim()) return null;
+
+  const staged = git(['add', '-A']);
+  if (staged.code !== 0) throw new Error(staged.stderr.trim() || 'Could not stage the notes changes.');
+
+  const committed = git(['commit', '-m', message]);
+  if (committed.code !== 0) {
+    throw new Error(committed.stderr.trim() || committed.stdout.trim() || 'Could not commit the notes changes.');
+  }
+  return git(['rev-parse', '--short', 'HEAD']).stdout.trim() || null;
+}
+
+/**
+ * The commit fired after every write, when `notesAutoCommit` is on.
+ *
+ * A failure here must not lose the edit: the file is already written and that is
+ * the part that matters, so this reports and moves on rather than throwing back
+ * into a save the user believes succeeded. `tasks notes sync` picks up whatever
+ * this could not commit.
+ */
+function autoCommit(message: string): void {
+  if (!ws().config.notesAutoCommit) return;
+  try {
+    commitNotes(message);
+  } catch (error) {
+    console.error(`notes: auto-commit failed — ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/** Commit anything outstanding, then optionally push. */
+export function syncNotes({ push = false, message }: { push?: boolean; message?: string } = {}): {
+  committed: string | null;
+  pushed: boolean;
+  git: NotesGitInfo;
+} {
+  if (!isNotesRepo()) throw new Error(`${ws().notesDir} is not a Git repository. Run \`tasks notes init\`.`);
+
+  const committed = commitNotes(message ?? `notes: sync ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`);
+
+  let pushed = false;
+  if (push) {
+    const info = notesGitInfo();
+    const result = info.upstream
+      ? git(['push'])
+      : git(['push', '--set-upstream', 'origin', info.branch ?? 'main']);
+    if (result.code !== 0) throw new Error(result.stderr.trim() || 'Could not push the notes repository.');
+    pushed = true;
+  }
+
+  return { committed, pushed, git: notesGitInfo() };
+}
+
+/**
+ * Create the notes folder and make it a repository of its own.
+ *
+ * When the folder lands inside the repo being tracked (which the default
+ * `../.notes` does), it is also added to that clone's `.git/info/exclude` — the
+ * same treatment `tasks init` gives `.tasks/`, and for the same reason: a nested
+ * repository showing up as an untracked path in the host repo's status is noise
+ * at best and an accidental commit at worst.
+ */
+export function initNotes(): {
+  dir: string;
+  created: boolean;
+  repoCreated: boolean;
+  excluded: 'added' | 'present' | 'not-nested';
+} {
+  const created = !notesDirExists();
+  ensureNotesDir();
+
+  const repoCreated = !isNotesRepo();
+  if (repoCreated) {
+    const result = git(['init']);
+    if (result.code !== 0) throw new Error(result.stderr.trim() || 'Could not `git init` the notes folder.');
+    const readme = join(ws().notesDir, 'README.md');
+    if (!existsSync(readme)) {
+      writeFileSync(
+        readme,
+        '# Notes\n\nMarkdown notes, one file per note, with attachments under `attachments/`.\n' +
+          'Written and read through `tasks notes` and the Notes view of `tasks web`.\n',
+      );
+    }
+    commitNotes('notes: initialise notes repository');
+  }
+
+  return { dir: ws().notesDir, created, repoCreated, excluded: excludeFromHostRepo() };
+}
+
+function excludeFromHostRepo(): 'added' | 'present' | 'not-nested' {
+  const prefix = ws().repoRoot.endsWith(sep) ? ws().repoRoot : ws().repoRoot + sep;
+  if (!ws().notesDir.startsWith(prefix)) return 'not-nested';
+
+  const gitDir = git(['rev-parse', '--absolute-git-dir'], ws().repoRoot);
+  if (gitDir.code !== 0) return 'not-nested';
+
+  const entry = `${relative(ws().repoRoot, ws().notesDir).split(sep).join('/')}/`;
+  const infoDir = join(gitDir.stdout.trim(), 'info');
+  const excludePath = join(infoDir, 'exclude');
+  const existing = existsSync(excludePath) ? readFileSync(excludePath, 'utf8') : '';
+  if (existing.split('\n').some((line) => line.trim() === entry)) return 'present';
+
+  mkdirSync(infoDir, { recursive: true });
+  const separator = existing && !existing.endsWith('\n') ? '\n' : '';
+  writeFileSync(
+    excludePath,
+    `${existing}${separator}\n# Notes workspace (work-task-manager) — its own Git repository\n${entry}\n`,
+  );
+  return 'added';
+}

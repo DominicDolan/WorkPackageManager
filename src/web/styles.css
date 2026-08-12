@@ -163,6 +163,10 @@ label {
 
 .combine-close input { width: auto; margin: 0; }
 
+.badge.draft { color: var(--backlog); }
+.badge.investigating { color: var(--progress); }
+.badge.complete { color: var(--verified); }
+
 .badge.unchanged { color: var(--verified); }
 .badge.changed { color: var(--devcomplete); }
 .badge.failed { color: var(--danger); }
@@ -285,6 +289,48 @@ label {
   accent-color: var(--accent);
 }
 
+/* --------------------------------------------------------- reordering */
+
+.drag-grip {
+  cursor: grab;
+  opacity: 0;
+  letter-spacing: -2px;
+  color: var(--text-faint);
+  transition: opacity 0.12s ease;
+}
+
+.task-item:hover .drag-grip,
+.task-item:focus-visible .drag-grip {
+  opacity: 0.55;
+}
+
+.task-item.dragging {
+  opacity: 0.4;
+}
+
+/* The insertion point, drawn on the row the pointer is over rather than as a
+   separate element, so it cannot be interposed between row and drop target. */
+.task-item.drop-above {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.task-item.drop-below {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.task-item.selected.drop-above {
+  box-shadow: inset 3px 0 0 var(--accent), inset 0 2px 0 var(--accent);
+}
+
+.task-item.selected.drop-below {
+  box-shadow: inset 3px 0 0 var(--accent), inset 0 -2px 0 var(--accent);
+}
+
+.reorder-hint {
+  padding: 10px 16px;
+  font-size: 12px;
+}
+
 .combine-panel {
   padding: 12px 16px;
   border-top: 1px solid var(--border);
@@ -349,6 +395,35 @@ label {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
+/* Errors are raised from every pane, so the place they surface cannot be inside
+   one. It outranks the modal overlay (z-index 10) because a create that fails
+   leaves the dialog open, and the reason has to be readable over it. */
+.toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 30;
+  max-width: min(520px, calc(100vw - 40px));
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, var(--bg-panel));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+}
+
+.toast-dismiss {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+}
+
 .banner.warn {
   border-color: var(--devcomplete);
   color: var(--devcomplete);
@@ -359,6 +434,43 @@ label {
   border-color: var(--verified);
   color: var(--verified);
   background: color-mix(in srgb, var(--verified) 10%, transparent);
+}
+
+/* -------------------------------------------------------- investigations */
+
+/* The title edits in place, so it is an input that reads as the heading. */
+.title-input {
+  font-size: 20px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: none;
+  border-color: transparent;
+}
+
+.title-input:hover {
+  border-color: var(--border);
+}
+
+/* The brief is the main writing surface of the view, not an afterthought. */
+.brief-input {
+  min-height: 220px;
+  line-height: 1.6;
+}
+
+/* The findings come back as Markdown from an agent; shown as written. */
+.findings {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.command {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--accent);
 }
 
 /* -------------------------------------------------------------- branches */
@@ -648,6 +760,269 @@ label {
   }
 
   .shots.side-by-side {
+    grid-template-columns: 1fr;
+  }
+}
+.combine-row { display: grid; grid-template-columns: auto minmax(140px, 1fr) minmax(220px, 2fr) auto; gap: 8px 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.combine-row:last-child { border-bottom: 0; }
+.combine-row select { grid-column: 3 / span 2; }
+@media (max-width: 700px) { .combine-row { grid-template-columns: auto 1fr; } .combine-row code, .combine-row select { grid-column: 1 / -1; } }
+
+/* ---------------------------------------------------------------- notes */
+
+.note-search {
+  flex: 1;
+}
+
+.note-excerpt {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* The notes folder's Git state, pinned under the list — an uncommitted note is
+   a note that exists on one machine only, which is worth seeing without asking. */
+.notes-status {
+  border-top: 1px solid var(--border);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.notes-status p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.note-detail {
+  display: flex;
+  flex-direction: column;
+}
+
+.note-path {
+  background: none;
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.tag-input {
+  flex: 1;
+}
+
+/* Write / Split / Read. The grid is what switches: both panes are always in the
+   DOM in split mode, and each is a column of it. */
+.note-panes {
+  display: grid;
+  gap: 14px;
+  flex: 1;
+  min-height: 320px;
+  grid-template-columns: 1fr;
+}
+
+.note-panes.split {
+  grid-template-columns: 1fr 1fr;
+}
+
+.note-panes.dropping {
+  outline: 2px dashed var(--accent);
+  outline-offset: 6px;
+  border-radius: var(--radius);
+}
+
+.note-editor {
+  min-height: 320px;
+  height: 100%;
+  resize: none;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.note-preview {
+  min-height: 320px;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+}
+
+.note-footer {
+  padding: 10px 0 4px;
+}
+
+.attach-button span {
+  display: inline-block;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.attach-button span:hover {
+  border-color: var(--accent);
+}
+
+.attachment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.attachment {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.attachment img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.attachment-file {
+  display: grid;
+  place-items: center;
+  height: 120px;
+  font-size: 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.attachment figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------- rendered markdown */
+
+.markdown {
+  line-height: 1.65;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  line-height: 1.3;
+  margin: 1.4em 0 0.5em;
+}
+
+.markdown h1 { font-size: 22px; }
+.markdown h2 { font-size: 18px; }
+.markdown h3 { font-size: 15px; }
+.markdown h4 { font-size: 14px; color: var(--text-dim); }
+
+.markdown p {
+  margin: 0 0 0.9em;
+}
+
+.markdown a {
+  color: var(--accent);
+}
+
+.markdown code {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  background: var(--bg-raised);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.markdown pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  overflow-x: auto;
+}
+
+.markdown pre code {
+  background: none;
+  padding: 0;
+}
+
+.markdown blockquote {
+  margin: 0 0 0.9em;
+  padding: 2px 0 2px 14px;
+  border-left: 3px solid var(--border);
+  color: var(--text-dim);
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0 0 0.9em;
+  padding-left: 22px;
+}
+
+.markdown li.md-task {
+  list-style: none;
+  margin-left: -20px;
+}
+
+.markdown li.md-task input {
+  width: auto;
+  margin-right: 8px;
+}
+
+.markdown img {
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.4em 0;
+}
+
+.markdown .md-tag {
+  color: var(--accent);
+}
+
+/* Wide tables scroll inside the note rather than stretching the pane. */
+.markdown .md-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 0.9em;
+}
+
+.markdown table {
+  border-collapse: collapse;
+  min-width: 100%;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.markdown th {
+  background: var(--bg-raised);
+}
+
+@media (max-width: 900px) {
+  .note-panes.split {
     grid-template-columns: 1fr;
   }
 }

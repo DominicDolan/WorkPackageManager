@@ -16,7 +16,11 @@ const SCHEMA = [
      description      TEXT    NOT NULL DEFAULT '',
      status           TEXT    NOT NULL DEFAULT 'backlog',
      priority         TEXT    NOT NULL DEFAULT 'medium',
+     -- Manual list order. 0 is a placeholder the migration pass replaces, so a
+     -- row inserted without one still sorts deterministically until it does.
+     position         INTEGER NOT NULL DEFAULT 0,
      tags             TEXT    NOT NULL DEFAULT '[]',
+     investigation_ref TEXT,
      branch_name      TEXT,
      checkpoint_name  TEXT,
      created_at       TEXT    NOT NULL,
@@ -78,11 +82,27 @@ const SCHEMA = [
 
   `CREATE INDEX IF NOT EXISTS idx_comparisons_run ON checkpoint_comparisons(run_id)`,
 
-  // Monotonic counter behind the T-<n> refs. Kept separate from tasks.id so
-  // deleting a task never lets a ref be reused.
+  // Monotonic counters behind the T-<n> and I-<n> refs. Kept separate from the
+  // row ids so deleting a record never lets a ref be reused.
   `CREATE TABLE IF NOT EXISTS counters (
      name  TEXT PRIMARY KEY,
      value INTEGER NOT NULL
+   )`,
+
+  // A question written down before the investigating happens. Tasks point back
+  // at one by ref (tasks.investigation_ref) rather than by foreign key: the
+  // tasks are the durable output and must survive the investigation's deletion.
+  `CREATE TABLE IF NOT EXISTS investigations (
+     id           INTEGER PRIMARY KEY AUTOINCREMENT,
+     ref          TEXT    NOT NULL UNIQUE,
+     title        TEXT    NOT NULL,
+     brief        TEXT    NOT NULL DEFAULT '',
+     findings     TEXT    NOT NULL DEFAULT '',
+     status       TEXT    NOT NULL DEFAULT 'draft',
+     created_at   TEXT    NOT NULL,
+     updated_at   TEXT    NOT NULL,
+     started_at   TEXT,
+     completed_at TEXT
    )`,
 
   // One row per delivery branch produced by combining task branches. Deliberately
@@ -97,6 +117,9 @@ const SCHEMA = [
      pr_body     TEXT,
      pr_url      TEXT,
      pr_number   INTEGER,
+     combine_state TEXT  NOT NULL DEFAULT 'complete',
+     combine_pending_commits TEXT NOT NULL DEFAULT '[]',
+     combine_close_tasks INTEGER NOT NULL DEFAULT 0,
      created_at  TEXT    NOT NULL,
      updated_at  TEXT    NOT NULL
    )`,
@@ -112,6 +135,19 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   // legacy tasks are deterministically backfilled after this column is added.
   { table: 'tasks', column: 'branch_name', definition: 'TEXT' },
   { table: 'tasks', column: 'closed_at', definition: 'TEXT' },
+  // Tasks filed before Investigations existed simply have none.
+  { table: 'tasks', column: 'investigation_ref', definition: 'TEXT' },
+  // Manual list order. Existing rows all land on 0 and are backfilled below.
+  { table: 'tasks', column: 'position', definition: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: 'combined_branches', column: 'combine_state', definition: "TEXT NOT NULL DEFAULT 'complete'" },
+  { table: 'combined_branches', column: 'combine_pending_commits', definition: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: 'combined_branches', column: 'combine_close_tasks', definition: 'INTEGER NOT NULL DEFAULT 0' },
+];
+
+/** Indexes over columns that ADDED_COLUMNS may have only just created, so they
+ *  cannot live in SCHEMA — that runs before the migrations. */
+const POST_MIGRATION_INDEXES = [
+  'CREATE INDEX IF NOT EXISTS idx_tasks_investigation ON tasks(investigation_ref)',
 ];
 
 function applyColumnMigrations(database: Database): void {
@@ -140,6 +176,48 @@ function applyColumnMigrations(database: Database): void {
       $branch: branchNameFor(task.ref, task.title, workspace().config.branchPrefix),
     });
   }
+
+  backfillPositions(database);
+}
+
+/**
+ * Give every task a manual list position. `position = 0` is the never-assigned
+ * sentinel — nothing ever writes it deliberately — so this is idempotent and
+ * also repairs a row that somehow slipped in without one.
+ *
+ * Unpositioned rows are appended in the ordering the list used before manual
+ * order existed (in-progress first, then by priority, newest first), so the
+ * first list a user sees after upgrading looks exactly like the last one they
+ * saw before it.
+ */
+function backfillPositions(database: Database): void {
+  const pending = database
+    .query<{ id: number }, []>(
+      `SELECT id FROM tasks
+        WHERE position = 0
+        ORDER BY CASE status
+                   WHEN 'in_progress'  THEN 0
+                   WHEN 'dev_complete' THEN 1
+                   WHEN 'backlog'      THEN 2
+                   WHEN 'verified'     THEN 3
+                   ELSE 4
+                 END,
+                 CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+                 id DESC`,
+    )
+    .all();
+  if (!pending.length) return;
+
+  const highest =
+    database.query<{ top: number | null }, []>('SELECT MAX(position) AS top FROM tasks').get()
+      ?.top ?? 0;
+
+  const assign = database.query('UPDATE tasks SET position = $position WHERE id = $id');
+  database.transaction(() => {
+    pending.forEach((task, index) => {
+      assign.run({ $id: task.id, $position: highest + index + 1 });
+    });
+  })();
 }
 
 /**
@@ -191,23 +269,34 @@ export function getDb(): Database {
   db.exec('PRAGMA foreign_keys = ON');
   for (const statement of SCHEMA) db.exec(statement);
   applyColumnMigrations(db);
+  for (const statement of POST_MIGRATION_INDEXES) db.exec(statement);
   backfillCombinedBranches(db);
 
   return db;
 }
 
-/** Next task ref, e.g. `T-7`. */
-export function nextRef(): string {
-  const database = getDb();
-  const row = database
-    .query<{ value: number }, []>(
-      `INSERT INTO counters (name, value) VALUES ('task', 1)
+/** Bump one of the monotonic counters and return its new value. */
+function nextCounter(name: string): number {
+  const row = getDb()
+    .query<{ value: number }, { $name: string }>(
+      `INSERT INTO counters (name, value) VALUES ($name, 1)
        ON CONFLICT(name) DO UPDATE SET value = value + 1
        RETURNING value`,
     )
-    .get();
+    .get({ $name: name });
 
-  return `T-${row!.value}`;
+  return row!.value;
+}
+
+/** Next task ref, e.g. `T-7`. */
+export function nextRef(): string {
+  return `T-${nextCounter('task')}`;
+}
+
+/** Next investigation ref, e.g. `I-3`. Counted separately from tasks so the two
+ *  sequences never interleave. */
+export function nextInvestigationRef(): string {
+  return `I-${nextCounter('investigation')}`;
 }
 
 export function nowIso(): string {
