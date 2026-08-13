@@ -199,6 +199,83 @@ export interface NotesWorkspaceInfo {
   git: NotesGitInfo;
 }
 
+/* -------------------------------------------------------------- issues */
+
+/**
+ * An issue, read out of a JSON file in the notes folder.
+ *
+ * Nothing here is provider-specific. GitHub issues and Azure DevOps work items
+ * describe the same thing in different words, so the server flattens both into
+ * this shape and the UI renders one card for either — `source` decides the badge
+ * and nothing else. A provider's own vocabulary survives in `stateLabel`, `kind`
+ * and `raw` rather than being bent into fields that only fit one of them.
+ */
+export type IssueState = 'open' | 'closed';
+
+/** Providers recognised by name. Anything else still renders, badged as itself. */
+export const ISSUE_SOURCES = ['github', 'azure-devops'] as const;
+export type IssueSource = (typeof ISSUE_SOURCES)[number];
+
+export const ISSUE_SOURCE_LABELS: Record<string, string> = {
+  github: 'GitHub',
+  'azure-devops': 'Azure DevOps',
+};
+
+export interface IssueLabel {
+  name: string;
+  /** `#rrggbb`, when the provider has an opinion. Azure DevOps tags do not. */
+  color: string | null;
+  description: string | null;
+}
+
+export interface IssuePerson {
+  name: string;
+  avatarUrl: string | null;
+  url: string | null;
+}
+
+export interface IssueSummary {
+  /** Identity: the file's path relative to the notes root, plus `#<index>` when
+   *  one file holds several issues. */
+  id: string;
+  /** The file it came from. */
+  path: string;
+  /** `github`, `azure-devops`, or whatever the file called itself. */
+  source: string;
+  /** The provider's own reference, e.g. `#677`. */
+  key: string;
+  title: string;
+  /** Normalised for filtering. */
+  state: IssueState;
+  /** The provider's own wording — `open`, `Active`, `Resolved`, `not_planned`. */
+  stateLabel: string;
+  /** Where to open it in a browser. */
+  url: string | null;
+  /** The repository or project it belongs to. */
+  container: string | null;
+  /** Bug, Feature, User Story — whatever the provider calls its types. */
+  kind: string | null;
+  labels: IssueLabel[];
+  author: IssuePerson | null;
+  assignees: IssuePerson[];
+  createdAt: string | null;
+  updatedAt: string | null;
+  closedAt: string | null;
+  commentCount: number | null;
+  milestone: string | null;
+  /** When the file was written, if it says. */
+  fetchedAt: string | null;
+  excerpt: string;
+}
+
+export interface IssueDetail extends IssueSummary {
+  /** GitHub bodies are Markdown; Azure DevOps descriptions are HTML. */
+  bodyFormat: 'markdown' | 'html';
+  body: string;
+  /** The provider's untouched object, for the raw view. */
+  raw: unknown;
+}
+
 /* ------------------------------------------------------ combined branches */
 
 /** One delivery branch built by combining several task branches. Recorded when
@@ -258,6 +335,118 @@ export interface ToolAvailability {
   prAgentAvailable: boolean;
   gh: boolean;
   ghAuthed: boolean;
+}
+
+/* ---------------------------------------------------------- live updates */
+
+/**
+ * Which store changed.
+ *
+ * The CLI, an agent and this app all write to the same workspace, so the page is
+ * routinely looking at data another process has just replaced. The server
+ * watches the two stores and says which one moved; the client decides what that
+ * means for whatever is on screen.
+ */
+export const CHANGE_CHANNELS = ['tasks', 'notes'] as const;
+/** `tasks` is the database — tasks, investigations, branches, agent runs.
+ *  `notes` is the notes folder, which backs both Notes and Issues. */
+export type ChangeChannel = (typeof CHANGE_CHANNELS)[number];
+
+export interface ChangeEvent {
+  channel: ChangeChannel;
+  /** Monotonic per channel, so a reconnecting client can tell it missed one. */
+  revision: number;
+  at: string;
+}
+
+/* ------------------------------------------------------------ agent runs */
+
+/**
+ * Running an agent CLI from the UI.
+ *
+ * Two harnesses are understood — Claude Code and `pi` — and one prompt is built
+ * for both, because the slash commands this drives (`/plan-tasks`, `/work-task`)
+ * are installed in both. Nothing here is provider-specific beyond the argv a
+ * harness wants; see `src/server/agents.ts`.
+ */
+export const AGENT_HARNESSES = ['claude', 'pi'] as const;
+export type AgentHarnessId = (typeof AGENT_HARNESSES)[number];
+
+/** Which of the two slash commands a run drives. */
+export const AGENT_COMMANDS = ['plan-tasks', 'work-task'] as const;
+export type AgentCommand = (typeof AGENT_COMMANDS)[number];
+
+/**
+ * How the agent is launched.
+ *
+ * `terminal` opens a real terminal window with the agent interactive inside it —
+ * you can answer its questions, steer it, and watch it work. Nothing is captured
+ * because the terminal *is* the session.
+ *
+ * `print` runs it headless with `-p`, detached from any terminal, and captures
+ * stdout/stderr to a log this app streams back.
+ */
+export const AGENT_RUN_MODES = ['terminal', 'print'] as const;
+export type AgentRunMode = (typeof AGENT_RUN_MODES)[number];
+
+export type AgentRunStatus = 'launched' | 'running' | 'succeeded' | 'failed' | 'stopped';
+
+export interface AgentModel {
+  /** Passed to the harness as `--model`. */
+  id: string;
+  label: string;
+  /** Provider, or whatever groups the list — used for `<optgroup>`. */
+  group: string | null;
+}
+
+/** One harness, as the dialog needs to render it. */
+export interface AgentHarnessInfo {
+  id: AgentHarnessId;
+  label: string;
+  /** The executable, e.g. `claude`. */
+  bin: string;
+  /** Whether that executable is on PATH. */
+  available: boolean;
+  /** True when models have to be fetched separately (the list is slow/large). */
+  modelsLazy: boolean;
+}
+
+/** What the Investigate / Work buttons need before they can offer a run. */
+export interface AgentEnvironment {
+  harnesses: AgentHarnessInfo[];
+  /** The terminal emulator that `terminal` mode will use, if one was found. */
+  terminal: string | null;
+  /** Whether the whole terminal mode is available at all. */
+  terminalAvailable: boolean;
+}
+
+/** One launch of an agent, recorded so a run outlives the tab that started it. */
+export interface AgentRun {
+  id: number;
+  harness: AgentHarnessId;
+  /** Empty when the harness default was used. */
+  model: string;
+  mode: AgentRunMode;
+  command: AgentCommand;
+  /** What the run is about — `issue`, `task` or `investigation` plus its ref. */
+  subjectKind: string;
+  subjectRef: string;
+  /** The prompt actually sent, slash command and all. */
+  prompt: string;
+  /** The argv spawned, for when a run does something surprising. */
+  argv: string[];
+  pid: number | null;
+  status: AgentRunStatus;
+  exitCode: number | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+/** A run plus whatever its log holds. Only `print` runs have output. */
+export interface AgentRunDetail extends AgentRun {
+  output: string;
+  /** True when `output` is the tail of a longer log. */
+  truncated: boolean;
 }
 
 /** Whether a task's before/after screenshots are ready to look at. */

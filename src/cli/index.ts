@@ -27,6 +27,7 @@ import {
   updateTask,
   type MoveTarget,
 } from '../server/repo';
+import { findIssue, issueFacets, listIssues } from '../server/issues';
 import {
   addAttachment,
   commitNotes,
@@ -869,6 +870,116 @@ async function commandNotes(args: Args): Promise<void> {
   }
 }
 
+/* --------------------------------------------------------------- issues */
+
+const ISSUE_SOURCE_NAMES: Record<string, string> = {
+  github: 'GitHub',
+  'azure-devops': 'Azure DevOps',
+};
+
+const sourceName = (source: string): string => ISSUE_SOURCE_NAMES[source] ?? source;
+
+function issuesList(args: Args): void {
+  const state = flagString(args, 'state') ?? (flagBool(args, 'closed') ? 'closed' : undefined);
+  if (state && state !== 'open' && state !== 'closed' && state !== 'all') {
+    throw new Error(`Unknown state '${state}'. Expected open, closed or all.`);
+  }
+
+  const issues = listIssues({
+    state: state as 'open' | 'closed' | 'all' | undefined,
+    source: flagString(args, 'source'),
+    label: flagList(args, 'label')?.[0],
+    search: flagString(args, 'search') ?? args.positional[2],
+  });
+
+  if (flagBool(args, 'json')) {
+    emitJson({ issues, facets: issueFacets() });
+    return;
+  }
+
+  if (!notesDirExists()) {
+    print(dim(`No notes folder at ${notesDir()}, so there is nowhere for issue files to be.`));
+    return;
+  }
+
+  if (!issues.length) {
+    print(dim(`No issues match. Issue JSON files are read from ${notesDir()}.`));
+    return;
+  }
+
+  print();
+  for (const issue of issues) {
+    const tint = issue.state === 'closed' ? dim : cyan;
+    const labels = issue.labels.length ? dim(`  [${issue.labels.map((label) => label.name).join(', ')}]`) : '';
+    print(
+      `  ${bold(issue.key.padEnd(7))} ${tint(issue.stateLabel.padEnd(12))} ${dim(sourceName(issue.source).padEnd(13))} ${issue.title}${labels}`,
+    );
+    print(`  ${dim(''.padEnd(7))} ${dim(issue.id)}`);
+  }
+  print();
+  print(dim(`  ${issues.length} issue(s) from ${notesDir()}`));
+  print();
+}
+
+function issuesShow(args: Args): void {
+  const reference = args.positional[2];
+  if (!reference) throw new Error('Usage: tasks issues show <#number|id|title> [--raw]');
+
+  const issue = findIssue(reference);
+
+  if (flagBool(args, 'json')) {
+    emitJson({ issue });
+    return;
+  }
+
+  // `--raw` is the provider's own document, for anything this flattening lost.
+  if (flagBool(args, 'raw')) {
+    emitJson(issue.raw);
+    return;
+  }
+
+  print();
+  print(`  ${bold(`${issue.key}  ${issue.title}`)}`);
+  print(
+    `  ${issue.state === 'closed' ? dim(issue.stateLabel) : cyan(issue.stateLabel)}   ${dim(
+      `${sourceName(issue.source)}${issue.container ? ` · ${issue.container}` : ''}${issue.kind ? ` · ${issue.kind}` : ''}`,
+    )}`,
+  );
+  if (issue.labels.length) print(`  ${dim(`labels: ${issue.labels.map((label) => label.name).join(', ')}`)}`);
+  print(
+    `  ${dim(`author: ${issue.author?.name ?? 'unknown'}   assigned: ${issue.assignees.map((person) => person.name).join(', ') || 'nobody'}`)}`,
+  );
+  if (issue.updatedAt) print(`  ${dim(`updated: ${issue.updatedAt.slice(0, 16).replace('T', ' ')}`)}`);
+  if (issue.url) print(`  ${dim(issue.url)}`);
+
+  if (issue.body.trim()) {
+    print();
+    // The body is printed as it was stored — Markdown for GitHub, HTML for
+    // Azure DevOps. An agent reading this wants the source, not a rendering.
+    for (const line of issue.body.split('\n')) print(`  ${line}`);
+  }
+
+  print();
+  print(dim(`  file: ${issue.id}`));
+  print();
+}
+
+function commandIssues(args: Args): void {
+  switch (args.positional[1]) {
+    case 'list':
+    case 'ls':
+    case undefined:
+      return issuesList(args);
+    case 'show':
+    case 'get':
+    case 'view':
+      return issuesShow(args);
+    default:
+      // `tasks issues 677` is how anyone actually refers to an issue.
+      return issuesShow({ ...args, positional: ['issues', 'show', args.positional[1]!] });
+  }
+}
+
 /** The repository `init` should scaffold, preferring the Git root over $PWD so
  *  running it from a subdirectory does not bury the workspace. */
 function gitRoot(): string | null {
@@ -1222,6 +1333,12 @@ ${bold('Notes')}   Markdown files in their own Git repository, not the database
   tasks notes init               create the folder and \`git init\` it
     --body -  /  --append -      read the text from stdin instead
 
+${bold('Issues')}   read from the issue JSON files in the notes folder; never fetched here
+  tasks issues list [--state open|closed|all] [--source <s>] [--label <l>] [--search <q>] [--json]
+  tasks issues show <#number|id|title> [--raw] [--json]
+    tasks issues 677             shorthand for show
+    --raw                        the provider's own JSON, unflattened
+
 ${bold('Web UI')}
   tasks web [--port <n>]         serve the UI (port from the repo's config)
   tasks web --dev                hot-reloading dev server (needs a checkout)
@@ -1272,6 +1389,9 @@ async function main(): Promise<void> {
     case 'notes':
     case 'note-file':
       return commandNotes(args);
+    case 'issues':
+    case 'issue':
+      return commandIssues(args);
     case 'rm':
     case 'delete':
       return commandRemove(args);

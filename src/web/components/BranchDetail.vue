@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { STATUS_LABELS, type CombinedBranchDetail } from '@shared/types';
 import { api, type Meta } from '../api';
+import MarkdownBlock from './MarkdownBlock.vue';
 
 const props = defineProps<{ branch: CombinedBranchDetail; meta: Meta | null }>();
 const emit = defineEmits<{
@@ -17,6 +18,7 @@ const notice = ref<string | null>(null);
 const draft = ref({ title: '', body: '' });
 const branchSettings = ref({ name: '', base: '' });
 const draftDraftPr = ref(false);
+const bodyMode = ref<'write' | 'read'>('write');
 const showCommits = ref(false);
 
 /** The editable copy is reseeded whenever the server hands back a new version —
@@ -39,6 +41,9 @@ const dirty = computed(
 );
 
 const base = computed(() => props.branch.baseBranch ?? '—');
+/** A branch built from a single task was prepared, not combined. Both are
+ *  delivery branches and behave identically from here on. */
+const single = computed(() => props.branch.taskRefs.length === 1);
 const hasDescription = computed(() => Boolean(draft.value.title.trim()));
 /** Display name of the configured PR-description agent. */
 const agentName = computed(() => props.meta?.tools.prAgent ?? 'the PR agent');
@@ -128,7 +133,7 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
       <span v-else-if="!branch.git.exists" class="badge failed">Branch missing</span>
       <span v-else class="badge in_progress">No PR yet</span>
       <span class="faint">into <code class="mono">{{ base }}</code></span>
-      <span class="faint">· combined {{ formatDate(branch.createdAt) }}</span>
+      <span class="faint">· {{ single ? 'prepared' : 'combined' }} {{ formatDate(branch.createdAt) }}</span>
       <span class="spacer" />
       <a v-if="branch.prUrl" :href="branch.prUrl" target="_blank" rel="noreferrer">Open on GitHub ↗</a>
       <button class="danger" :disabled="!!busy" @click="forget">Forget</button>
@@ -139,7 +144,7 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
       <div class="panel">
         <div class="field"><label for="branch-name">Branch name</label><input id="branch-name" v-model="branchSettings.name" /></div>
         <div class="field"><label for="branch-base">PR target branch</label><input id="branch-base" v-model="branchSettings.base" placeholder="master" /></div>
-        <p class="faint">The target branch is the branch the pull request will be opened into. It does not change the commits already combined.</p>
+        <p class="faint">The target branch is the branch the pull request will be opened into. It does not change the commits already picked onto this branch.</p>
         <button :disabled="!!busy || !branchSettings.name.trim() || !branchSettings.base.trim()" @click="saveBranchSettings">
           {{ busy === 'branch-settings' ? 'Saving…' : 'Save branch settings' }}
         </button>
@@ -147,7 +152,7 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
     </div>
 
     <div v-if="branch.combineState === 'conflict'" class="banner warn">
-      <strong>Combine paused: resolve the Git conflict.</strong>
+      <strong>{{ single ? 'Cherry-pick paused' : 'Combine paused' }}: resolve the Git conflict.</strong>
       <p>Resolve and stage the conflicted files on <code class="mono">{{ branch.branchName }}</code>, then continue the merge.</p>
       <button class="primary" @click="emit('continueCombine', branch.branchName)">Continue</button>
     </div>
@@ -205,7 +210,17 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
 
     <!-- ------------------------------------------------------- description -->
     <div class="section">
-      <h3>Pull request description</h3>
+      <div class="section-head">
+        <h3>Pull request description</h3>
+        <span class="spacer" />
+        <!-- The body is Markdown that GitHub will render, and most of it was
+             written by an agent — so being able to read it as GitHub will show
+             it, before opening the PR, is the point of the toggle. -->
+        <div class="modes" role="group" aria-label="Description view">
+          <button :class="{ active: bodyMode === 'write' }" @click="bodyMode = 'write'">Write</button>
+          <button :class="{ active: bodyMode === 'read' }" @click="bodyMode = 'read'">Read</button>
+        </div>
+      </div>
 
       <p v-if="!agentReady" class="banner warn">
         The <code class="mono">{{ agentName }}</code> CLI is not on PATH, so a description cannot be
@@ -241,7 +256,17 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
         </div>
         <div class="field">
           <label for="pr-body">Body (Markdown)</label>
-          <textarea id="pr-body" v-model="draft.body" rows="16" class="pr-body" />
+          <textarea
+            v-if="bodyMode === 'write'"
+            id="pr-body"
+            v-model="draft.body"
+            rows="16"
+            class="pr-body"
+          />
+          <!-- Previews the draft rather than the saved body: what you are
+               checking is what you just edited. -->
+          <MarkdownBlock v-else-if="draft.body.trim()" :source="draft.body" />
+          <p v-else class="empty">Nothing written yet.</p>
         </div>
         <div class="row">
           <button :disabled="!dirty || !!busy" @click="save">

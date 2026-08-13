@@ -33,6 +33,17 @@ import {
   updateTaskBranchName,
   setStatus,
 } from './repo';
+import { issueFacets, listIssues, readIssue } from './issues';
+import {
+  agentEnvironment,
+  getRun,
+  harnessModels,
+  listRuns,
+  reconcileRuns,
+  startRun,
+  stopRun,
+} from './agents';
+import { announceChange, currentRevisions, ensureWatchers, onChange } from './watch';
 import {
   addAttachment,
   createNote,
@@ -58,9 +69,13 @@ import {
   toolAvailability,
 } from './branches';
 import {
+  AGENT_COMMANDS,
+  AGENT_RUN_MODES,
   INVESTIGATION_STATUSES,
   PRIORITIES,
   STATUSES,
+  type AgentCommand,
+  type AgentRunMode,
   type CombinedBranchDetail,
   type InvestigationStatus,
   type Status,
@@ -86,7 +101,10 @@ function fail(message: string, status = 400): Response {
  *  are the only routines that throw a "not found", so those map to 404. */
 function errorResponse(error: unknown): Response {
   const message = error instanceof Error ? error.message : String(error);
-  const missing = /^No (task|investigation) with ref/.test(message) || /^No note at /.test(message);
+  const missing =
+    /^No (task|investigation) with ref/.test(message) ||
+    /^No agent run with id/.test(message) ||
+    /^No (note|issue) at /.test(message);
   return fail(message, missing ? 404 : 400);
 }
 
@@ -128,7 +146,7 @@ async function closeTask(ref: string): Promise<ReturnType<typeof getTaskDetail>>
 
 async function finishCombine(branchName: string, taskRefs: string[], closeTasks: boolean): Promise<ReturnType<typeof getTaskDetail>[]> {
   const tasks = taskRefs.map((ref) => getTaskDetail(ref));
-  for (const task of tasks) recordCombinedBranch(task.ref, branchName);
+  for (const task of tasks) recordCombinedBranch(task.ref, branchName, taskRefs.length > 1);
   const branch = requireCombinedBranch(branchName);
   recordCombine({ branchName, baseBranch: branch.baseBranch, taskRefs, combineCloseTasks: closeTasks });
   if (closeTasks) for (const task of tasks) await closeTask(task.ref);
@@ -138,7 +156,12 @@ async function finishCombine(branchName: string, taskRefs: string[], closeTasks:
 async function combineTasks(refs: string[], requestedBranch: string, closeTasks: boolean): Promise<{ branchName: string; tasks: ReturnType<typeof getTaskDetail>[]; conflicted: boolean }> {
   const branchName = validateBranchName(requestedBranch);
   const uniqueRefs = [...new Set(refs)];
-  if (uniqueRefs.length < 2) throw new Error('Select at least two tasks to combine.');
+  if (uniqueRefs.length < 1) throw new Error('Select at least one task.');
+  // One task takes the identical path — cut a branch, cherry-pick its commits
+  // onto it — it is just called "preparing" rather than "combining", so the
+  // messages a single selection can hit are worded for that.
+  const single = uniqueRefs.length === 1;
+  const verb = single ? 'prepared' : 'combined';
   let tasks = uniqueRefs.map((ref) => getTaskDetail(ref));
   for (const task of tasks) {
     if (!task.branchName) throw new Error(`${task.ref} has no assigned branch.`);
@@ -151,11 +174,11 @@ async function combineTasks(refs: string[], requestedBranch: string, closeTasks:
       if (candidates.length === 1) {
         updateTaskBranchName(task.ref, candidates[0]!);
       } else {
-        throw new Error(`${task.ref}'s assigned branch '${task.branchName}' does not exist locally. Update the task's branch assignment to the renamed Git branch before combining.`);
+        throw new Error(`${task.ref}'s assigned branch '${task.branchName}' does not exist locally. Update the task's branch assignment to the renamed Git branch first.`);
       }
     }
     if (task.status !== 'dev_complete' && task.status !== 'verified') {
-      throw new Error(`${task.ref} must be Dev Complete or Verified before it can be combined.`);
+      throw new Error(`${task.ref} must be Dev Complete or Verified before it can be ${verb}.`);
     }
     if (closeTasks && task.status !== 'verified') {
       throw new Error(`${task.ref} must be Verified when "Close tasks" is selected.`);
@@ -163,15 +186,15 @@ async function combineTasks(refs: string[], requestedBranch: string, closeTasks:
   }
 
   const current = git(['branch', '--show-current']).stdout.trim();
-  if (!current) throw new Error('Cannot combine from a detached HEAD. Switch to a branch first.');
+  if (!current) throw new Error('Cannot cherry-pick from a detached HEAD. Switch to a branch first.');
   // A delivery branch may be cut while another branch is checked out, but its
   // PR target is the repository's configured/default branch—not its new name
   // or necessarily the branch currently checked out.
   const baseBranch = defaultBaseBranch();
   if (cherryPickInProgress()) {
-    throw new Error(`A cherry-pick is already paused on '${current}'. Resolve and stage its conflicts, then use the delivery branch's Continue button (or run 'git cherry-pick --abort' to cancel it) before starting another combine.`);
+    throw new Error(`A cherry-pick is already paused on '${current}'. Resolve and stage its conflicts, then use the delivery branch's Continue button (or run 'git cherry-pick --abort' to cancel it) before starting another one.`);
   }
-  if (git(['status', '--porcelain']).stdout.trim()) throw new Error('Working tree must be clean before combining tasks.');
+  if (git(['status', '--porcelain']).stdout.trim()) throw new Error('Working tree must be clean before building a delivery branch.');
   if (git(['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`]).code === 0) {
     throw new Error(`Branch '${branchName}' already exists.`);
   }
@@ -185,7 +208,7 @@ async function combineTasks(refs: string[], requestedBranch: string, closeTasks:
     const base = git(['merge-base', 'HEAD', task.branchName!]);
     if (base.code !== 0 || !base.stdout.trim()) throw new Error(`Could not find a common ancestor for ${task.ref} (${task.branchName}).`);
     const commits = git(['rev-list', '--reverse', `${base.stdout.trim()}..${task.branchName}`]);
-    if (commits.code !== 0 || !commits.stdout.trim()) throw new Error(`${task.ref} (${task.branchName}) has no commits to combine.`);
+    if (commits.code !== 0 || !commits.stdout.trim()) throw new Error(`${task.ref} (${task.branchName}) has no commits to pick.`);
     commitsToPick.push(...commits.stdout.trim().split('\n'));
   }
   for (let index = 0; index < commitsToPick.length; index++) {
@@ -203,8 +226,8 @@ async function combineTasks(refs: string[], requestedBranch: string, closeTasks:
 
 async function continueCombine(branchName: string): Promise<{ branchName: string; tasks: ReturnType<typeof getTaskDetail>[] }> {
   const branch = requireCombinedBranch(branchName);
-  if (branch.combineState !== 'conflict') throw new Error(`Combine for '${branchName}' is not waiting for a conflict resolution.`);
-  if (git(['branch', '--show-current']).stdout.trim() !== branchName) throw new Error(`Switch to '${branchName}' before continuing the combine.`);
+  if (branch.combineState !== 'conflict') throw new Error(`'${branchName}' is not waiting for a conflict resolution.`);
+  if (git(['branch', '--show-current']).stdout.trim() !== branchName) throw new Error(`Switch to '${branchName}' before continuing the cherry-pick.`);
   // The user may have already run `git cherry-pick --continue` while resolving
   // the conflict. In that case Git has removed CHERRY_PICK_HEAD, but the saved
   // delivery-branch state still says conflict. Treat the button as “finish the
@@ -531,6 +554,209 @@ async function handleNotes(request: Request, url: URL, rest: string[]): Promise<
   return fail('Unknown endpoint.', 404);
 }
 
+/* ---------------------------------------------------------------- issues */
+
+/**
+ * Read-only, and re-read per request. The files are fetched by something else
+ * and can be replaced at any moment, so there is nothing to cache and nothing
+ * here that writes.
+ */
+function handleIssues(request: Request, url: URL, rest: string[]): Response {
+  if (request.method !== 'GET') return fail('Method not allowed.', 405);
+
+  const [rawId] = rest;
+
+  if (!rawId) {
+    const state = url.searchParams.get('state') ?? undefined;
+    if (state && state !== 'open' && state !== 'closed' && state !== 'all') {
+      return fail("state must be 'open', 'closed' or 'all'.");
+    }
+
+    return json({
+      issues: listIssues({
+        state: state as 'open' | 'closed' | 'all' | undefined,
+        source: url.searchParams.get('source') ?? undefined,
+        label: url.searchParams.get('label') ?? undefined,
+        search: url.searchParams.get('q') ?? undefined,
+      }),
+      facets: issueFacets(),
+      notes: notesWorkspaceInfo(),
+    });
+  }
+
+  return json({ issue: readIssue(decodeURIComponent(rawId)) });
+}
+
+/* ---------------------------------------------------------------- events */
+
+/** Heartbeat interval. Comfortably inside the server's idle timeout, so a quiet
+ *  workspace does not have its stream reaped as dead. */
+const SSE_HEARTBEAT_MS = 25_000;
+
+/**
+ * `GET /api/events` — an SSE stream saying which store just changed.
+ *
+ * Deliberately carries no data beyond the channel and a revision number. The
+ * client already knows how to load every view it can show; what it lacked was
+ * any way to know it should. Sending the payload here would mean a second,
+ * parallel definition of what each view needs, and one of the two would rot.
+ */
+function handleEvents(request: Request): Response {
+  if (request.method !== 'GET') return fail('Method not allowed.', 405);
+
+  const encoder = new TextEncoder();
+  let unsubscribe: (() => void) | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const send = (text: string): void => {
+        try {
+          controller.enqueue(encoder.encode(text));
+        } catch {
+          // The client vanished between the event and this write; the abort
+          // handler below is what actually tears the stream down.
+        }
+      };
+
+      // The opening frame carries where each channel stands, so a client that
+      // reconnected after a dropped connection can see what it slept through.
+      send(`event: hello\ndata: ${JSON.stringify({ revisions: currentRevisions() })}\n\n`);
+
+      unsubscribe = onChange((event) => {
+        send(`event: change\ndata: ${JSON.stringify(event)}\n\n`);
+      });
+
+      heartbeat = setInterval(() => send(': ping\n\n'), SSE_HEARTBEAT_MS);
+
+      const close = (): void => {
+        unsubscribe?.();
+        if (heartbeat) clearInterval(heartbeat);
+        try {
+          controller.close();
+        } catch {
+          // Already closed by the runtime.
+        }
+      };
+
+      request.signal.addEventListener('abort', close);
+    },
+    cancel() {
+      unsubscribe?.();
+      if (heartbeat) clearInterval(heartbeat);
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      connection: 'keep-alive',
+      // Nothing here is proxied by default, but a stream that a proxy decides to
+      // buffer is a stream that never arrives.
+      'x-accel-buffering': 'no',
+    },
+  });
+}
+
+/* ---------------------------------------------------------------- agents */
+
+/**
+ * Launching an agent, and watching one that was launched.
+ *
+ * The client sends the *intent* — which command, against what, with what extra
+ * prompt — and never the argv. Building the command line here is what keeps a
+ * browser from being able to ask this server to run anything it likes.
+ */
+async function handleAgents(request: Request, url: URL, rest: string[]): Promise<Response> {
+  const [head, id, action] = rest;
+
+  // /api/agents — which harnesses exist, and whether a window can be opened.
+  if (!head) {
+    if (request.method !== 'GET') return fail('Method not allowed.', 405);
+    return json(agentEnvironment());
+  }
+
+  // /api/agents/models?harness=pi — fetched separately: pi's list is hundreds of
+  // models long and asking for it takes a visible moment.
+  if (head === 'models') {
+    if (request.method !== 'GET') return fail('Method not allowed.', 405);
+    const which = url.searchParams.get('harness');
+    if (!which) return fail('A harness is required.');
+    return json({ models: harnessModels(which) });
+  }
+
+  // /api/agents/run
+  if (head === 'run') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    const input = await body<{
+      harness?: string;
+      model?: string;
+      mode?: string;
+      command?: string;
+      target?: string;
+      extra?: string;
+      subjectKind?: string;
+      subjectRef?: string;
+      unattended?: boolean;
+    }>(request);
+
+    if (!input.harness) return fail('A harness is required.');
+    if (!input.command || !AGENT_COMMANDS.includes(input.command as AgentCommand)) {
+      return fail(`command must be one of: ${AGENT_COMMANDS.join(', ')}.`);
+    }
+    if (!input.mode || !AGENT_RUN_MODES.includes(input.mode as AgentRunMode)) {
+      return fail(`mode must be one of: ${AGENT_RUN_MODES.join(', ')}.`);
+    }
+
+    return json(
+      {
+        run: startRun({
+          harness: input.harness,
+          model: input.model ?? '',
+          mode: input.mode as AgentRunMode,
+          command: input.command as AgentCommand,
+          target: input.target ?? '',
+          extra: input.extra ?? '',
+          subjectKind: input.subjectKind ?? 'other',
+          subjectRef: input.subjectRef ?? '',
+          unattended: input.unattended ?? true,
+        }),
+      },
+      201,
+    );
+  }
+
+  if (head !== 'runs') return fail('Unknown endpoint.', 404);
+
+  // /api/agents/runs
+  if (!id) {
+    if (request.method !== 'GET') return fail('Method not allowed.', 405);
+    return json({
+      runs: listRuns({
+        subjectKind: url.searchParams.get('kind') ?? undefined,
+        subjectRef: url.searchParams.get('ref') ?? undefined,
+      }),
+    });
+  }
+
+  const runId = Number(id);
+  if (!Number.isInteger(runId)) return fail('A run id must be a number.');
+
+  // /api/agents/runs/:id — the run plus the tail of its log.
+  if (!action) {
+    if (request.method !== 'GET') return fail('Method not allowed.', 405);
+    return json({ run: await getRun(runId) });
+  }
+
+  if (action === 'stop') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    return json({ run: stopRun(runId) });
+  }
+
+  return fail('Unknown endpoint.', 404);
+}
+
 /* ----------------------------------------------------------------- routes */
 
 async function handleApi(request: Request, url: URL): Promise<Response> {
@@ -550,9 +776,15 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
     });
   }
 
+  if (head === 'events') return handleEvents(request);
+
+  if (head === 'agents') return handleAgents(request, url, rest);
+
   if (head === 'branches') return handleBranches(request, rest);
 
   if (head === 'notes') return handleNotes(request, url, rest);
+
+  if (head === 'issues') return handleIssues(request, url, rest);
 
   if (head === 'investigations') return handleInvestigations(request, url, rest);
 
@@ -805,6 +1037,14 @@ function serveStatic(url: URL): Response {
   });
 }
 
+// Headless agent runs are children of this process, so a restart ended any that
+// were in flight. Settle those rows before anything can read them.
+reconcileRuns();
+
+// Start watching before the first tab connects, so the opening revisions a
+// client is handed are already moving with the workspace.
+ensureWatchers();
+
 const server = Bun.serve({
   port,
   // Checkpoint captures drive a real browser through every scenario, which
@@ -815,7 +1055,14 @@ const server = Bun.serve({
 
     if (url.pathname.startsWith('/api')) {
       try {
-        return await handleApi(request, url);
+        const response = await handleApi(request, url);
+        // Anything that succeeded and was not a read changed something. The file
+        // watchers see these writes too; saying so directly is what keeps live
+        // updates working on a filesystem whose change notifications do not.
+        if (request.method !== 'GET' && response.ok) {
+          announceChange(url.pathname.startsWith('/api/notes') ? 'notes' : 'tasks');
+        }
+        return response;
       } catch (error) {
         return errorResponse(error);
       }

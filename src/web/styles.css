@@ -457,13 +457,6 @@ label {
   line-height: 1.6;
 }
 
-/* The findings come back as Markdown from an agent; shown as written. */
-.findings {
-  margin: 0;
-  white-space: pre-wrap;
-  line-height: 1.6;
-}
-
 .command {
   flex: 1;
   padding: 7px 10px;
@@ -1025,4 +1018,355 @@ label {
   .note-panes.split {
     grid-template-columns: 1fr;
   }
+}
+
+/* --------------------------------------------------------------- issues */
+
+.issue-filters {
+  padding: 14px 16px;
+}
+
+/* A board, not a list: the cards are the point of this view, so it gets the
+   whole detail pane and lays out as many columns as the width allows. */
+.issue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.issue-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  padding: 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.issue-card:hover {
+  border-color: var(--accent);
+}
+
+/* The provider stripe. A second source gets its own colour here and needs
+   nothing else in this file. */
+.issue-card.source-github { border-left-color: var(--progress); }
+.issue-card.source-azure-devops { border-left-color: #0078d4; }
+
+.issue-card.closed {
+  opacity: 0.72;
+}
+
+.issue-card-title {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.4;
+}
+
+.issue-card-origin,
+.issue-card-excerpt {
+  margin: 0;
+}
+
+.issue-card-excerpt {
+  font-size: 12.5px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.issue-card-origin {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.issue-card-foot {
+  margin-top: auto;
+  padding-top: 2px;
+}
+
+.source-badge {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+.issue-kind {
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: var(--text-dim);
+}
+
+.issue-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* `--label` is the provider's own colour when it has one; the fallback keeps a
+   colourless label (an Azure DevOps tag) looking deliberate rather than broken. */
+.issue-label {
+  --label: var(--text-faint);
+  font-size: 11px;
+  border: 1px solid var(--label);
+  border-radius: 999px;
+  padding: 1px 8px;
+  color: var(--label);
+}
+
+.avatars {
+  display: flex;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-right: -6px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.issue-title {
+  margin: 4px 0 12px;
+  font-size: 20px;
+  line-height: 1.3;
+}
+
+.issue-open {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.issue-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px 20px;
+}
+
+.issue-fields > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+.issue-fields .issue-file {
+  grid-column: 1 / -1;
+}
+
+.issue-raw {
+  margin: 0;
+  max-height: 460px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+/* ----------------------------------------------------------- agent runs */
+
+/* Wider than the other dialogs: this one carries a live log, and a wrapped
+   terminal stream in a 560px column is unreadable. */
+.agent-dialog {
+  width: min(760px, 100%);
+}
+
+.agent-mode {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.agent-mode input {
+  width: auto;
+  margin: 3px 0 0;
+  flex: none;
+}
+
+.agent-mode > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-preview {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--text-dim);
+}
+
+.agent-log {
+  margin: 12px 0;
+  height: 46vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.agent-terminal-note {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  line-height: 1.6;
+}
+
+.badge.agent-launched { color: var(--progress); }
+.badge.agent-running { color: var(--progress); }
+.badge.agent-succeeded { color: var(--verified); }
+.badge.agent-failed { color: var(--danger); }
+.badge.agent-stopped { color: var(--text-faint); }
+
+.agent-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+/* A whole row that behaves like a link rather than a button — the run it opens
+   is a view, not an action. */
+.linkish {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 7px 2px;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.linkish:hover {
+  background: var(--bg-raised);
+}
+
+/* ------------------------------------------------------- markdown blocks */
+
+/* A section heading that shares its rule with a control on the right. The
+   plain `.section > h3` keeps its own border; this is for the ones that need a
+   toggle beside them. */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-head h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.markdown-block {
+  position: relative;
+}
+
+/* Sits over the top-right corner of the block rather than above it: the prose
+   is what the eye wants, and a button on its own row pushes it down. */
+.markdown-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 9px;
+  font-size: 11px;
+  /* Visible enough to be found, quiet enough not to compete with the prose. */
+  opacity: 0.5;
+  transition: opacity 0.12s ease;
+}
+
+.markdown-block:hover .markdown-copy,
+.markdown-copy:focus-visible {
+  opacity: 1;
+}
+
+/* Keep the first line clear of the button while it is showing. */
+.markdown-block .markdown > :first-child {
+  padding-right: 70px;
+}
+
+/* ------------------------------------------------------------ live status */
+
+/* Sits at the foot of the rail, and only when something is wrong. */
+.rail-live {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+}
+
+.rail-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--devcomplete);
+  animation: rail-live-pulse 1.6s ease-in-out infinite;
+}
+
+/* Given up reconnecting: stop pulsing, since nothing is being attempted. */
+.rail-live.gone .rail-live-dot {
+  background: var(--text-faint);
+  animation: none;
+}
+
+@keyframes rail-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
 }

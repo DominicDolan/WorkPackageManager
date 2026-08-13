@@ -123,6 +123,31 @@ const SCHEMA = [
      created_at  TEXT    NOT NULL,
      updated_at  TEXT    NOT NULL
    )`,
+
+  // One row per agent launched from the UI. Deliberately not a foreign key to
+  // anything: a run is about an issue as often as a task, and the record of
+  // "an agent was pointed at this" should outlive whatever it was pointed at.
+  // A `terminal` run's output belongs to the terminal; only `print` runs have a
+  // log, and the log lives on disk beside the database rather than inside it.
+  `CREATE TABLE IF NOT EXISTS agent_runs (
+     id           INTEGER PRIMARY KEY AUTOINCREMENT,
+     harness      TEXT    NOT NULL,
+     model        TEXT    NOT NULL DEFAULT '',
+     mode         TEXT    NOT NULL,
+     command      TEXT    NOT NULL,
+     subject_kind TEXT    NOT NULL,
+     subject_ref  TEXT    NOT NULL,
+     prompt       TEXT    NOT NULL,
+     argv_json    TEXT    NOT NULL DEFAULT '[]',
+     pid          INTEGER,
+     status       TEXT    NOT NULL,
+     exit_code    INTEGER,
+     log_path     TEXT,
+     created_at   TEXT    NOT NULL,
+     finished_at  TEXT
+   )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_agent_runs_subject ON agent_runs(subject_kind, subject_ref, id)`,
 ];
 
 /**

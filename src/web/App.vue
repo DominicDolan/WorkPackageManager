@@ -2,11 +2,15 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import {
   INVESTIGATION_STATUS_LABELS,
+  ISSUE_SOURCE_LABELS,
   STATUS_LABELS,
   STATUSES,
   type CombinedBranchDetail,
   type Investigation,
   type InvestigationDetail as InvestigationDetailModel,
+  type IssueDetail as IssueDetailModel,
+  type IssueState,
+  type IssueSummary,
   type Note,
   type NoteSummary,
   type NotesWorkspaceInfo,
@@ -15,16 +19,20 @@ import {
   type Task,
   type TaskDetail as TaskDetailModel,
 } from '@shared/types';
+import type { ChangeChannel } from '@shared/types';
 import { api, type Meta } from './api';
 import BranchDetail from './components/BranchDetail.vue';
 import CombineBranches from './components/CombineBranches.vue';
 import InvestigationDetail from './components/InvestigationDetail.vue';
+import IssueCards from './components/IssueCards.vue';
+import IssueDetail from './components/IssueDetail.vue';
 import NoteDetail from './components/NoteDetail.vue';
 import TaskDetail from './components/TaskDetail.vue';
+import { useLiveUpdates } from './useLiveUpdates';
 import { useLocation } from './useLocation';
 
 /** Which rail section is showing. */
-type View = 'investigations' | 'tasks' | 'branches' | 'combine' | 'notes';
+type View = 'investigations' | 'tasks' | 'branches' | 'combine' | 'notes' | 'issues';
 
 const tasks = ref<Task[]>([]);
 const selected = ref<TaskDetailModel | null>(null);
@@ -47,6 +55,7 @@ const VIEW_PATHS: Record<View, string> = {
   branches: '/branches',
   combine: '/combine',
   notes: '/notes',
+  issues: '/issues',
 };
 
 function viewForPath(path: string): View {
@@ -68,6 +77,16 @@ const notesLoading = ref(false);
 const notesFilter = ref({ q: '', tag: '', folder: '' });
 const creatingNote = ref(false);
 const newNote = ref({ title: '', folder: '' });
+
+const issues = ref<IssueSummary[]>([]);
+const issueFacets = ref<{ sources: { source: string; count: number }[]; labels: string[]; total: number }>({
+  sources: [],
+  labels: [],
+  total: 0,
+});
+const selectedIssue = ref<IssueDetailModel | null>(null);
+const issuesLoading = ref(false);
+const issuesFilter = ref({ q: '', state: 'all' as IssueState | 'all', source: '', label: '' });
 
 const branches = ref<CombinedBranchDetail[]>([]);
 const selectedBranch = ref<string | null>(null);
@@ -379,6 +398,55 @@ watch(
   { deep: true },
 );
 
+/* ---------------------------------------------------------------- issues */
+
+/**
+ * Issues are JSON files in the notes folder, fetched by something else — so
+ * like notes they are re-read rather than cached, and there is nothing here
+ * that writes back.
+ */
+async function refreshIssues(): Promise<void> {
+  const listing = await api.listIssues({
+    q: issuesFilter.value.q || undefined,
+    state: issuesFilter.value.state === 'all' ? undefined : issuesFilter.value.state,
+    source: issuesFilter.value.source || undefined,
+    label: issuesFilter.value.label || undefined,
+  });
+  issues.value = listing.issues;
+  issueFacets.value = listing.facets;
+  notesWorkspace.value = listing.notes;
+}
+
+async function openIssue(id: string): Promise<void> {
+  error.value = null;
+  try {
+    selectedIssue.value = await api.getIssue(id);
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  }
+}
+
+const issuesFiltered = computed(
+  () =>
+    Boolean(issuesFilter.value.q || issuesFilter.value.source || issuesFilter.value.label) ||
+    issuesFilter.value.state !== 'all',
+);
+
+let issuesSearchTimer: ReturnType<typeof setTimeout> | undefined;
+
+watch(
+  () => ({ ...issuesFilter.value }),
+  () => {
+    clearTimeout(issuesSearchTimer);
+    issuesSearchTimer = setTimeout(() => {
+      void refreshIssues().catch((caught: unknown) => {
+        error.value = caught instanceof Error ? caught.message : String(caught);
+      });
+    }, 200);
+  },
+  { deep: true },
+);
+
 /* -------------------------------------------------------------- branches */
 
 async function refreshBranches(): Promise<void> {
@@ -416,6 +484,21 @@ async function showView(next: View): Promise<void> {
   // Git state is read per request, so a revisit always reflects the working
   // tree as it is now rather than as it was when the tab was last open.
   if (next === 'branches') await refreshBranches();
+
+  // The issue files are refreshed by whatever fetches them, so every visit is a
+  // fresh read — and the board opens on the board, not on whatever was last
+  // clicked into.
+  if (next === 'issues') {
+    issuesLoading.value = true;
+    selectedIssue.value = null;
+    try {
+      await refreshIssues();
+    } catch (caught) {
+      error.value = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      issuesLoading.value = false;
+    }
+  }
 
   // Same reasoning for notes, which live on disk and change behind this tab's
   // back whenever the CLI, an agent or a `git pull` touches the folder.
@@ -467,7 +550,7 @@ function navigateTo(next: View): void {
 }
 
 function combineSelected(): void {
-  if (selectedRefs.value.size < 2) return;
+  if (selectedRefs.value.size < 1) return;
   error.value = null;
   navigateTo('combine');
 }
@@ -517,6 +600,64 @@ async function createTask(): Promise<void> {
     error.value = caught instanceof Error ? caught.message : String(caught);
   }
 }
+
+/* ---------------------------------------------------------- live updates */
+
+/**
+ * Something else wrote to the workspace — the CLI, an agent, a `git pull`.
+ *
+ * Reloads what is actually on screen rather than everything: the two list
+ * columns that are visible from anywhere, whatever record is selected, and the
+ * current view's own data. The detail components each keep unsaved typing over
+ * an incoming version (see the brief, the note body and the PR description), so
+ * this cannot take an edit out from under anyone.
+ */
+async function refreshFromChange(channel: ChangeChannel): Promise<void> {
+  // A drag is a reorder the server has not been told about yet; reloading the
+  // list underneath it would put every row back where it started.
+  if (draggingRef.value) return;
+
+  try {
+    if (channel === 'tasks') {
+      await Promise.all([refreshList(), refreshInvestigations()]);
+      if (selected.value) selected.value = await reload(() => api.getTask(selected.value!.ref));
+      if (selectedInvestigation.value) {
+        selectedInvestigation.value = await reload(() =>
+          api.getInvestigation(selectedInvestigation.value!.ref),
+        );
+      }
+      if (view.value === 'branches') await refreshBranches();
+      return;
+    }
+
+    if (view.value === 'notes') {
+      await refreshNotes();
+      if (selectedNote.value) selectedNote.value = await reload(() => api.getNote(selectedNote.value!.path));
+    }
+
+    if (view.value === 'issues') {
+      await refreshIssues();
+      if (selectedIssue.value) selectedIssue.value = await reload(() => api.getIssue(selectedIssue.value!.id));
+    }
+  } catch {
+    // A background refresh that fails is not worth a toast: the screen keeps
+    // what it had, and the next change — or any click — tries again.
+  }
+}
+
+/** Reload one selected record. Something deleted elsewhere simply deselects
+ *  rather than leaving an error over a screen the user did not touch. */
+async function reload<T>(fetch_: () => Promise<T>): Promise<T | null> {
+  try {
+    return await fetch_();
+  } catch {
+    return null;
+  }
+}
+
+const { connected: liveConnected, unavailable: liveUnavailable } = useLiveUpdates(
+  (channel) => void refreshFromChange(channel),
+);
 
 watch(location, (path) => {
   const next = viewForPath(path);
@@ -617,6 +758,38 @@ onMounted(async () => {
           <path d="M8 13h7M8 17h5" />
         </svg>
       </button>
+
+      <button
+        class="rail-item"
+        :class="{ active: location === '/issues' }"
+        title="Issues"
+        aria-label="Issues"
+        :aria-current="location === '/issues'"
+        @click="navigateTo('issues')"
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 8v5" />
+          <path d="M12 16.5v.01" />
+        </svg>
+        <span v-if="issueFacets.total" class="rail-count">{{ issueFacets.total }}</span>
+      </button>
+
+      <!-- Only ever shown when live updates are *not* working. A page that
+           quietly stopped following the workspace looks exactly like one where
+           nothing has happened, which is the failure worth naming. -->
+      <span
+        v-if="!liveConnected"
+        class="rail-live"
+        :class="{ gone: liveUnavailable }"
+        role="status"
+        :title="liveUnavailable
+          ? 'Live updates are unavailable — this server predates /api/events. Restart `tasks web` and reload; until then, changes made elsewhere appear when you switch views.'
+          : 'Live updates disconnected — reconnecting. Changes made elsewhere may not be showing.'"
+      >
+        <span class="rail-live-dot" />
+      </span>
     </nav>
 
     <!-- ----------------------------------------------- investigations list -->
@@ -722,8 +895,11 @@ onMounted(async () => {
       </div>
       <div v-if="selectedRefs.size" class="combine-panel">
         <strong>{{ selectedRefs.size }} selected</strong>
-        <button class="primary" :disabled="selectedRefs.size < 2" @click="combineSelected">Review & combine branches</button>
-        <p class="faint">Only Dev Complete or Verified tasks can be combined. Their branches are cherry-picked in task-list order. Closing requires every selected task to be Verified.</p>
+        <button class="primary" @click="combineSelected">
+          {{ selectedRefs.size === 1 ? 'Review & prepare branch' : 'Review & combine branches' }}
+        </button>
+        <p v-if="selectedRefs.size === 1" class="faint">Only Dev Complete or Verified tasks can be prepared. The task's work is copied onto a delivery branch you name, ready for a PR. Closing requires the task to be Verified.</p>
+        <p v-else class="faint">Only Dev Complete or Verified tasks can be combined. Their branches are cherry-picked in task-list order. Closing requires every selected task to be Verified.</p>
       </div>
     </aside>
 
@@ -824,6 +1000,62 @@ onMounted(async () => {
       </div>
     </aside>
 
+    <!-- ---------------------------------------------------- issues filters -->
+    <aside v-else-if="location === '/issues'" class="sidebar">
+      <div class="sidebar-header">
+        <h1>Issues</h1>
+        <p class="faint" style="margin: 0 0 10px">
+          Read from the JSON files in the notes folder. Nothing here is fetched or written.
+        </p>
+        <input
+          v-model="issuesFilter.q"
+          class="note-search"
+          type="search"
+          placeholder="Search issues"
+          aria-label="Search issues"
+        />
+      </div>
+
+      <div class="task-list issue-filters">
+        <div class="field">
+          <label for="issue-state">State</label>
+          <select id="issue-state" v-model="issuesFilter.state">
+            <option value="all">All</option>
+            <option value="open">Open</option>
+            <option value="closed">Closed</option>
+          </select>
+        </div>
+
+        <!-- One provider today, more later: the filter is a list rather than a
+             toggle so a second source needs nothing here but its own files. -->
+        <div v-if="issueFacets.sources.length > 1" class="field">
+          <label for="issue-source">Source</label>
+          <select id="issue-source" v-model="issuesFilter.source">
+            <option value="">All sources</option>
+            <option v-for="entry in issueFacets.sources" :key="entry.source" :value="entry.source">
+              {{ ISSUE_SOURCE_LABELS[entry.source] ?? entry.source }} ({{ entry.count }})
+            </option>
+          </select>
+        </div>
+
+        <div v-if="issueFacets.labels.length" class="field">
+          <label for="issue-label">Label</label>
+          <select id="issue-label" v-model="issuesFilter.label">
+            <option value="">All labels</option>
+            <option v-for="label in issueFacets.labels" :key="label" :value="label">{{ label }}</option>
+          </select>
+        </div>
+
+        <p class="faint">
+          {{ issues.length }} of {{ issueFacets.total }} shown.
+          <template v-if="issueFacets.sources.length">
+            <br />
+            {{ issueFacets.sources.map((entry) => `${ISSUE_SOURCE_LABELS[entry.source] ?? entry.source}: ${entry.count}`).join(' · ') }}
+          </template>
+        </p>
+      </div>
+    </aside>
+
     <!-- ----------------------------------------------------- branches list -->
     <aside v-else class="sidebar">
       <div class="sidebar-header">
@@ -855,8 +1087,8 @@ onMounted(async () => {
         </button>
 
         <p v-if="!branchesLoading && !branches.length" class="empty">
-          No combined branches yet. Select two or more finished tasks under Tasks and
-          combine them.
+          No delivery branches yet. Select a finished task under Tasks to prepare its
+          branch, or two or more to combine them.
         </p>
       </div>
     </aside>
@@ -897,6 +1129,22 @@ onMounted(async () => {
       @renamed="selectNote"
     />
 
+    <IssueDetail
+      v-else-if="location === '/issues' && selectedIssue"
+      :key="selectedIssue.id"
+      :issue="selectedIssue"
+      @back="selectedIssue = null"
+    />
+
+    <IssueCards
+      v-else-if="location === '/issues'"
+      :issues="issues"
+      :loading="issuesLoading"
+      :filtered="issuesFiltered"
+      :notes-dir="notesWorkspace?.dir ?? null"
+      @open="openIssue"
+    />
+
     <BranchDetail
       v-else-if="location === '/branches' && currentBranch"
       :key="currentBranch.branchName"
@@ -911,7 +1159,7 @@ onMounted(async () => {
     <section v-else class="detail">
       <p class="empty">
         <template v-if="location === '/branches'">
-          {{ branchesLoading ? 'Loading…' : 'Combine some tasks to get a delivery branch here.' }}
+          {{ branchesLoading ? 'Loading…' : 'Prepare or combine some tasks to get a delivery branch here.' }}
         </template>
         <template v-else-if="location === '/notes'">
           {{ notesLoading

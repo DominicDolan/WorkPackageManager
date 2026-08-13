@@ -23,6 +23,7 @@ work-task-manager/          the tool (this repo, installed globally)
     config/                 workspace discovery + per-repo settings
     shared/                 types shared by the CLI, server and web app
     server/                 bun HTTP API + SQLite + the aio-vr integration
+                            (watch.ts streams workspace changes to open tabs)
     cli/                    the `tasks` command
     web/                    Vue 3 single-page app
 
@@ -33,6 +34,7 @@ work-task-manager/          the tool (this repo, installed globally)
 <notes-folder>/             notes: Markdown files, in a Git repo of their own
   <slug>.md                 one note per file, frontmatter + Markdown
   attachments/<slug>/       images and files belonging to that note
+  *.json                    issues fetched from GitHub / Azure DevOps, read-only
 ```
 
 Notes are the exception to "it lives in the database": see [Notes](#notes).
@@ -41,7 +43,10 @@ Notes are the exception to "it lives in the database": see [Notes](#notes).
 
 - `bun` — the runtime, the package manager and the SQLite driver
 - `aio-vr` on PATH — only needed for the checkpoint commands
-- `gh`, and an agent CLI such as `pi` — only needed for the Branches view
+- `gh` — only needed for the Branches view
+- an agent CLI — `claude` and/or `pi`, for PR descriptions and for running
+  investigations and tasks from the UI. A terminal emulator too, if you want
+  those runs to open a window you can talk to
 
 ## Install
 
@@ -92,12 +97,20 @@ unknown key is an error rather than a silent no-op.
 | `apiPort` | `5199` | Port `tasks web` serves on |
 | `webPort` | `5200` | Port `tasks web --dev` serves Vite on |
 | `prAgent` | `["pi","--no-session","-p","--no-tools"]` | Command that writes PR descriptions. `null` disables it |
+| `agentTerminal` | `null` | Command that opens a terminal window, with the agent's argv appended. `null` autodetects |
 
 `prAgent` is a command plus its flags; the prompt is appended as one final
 argument. Whatever you configure wants the equivalent of `--no-tools`: the
 command is fired from a web request, so a tool-enabled agent could block on an
 approval prompt with nobody at the terminal to answer it, and could touch the
 working tree while you are mid-combine.
+
+`agentTerminal` is how "open a window with the agent running in it" is spelled,
+and every emulator spells it differently — `["kitty","--hold"]`,
+`["gnome-terminal","--"]`, `["wezterm","start","--"]`. The agent's own argv is
+appended to it. Left `null`, the first of kitty, wezterm, ghostty, konsole,
+alacritty, gnome-terminal, foot and xterm found on PATH is used; set it
+explicitly to pin one or to pass it extra flags.
 
 `TASKS_DIR`, `TASKS_DB`, `TASKS_API_PORT`, `TASKS_NOTES_DIR`, `AIO_VR_DIR` and
 `AIO_VR_BIN` still override the file for a one-off run.
@@ -232,7 +245,7 @@ within a filtered view rearranges those rows and leaves the hidden ones where
 they were. Existing databases are backfilled with the ordering the list used
 before manual order existed, so nothing appears to move on upgrade.
 
-### Combine task branches (web UI)
+### Prepare and combine task branches (web UI)
 
 A **Verified** task can be closed from its detail view with **Clean checkpoint & close**. This runs `aio-vr clean --name <task-checkpoint>` first; only a successful cleanup marks the task **Closed**. Closed tasks are omitted from the normal list but remain available through an explicit status query/API request.
 
@@ -246,6 +259,13 @@ repository. Resolve any reported cherry-pick conflict on the newly-created
 branch before retrying. **Close tasks** is checked by default. When checked,
 every selected task must be Verified; after all cherry-picks succeed, each
 checkpoint is cleaned and its task is closed.
+
+Ticking exactly one task offers **Review & prepare branch** instead. It is the
+same operation under different wording: the task's commit range is cherry-picked
+onto a new branch under whatever name you want on the PR, and the result is an
+ordinary delivery branch with the same description, target-branch and
+pull-request controls as a combined one. Use it when a single task's generated
+branch name is not the name you want the PR to carry.
 
 ### Branches
 
@@ -266,6 +286,8 @@ tasks list --status in_progress --json # is something already being worked?
 tasks show T-1 --json                  # full detail incl. per-scenario results
 tasks notes list --json                # what has been written down
 tasks notes show <path> --raw          # the Markdown body, nothing else
+tasks issues list --json               # every issue fetched into the notes folder
+tasks issues show 677 --json           # one issue in full, body included
 tasks checkpoint after T-1 --json      # capture and get the comparison back
 tasks done T-1 --json                  # capture + transition in one step
 ```
@@ -278,7 +300,8 @@ Two global slash commands wrap this, installed in both `~/.claude/commands/` and
   finds as tasks linked to that ref, and writes its findings back. Each
   description carries enough detail that the next agent does not have to repeat
   the investigation. It changes no code. With no ref it takes the investigation
-  waiting to be run.
+  waiting to be run. When the brief names an issue (`#677`, an issue URL, a work
+  item), it reads that issue first — see [Issues](#issues).
 - **`/work-task [ref]`** — drives one task through the whole workflow: branch
   from the base branch → `checkpoint before` → make the change →
   `checkpoint after` → `tasks done`. With no ref it takes the task at the top of
@@ -286,12 +309,64 @@ Two global slash commands wrap this, installed in both `~/.claude/commands/` and
   `in_progress`.
 
 The natural pairing is `/plan-tasks` to fill the backlog, then `/work-task` to
-empty it.
+empty it. Both can also be fired from the web UI against whatever is on screen —
+see [Running an agent from the UI](#running-an-agent-from-the-ui).
 
 `--json` on a capture suppresses aio-vr's progress output and returns a single
 JSON document: the run, its per-scenario comparisons, and the updated task.
 `tasks done --json` also carries a `captureError` field — the transition still
 happens if the capture fails, so this is how you find out that it did.
+
+## Running an agent from the UI
+
+Both slash commands can be fired from the web UI rather than typed into a
+terminal, against whatever is on screen:
+
+| Where | Button | What it runs |
+|---|---|---|
+| Issues → an open issue | **Investigate** | `/plan-tasks #677` |
+| Investigations → **Run it** | **Run it here** | `/plan-tasks I-3` |
+| Tasks → a selected task | **Work with agent** | `/work-task T-12` |
+
+The dialog takes an optional extra prompt, the harness (**Claude Code** or
+**pi**, whichever is on PATH) and the model. Claude Code cannot list its own
+models, so it offers the tier aliases — `opus`, `sonnet`, `fable`, `haiku` —
+which track the current model of each tier. `pi` is asked for its catalogue with
+`pi --list-models` and offers all of it, grouped by provider. Either can be left
+on its own default.
+
+The extra prompt goes *below* the command, so the command still gets its ref as
+its first argument. Investigate on an issue runs against the issue itself —
+`/plan-tasks` looks it up through `tasks issues show`, reads the reporter's own
+words, and files what it finds. Nothing creates an investigation record first;
+the command decides whether the question is worth writing down.
+
+### Two ways to run it
+
+**Open a terminal window** launches a real terminal with the agent interactive
+inside it. This is the one to reach for: the agent can ask, you can answer, and
+you can steer it mid-run. This app's involvement ends at the launch — the window
+is a session of its own, and whatever it files shows up in the UI as it happens.
+Needs `agentTerminal`, or a known emulator on PATH.
+
+**Headless (`-p`)** runs it detached with stdout and stderr captured to a log
+the dialog streams back, so it survives closing the tab and can be stopped from
+the same dialog. Nobody is at a terminal to approve a tool call, so a Claude
+Code run offers `--permission-mode bypassPermissions`: both commands are mostly
+shell (`tasks …`, `git …`), and without it a headless run stops dead on the
+first one. Turn it off and it falls back to `acceptEdits`, which is safer and
+usually stalls.
+
+Every launch is recorded — harness, model, mode, the exact argv and the prompt —
+and the last runs for whatever you are looking at are listed in the dialog, so a
+headless log can be reopened later. Runs are children of `tasks web`: restarting
+the server ends the headless ones, and anything left claiming to be running is
+settled on the next start rather than believed. A terminal window outlives the
+server, as it should.
+
+The browser never sends a command line. It sends the intent — which command,
+against what, with what extra prompt — and the server builds the argv. That is
+what stops a page being able to ask this server to run anything it likes.
 
 ## Notes
 
@@ -366,6 +441,62 @@ tasks notes status
 `--body -` and `--append -` read from stdin, which is how an agent writes a long
 note without quoting it. `tasks notes <path>` is shorthand for `show`.
 
+## Issues
+
+The Issues view reads every `.json` file in the notes folder, recognises the ones
+that describe an issue, and shows them as cards. **Nothing here fetches or
+writes.** Whatever pulls the files down — `gh issue view --json`, a script, an
+agent — is somebody else's job; this view is a reader, and the files are re-read
+on every request, so replacing one and switching back to the tab is the whole
+refresh story.
+
+Both of these are understood, along with the bare provider response and a bulk
+export (an array, or Azure DevOps' `{ count, value: [...] }`):
+
+```jsonc
+{ "source": "github",       "fetchedAt": "…", "issue":    { /* GitHub's issue    */ } }
+{ "source": "azure-devops", "fetchedAt": "…", "workItem": { /* an ADO work item  */ } }
+```
+
+`source` is trusted when it is there and sniffed from the shape when it is not —
+a `fields` bag of `System.*` keys is a work item, a `number` + `html_url` is a
+GitHub issue. JSON that is neither is ignored rather than reported: the notes
+folder is allowed to contain other files.
+
+The card shape is the **lowest common denominator** — key, title, state, type,
+labels, assignees, when it last moved — because that is the part GitHub and Azure
+DevOps agree on. Each provider's own vocabulary survives next to it rather than
+being flattened away: `stateLabel` keeps `Active` or `not_planned` as written,
+`kind` keeps `Bug` or `User Story`, and the detail view carries the provider's
+untouched JSON under **Raw JSON**. A source with no colour or no labels (ADO tags
+have neither) renders as itself rather than as a gap.
+
+Descriptions are rendered with the same escaping Markdown renderer the notes use.
+Azure DevOps returns HTML, which is **flattened to text first** and never passed
+through as markup — these files come from outside this tool, and there is no
+sanitiser here worth trusting with them.
+
+### CLI
+
+```bash
+tasks issues list [--state open|closed|all] [--source <s>] [--label <l>] [--search <q>]
+tasks issues show <#number|id|title> [--raw]
+tasks issues 677                       # shorthand for show
+```
+
+`show` takes whatever you have: the number, the file name, the full id, or enough
+of the title to be unambiguous — an ambiguous reference lists the candidates
+rather than picking one. `--raw` prints the provider's own JSON, for anything the
+flattening left behind. Both commands take `--json`.
+
+This is also how `/plan-tasks` reads an issue named in an investigation brief: it
+looks the issue up and works from the reporter's own words rather than from the
+one-line pointer. It never fetches — if the file is not there, it says so.
+
+Adding a provider is a `fromX()` adapter in `src/server/issues.ts`, a line in
+`ISSUE_SOURCE_LABELS`, and a colour for `.issue-card.source-x` in the stylesheet.
+The view, the filters and the card need no changes.
+
 ## Web UI
 
 ```bash
@@ -374,15 +505,57 @@ tasks web --dev     # Vite dev server on webPort, API on apiPort
 ```
 
 The rail on the far left switches between **Investigations**, **Tasks**,
-**Branches** and **Notes**. Investigations come first because that is where work
-starts: write the brief, run `/plan-tasks` against it, and the tasks it produced
-appear underneath it.
+**Branches**, **Notes** and **Issues**. Investigations come first because that is
+where work starts: write the brief, run `/plan-tasks` against it, and the tasks it
+produced appear underneath it.
+
+**Issues** is a board rather than a list: the filters (search, state, source,
+label) are on the left and the cards take the whole pane, with a click opening
+one full-screen and a **← All issues** button coming back. An open issue has an
+**Investigate** button that points an agent at it — see
+[Running an agent from the UI](#running-an-agent-from-the-ui). See also
+[Issues](#issues).
 
 The Notes screen is a Markdown editor with a live preview (**Write** / **Split** /
 **Read**). Images pasted or dropped into the editor are uploaded, stored beside
 the note and linked at the caret. Everything it writes goes to the file system,
 not the database — the list is re-read each time the view is opened, because the
 CLI, an agent or a `git pull` may have changed the folder behind the tab's back.
+
+### The page keeps up with the workspace
+
+The CLI, an agent and this app all write to the same workspace, so the tab is
+routinely looking at data another process has just replaced. It follows along:
+`tasks done T-1` in a terminal, a `/work-task` run moving a task to Dev
+Complete, or a `git pull` in the notes folder all show up in an open page
+without touching it.
+
+The server watches the two stores — the database directory (WAL and all) and
+the notes folder — and streams *which one moved* over
+`GET /api/events` (Server-Sent Events). No data travels on that stream: the
+client already knows how to load every view it can show, and what it lacked was
+any way to know it should. So a change reloads the two list columns, whatever
+record is selected, and the current view's own data, through exactly the same
+calls a click would have made.
+
+Unsaved typing is never overwritten. The brief, a note's body and a PR
+description each keep what you have typed over an incoming version, and a reorder
+in progress is left alone until the drag ends.
+
+The stream reconnects itself, and tells the client where each channel stands
+when it does, so anything that happened while a laptop was asleep is caught up
+on rather than missed. A dot appears at the foot of the left rail when live
+updates are **not** working — a page that quietly stopped following the
+workspace otherwise looks exactly like one where nothing has happened. Views
+still reload on navigation regardless, which is what an older server (or a
+filesystem with no change notifications) falls back to.
+
+Prose is rendered as the Markdown it was written in — an investigation's brief
+and findings, a task's description, an issue body, a generated PR description —
+with a **Copy** button that hands back the Markdown source rather than the
+rendered text. The two blocks that are also editing surfaces, the brief and the
+PR body, carry a **Write** / **Read** toggle; Read previews what you have typed,
+not what was last saved.
 
 The task list is on the left; selecting a task shows its description, workflow
 buttons, the visual checkpoint section and its history. Rows are dragged to set
@@ -419,15 +592,32 @@ the bundled `dist/web` and says so if you ask for `--dev`.
 - Because artefacts are read from disk, deleting a checkpoint leaves the task's
   history intact but the images stop rendering. `tasks rm` deliberately does not
   touch the aio-vr workspace.
+- **Live updates carry no data, only a channel.** There is nothing to subscribe
+  to in SQLite or in a folder of Markdown, so `src/server/watch.ts` watches what
+  they actually are — files — and says "the database moved" or "the notes folder
+  moved". Sending the new state down that stream would mean a second definition
+  of what each view needs, in parallel with the one the views already have, and
+  one of the two would rot. Writes made through the server announce themselves
+  directly as well, so live updates still work on a filesystem whose change
+  notifications do not.
 - **Notes go the other way on purpose.** Workflow state — statuses, transitions,
   queue order — is what a database is for. Prose is not: it wants to be a file
   somebody else's tools can open, and a history somebody else's clone can pull.
   So notes are files, their folder is a repository, and this tool is one of
   several ways to write them rather than the only one.
+- Issues are **read-only and provider-shaped at the edge**. One adapter per
+  provider flattens a file into a common card; everything downstream of that —
+  the board, the filters, the detail view — knows nothing about GitHub or Azure
+  DevOps. That is what stops the second provider being a rewrite of the first.
 - The Markdown preview is rendered by a small renderer in `src/web/markdown.ts`
   rather than a dependency. It escapes the source before any rule runs, so the
   only markup in the output is the markup it emits — which is what makes it safe
   to preview a note written by an agent or pulled from someone else's clone.
+  Everything that displays stored prose goes through it (`MarkdownBlock.vue`):
+  investigation briefs and findings, task descriptions, issue bodies and PR
+  descriptions were all written as Markdown, so all of them are read as
+  Markdown. **Copy** on such a block copies the *source*, because the reason to
+  copy any of it is to paste it somewhere that wants the Markdown back.
 
 ## Caveats
 

@@ -7,6 +7,8 @@ import {
   type InvestigationStatus,
 } from '@shared/types';
 import { api } from '../api';
+import AgentRunDialog from './AgentRunDialog.vue';
+import MarkdownBlock from './MarkdownBlock.vue';
 
 const props = defineProps<{ investigation: InvestigationDetail }>();
 const emit = defineEmits<{
@@ -18,6 +20,18 @@ const emit = defineEmits<{
 const busy = ref<string | null>(null);
 const error = ref<string | null>(null);
 const copied = ref(false);
+const running = ref(false);
+const briefMode = ref<'write' | 'read'>('write');
+
+/** A run writes findings and status back, so reload when the dialog is closed. */
+async function agentDialogClosed(): Promise<void> {
+  running.value = false;
+  try {
+    emit('changed', await api.getInvestigation(props.investigation.ref));
+  } catch {
+    // Deleted by whatever ran; the list column will reflect that.
+  }
+}
 
 /** The brief is the point of this view, so it is a live editing surface rather
  *  than something behind an Edit button. Saved explicitly — losing a half-written
@@ -110,6 +124,16 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
   <section class="detail">
     <p v-if="error" class="banner">{{ error }}</p>
 
+    <AgentRunDialog
+      v-if="running"
+      command="plan-tasks"
+      :target="investigation.ref"
+      subject-kind="investigation"
+      :subject-ref="investigation.ref"
+      :subject-title="investigation.title"
+      @close="agentDialogClosed"
+    />
+
     <div class="detail-header">
       <span class="mono dim">{{ investigation.ref }}</span>
       <input
@@ -142,20 +166,36 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
 
     <!-- ------------------------------------------------------------- brief -->
     <div class="section">
-      <h3>What to investigate</h3>
-      <div class="panel">
+      <div class="section-head">
+        <h3>What to investigate</h3>
+        <span class="spacer" />
+        <!-- Read previews the draft, not the stored brief: what you are checking
+             is what you just typed. -->
+        <div class="modes" role="group" aria-label="Brief view">
+          <button :class="{ active: briefMode === 'write' }" @click="briefMode = 'write'">Write</button>
+          <button :class="{ active: briefMode === 'read' }" @click="briefMode = 'read'">Read</button>
+        </div>
+      </div>
+
+      <template v-if="briefMode === 'read'">
+        <MarkdownBlock v-if="draft.brief.trim()" :source="draft.brief" />
+        <p v-else class="empty">Nothing written yet.</p>
+      </template>
+
+      <div v-else class="panel">
         <textarea
           v-model="draft.brief"
           class="brief-input"
           aria-label="Investigation brief"
-          placeholder="What is worth looking into, and why? Anything you already know — a symptom, a file, a hunch — saves the agent a lap."
+          placeholder="What is worth looking into, and why? Anything you already know — a symptom, a file, a hunch — saves the agent a lap. Markdown."
         />
-        <div class="row" style="margin-top: 10px">
-          <button class="primary" :disabled="!dirty || busy === 'save'" @click="save">
-            {{ busy === 'save' ? 'Saving…' : dirty ? 'Save' : 'Saved' }}
-          </button>
-          <span v-if="dirty" class="faint">Unsaved changes.</span>
-        </div>
+      </div>
+
+      <div class="row" style="margin-top: 10px">
+        <button class="primary" :disabled="!dirty || busy === 'save'" @click="save">
+          {{ busy === 'save' ? 'Saving…' : dirty ? 'Save' : 'Saved' }}
+        </button>
+        <span v-if="dirty" class="faint">Unsaved changes.</span>
       </div>
     </div>
 
@@ -171,6 +211,7 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
         <div class="row">
           <code class="mono command">{{ command }}</code>
           <button :disabled="!!busy" @click="copyCommand">{{ copied ? 'Copied' : 'Copy' }}</button>
+          <button class="primary" :disabled="!!busy" @click="running = true">Run it here</button>
         </div>
         <p v-if="dirty" class="banner warn" style="margin: 12px 0 0">
           Save the brief first — the agent reads what is stored, not what is on screen.
@@ -181,9 +222,10 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
     <!-- ---------------------------------------------------------- findings -->
     <div class="section">
       <h3>Findings</h3>
-      <div v-if="investigation.findings" class="panel">
-        <p class="findings">{{ investigation.findings }}</p>
-      </div>
+      <!-- Written by an agent, in Markdown, and usually the longest thing on
+           this page — headings and lists are the difference between reading it
+           and skimming past it. Copy gives the Markdown back. -->
+      <MarkdownBlock v-if="investigation.findings" :source="investigation.findings" />
       <p v-else class="empty">
         Nothing yet. Findings appear here once the investigation has been run.
       </p>

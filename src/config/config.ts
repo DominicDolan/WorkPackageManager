@@ -51,6 +51,17 @@ export interface TasksConfig {
    * as unavailable rather than failing a request.
    */
   prAgent: string[] | null;
+  /**
+   * Command that opens a terminal window, with the agent's argv appended to it —
+   * `["kitty", "--hold", "-e"]` runs `kitty --hold -e claude "/work-task T-1"`.
+   * This is how "open a window with the agent running in it" is spelled, and
+   * every emulator spells it differently, hence the array.
+   *
+   * `null` autodetects the first of a handful of known emulators on PATH. Set it
+   * explicitly to pin one, or to pass extra flags (a class name for the window
+   * manager, a profile, a font size).
+   */
+  agentTerminal: string[] | null;
 }
 
 export const DEFAULT_CONFIG: TasksConfig = {
@@ -64,6 +75,7 @@ export const DEFAULT_CONFIG: TasksConfig = {
   apiPort: 5199,
   webPort: 5200,
   prAgent: ['pi', '--no-session', '-p', '--no-tools'],
+  agentTerminal: null,
 };
 
 export const CONFIG_FILENAME = 'tasks.config.json';
@@ -93,22 +105,25 @@ function merge(raw: Record<string, unknown>): TasksConfig {
     }
   }
 
-  if (raw.prAgent !== undefined) {
-    const value = raw.prAgent;
+  // Both of these are "a command and its flags, or null to switch the feature
+  // off", so they validate identically.
+  for (const key of ['prAgent', 'agentTerminal'] as const) {
+    const value = raw[key];
+    if (value === undefined) continue;
     if (value === null) {
-      config.prAgent = null;
+      config[key] = null;
     } else if (typeof value === 'string') {
       // A bare string is the command with no flags — accepted for convenience.
-      if (!value.trim()) fail("'prAgent' must not be empty.");
-      config.prAgent = [value];
+      if (!value.trim()) fail(`'${key}' must not be empty.`);
+      config[key] = [value];
     } else if (
       Array.isArray(value) &&
       value.length > 0 &&
       value.every((part) => typeof part === 'string' && part.trim())
     ) {
-      config.prAgent = value as string[];
+      config[key] = value as string[];
     } else {
-      fail("'prAgent' must be a command string, an array of non-empty strings, or null.");
+      fail(`'${key}' must be a command string, an array of non-empty strings, or null.`);
     }
   }
 

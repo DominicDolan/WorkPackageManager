@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import type { TaskDetail } from '@shared/types';
 import { api } from '../api';
 
@@ -12,6 +12,9 @@ const saving = ref<string | null>(null);
 const error = ref<string | null>(null);
 const branchName = ref('');
 const closeTasks = ref(true);
+/** One task takes the same path as a combine — cut a branch, cherry-pick onto
+ *  it, hand it to the PR flow — so only the wording changes. */
+const single = computed(() => props.refs.length === 1);
 
 async function load() {
   loading.value = true; error.value = null;
@@ -38,8 +41,12 @@ onMounted(load);
 
 <template>
   <section class="detail combine-create">
-    <header class="detail-header"><div><p class="eyebrow">Delivery branch</p><h2>Combine branches</h2></div><button @click="emit('close')">Cancel</button></header>
-    <p class="faint">Review the task branches, fix assignments, then cherry-pick all selected work in this order.</p>
+    <header class="detail-header"><div><p class="eyebrow">Delivery branch</p><h2>{{ single ? 'Prepare branch' : 'Combine branches' }}</h2></div><button @click="emit('close')">Cancel</button></header>
+    <p class="faint">
+      {{ single
+        ? 'Review the task branch, fix its assignment if needed, then copy its work onto a new branch under the name you want on the PR.'
+        : 'Review the task branches, fix assignments, then cherry-pick all selected work in this order.' }}
+    </p>
     <p v-if="error" class="banner warn">{{ error }}</p>
     <p v-if="loading">Checking branches…</p>
     <div v-else class="panel">
@@ -55,9 +62,9 @@ onMounted(load);
         </template>
       </div>
     </div>
-    <div class="panel"><label>Combined branch name</label><input v-model="branchName" placeholder="feature/my-delivery" />
-      <label class="combine-close"><input v-model="closeTasks" type="checkbox" /> Close verified tasks after completion</label>
-      <button class="primary" :disabled="!branchName.trim() || rows.some((row) => !row.exists)" @click="combine">Combine All</button>
+    <div class="panel"><label>{{ single ? 'Branch name' : 'Combined branch name' }}</label><input v-model="branchName" placeholder="feature/my-delivery" />
+      <label class="combine-close"><input v-model="closeTasks" type="checkbox" /> {{ single ? 'Close the task after completion if it is verified' : 'Close verified tasks after completion' }}</label>
+      <button class="primary" :disabled="!branchName.trim() || rows.some((row) => !row.exists)" @click="combine">{{ single ? 'Prepare Branch' : 'Combine All' }}</button>
     </div>
   </section>
 </template>

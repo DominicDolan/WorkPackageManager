@@ -1,8 +1,17 @@
 import type {
+  AgentCommand,
+  AgentEnvironment,
+  AgentModel,
+  AgentRun,
+  AgentRunDetail,
+  AgentRunMode,
   CombinedBranchDetail,
   Investigation,
   InvestigationDetail,
   InvestigationStatus,
+  IssueDetail,
+  IssueState,
+  IssueSummary,
   Note,
   NoteAttachment,
   NoteSummary,
@@ -26,6 +35,13 @@ export interface Meta {
   notes: NotesWorkspaceInfo;
   /** Which external CLIs the Branches view can use. */
   tools: ToolAvailability;
+}
+
+/** The Issues view's payload: the cards, plus what the filters can offer. */
+export interface IssueListing {
+  issues: IssueSummary[];
+  facets: { sources: { source: string; count: number }[]; labels: string[]; total: number };
+  notes: NotesWorkspaceInfo;
 }
 
 /** The Notes sidebar's whole payload: one read gives the list and its filters. */
@@ -239,6 +255,60 @@ export const api = {
     request<{ workspace: NotesWorkspaceInfo }>('/notes/init', { method: 'POST', body: JSON.stringify({}) }).then(
       (r) => r.workspace,
     ),
+
+  /* -------------------------------------------------------------- issues */
+
+  listIssues: (query: { state?: IssueState | 'all'; source?: string; label?: string; q?: string } = {}) => {
+    const search = new URLSearchParams(
+      Object.entries(query).filter(([, value]) => value) as [string, string][],
+    ).toString();
+    return request<IssueListing>(`/issues${search ? `?${search}` : ''}`);
+  },
+
+  getIssue: (id: string) =>
+    request<{ issue: IssueDetail }>(`/issues/${encodeURIComponent(id)}`).then((r) => r.issue),
+
+  /* -------------------------------------------------------------- agents */
+
+  /** Which harnesses are installed, and whether a terminal window can be opened. */
+  agentEnvironment: () => request<AgentEnvironment>('/agents'),
+
+  /** Fetched only when a harness is chosen — pi's catalogue is large and slow. */
+  agentModels: (harness: string) =>
+    request<{ models: AgentModel[] }>(`/agents/models?harness=${encodeURIComponent(harness)}`).then(
+      (r) => r.models,
+    ),
+
+  /** Start an agent. The server builds the command line; this sends the intent. */
+  startAgentRun: (input: {
+    harness: string;
+    model: string;
+    mode: AgentRunMode;
+    command: AgentCommand;
+    target: string;
+    extra: string;
+    subjectKind: string;
+    subjectRef: string;
+    unattended: boolean;
+  }) =>
+    request<{ run: AgentRun }>('/agents/run', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }).then((r) => r.run),
+
+  listAgentRuns: (subject?: { kind: string; ref: string }) => {
+    const search = subject
+      ? `?kind=${encodeURIComponent(subject.kind)}&ref=${encodeURIComponent(subject.ref)}`
+      : '';
+    return request<{ runs: AgentRun[] }>(`/agents/runs${search}`).then((r) => r.runs);
+  },
+
+  /** The run plus the tail of its log — polled while a headless run is going. */
+  getAgentRun: (id: number) =>
+    request<{ run: AgentRunDetail }>(`/agents/runs/${id}`).then((r) => r.run),
+
+  stopAgentRun: (id: number) =>
+    request<{ run: AgentRun }>(`/agents/runs/${id}/stop`, { method: 'POST' }).then((r) => r.run),
 
   syncNotes: (push: boolean) =>
     request<{ committed: string | null; pushed: boolean; git: NotesGitInfo }>('/notes/sync', {

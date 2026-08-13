@@ -8,7 +8,9 @@ import {
   type TaskDetail,
 } from '@shared/types';
 import { api } from '../api';
+import AgentRunDialog from './AgentRunDialog.vue';
 import ComparisonCard from './ComparisonCard.vue';
+import MarkdownBlock from './MarkdownBlock.vue';
 
 const props = defineProps<{ task: TaskDetail; aioVrReady: boolean }>();
 const emit = defineEmits<{
@@ -21,6 +23,7 @@ const busy = ref<string | null>(null);
 const error = ref<string | null>(null);
 const editing = ref(false);
 const noteText = ref('');
+const working = ref(false);
 
 const draft = ref({ title: '', description: '', priority: 'medium' as Priority, tags: '' });
 
@@ -30,8 +33,20 @@ watch(
     editing.value = false;
     error.value = null;
     noteText.value = '';
+    working.value = false;
   },
 );
+
+/** An agent run moves the task through the workflow behind this view's back, so
+ *  pick up whatever it did when the dialog is dismissed. */
+async function agentDialogClosed(): Promise<void> {
+  working.value = false;
+  try {
+    emit('changed', await api.getTask(props.task.ref));
+  } catch {
+    // The task may have been deleted by whatever ran; the list will say so.
+  }
+}
 
 function beginEdit(): void {
   draft.value = {
@@ -187,6 +202,16 @@ const eventText = (event: TaskDetail['events'][number]): string => {
   <section class="detail">
     <p v-if="error" class="banner">{{ error }}</p>
 
+    <AgentRunDialog
+      v-if="working"
+      command="work-task"
+      :target="task.ref"
+      subject-kind="task"
+      :subject-ref="task.ref"
+      :subject-title="task.title"
+      @close="agentDialogClosed"
+    />
+
     <!-- ------------------------------------------------------------ header -->
     <template v-if="!editing">
       <div class="detail-header">
@@ -212,10 +237,15 @@ const eventText = (event: TaskDetail['events'][number]): string => {
         <button class="danger" :disabled="!!busy" @click="remove">Delete</button>
       </div>
 
-      <p v-if="task.description" style="white-space: pre-wrap">{{ task.description }}</p>
+      <!-- A description filed by /plan-tasks carries the detail that saves the
+           next agent repeating the investigation, and it is written in Markdown. -->
+      <MarkdownBlock v-if="task.description" :source="task.description" />
       <p class="mono faint">Branch: {{ task.branchName ?? 'None (legacy completed task)' }}</p>
 
       <div class="row" style="flex-wrap: wrap; margin-top: 14px">
+        <!-- /work-task drives the whole workflow — branch, before, change,
+             after, done — so it sits with the buttons that do it by hand. -->
+        <button class="primary" :disabled="!!busy" @click="working = true">Work with agent</button>
         <button
           v-for="status in nextStatuses"
           :key="status"

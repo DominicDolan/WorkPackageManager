@@ -691,8 +691,18 @@ export function updateTaskBranchName(ref: string, branchName: string): Task {
   return requireTask(ref);
 }
 
-export function recordCombinedBranch(ref: string, branchName: string): void {
-  addNote(ref, `Included in combined branch '${branchName}'.`);
+/**
+ * Note on a task that its work now lives on a delivery branch.
+ *
+ * A branch built from one task alone is "prepared" rather than "combined", and
+ * gets its own wording. Only the combined phrasing is parsed anywhere (the
+ * legacy backfill in `db.ts`), and that parse only matters for delivery
+ * branches predating the `combined_branches` table — so it stays untouched.
+ */
+export function recordCombinedBranch(ref: string, branchName: string, combined = true): void {
+  addNote(ref, combined
+    ? `Included in combined branch '${branchName}'.`
+    : `Prepared as delivery branch '${branchName}'.`);
 }
 
 /* ----------------------------------------------------- combined branches */
