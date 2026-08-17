@@ -5,6 +5,7 @@ import { packageRoot, workspace } from '../config/paths';
 import { CONFIG_FILENAME, DEFAULT_CONFIG } from '../config/config';
 import { aioVrAvailable, captureAfter, captureBefore, checkpointExists } from '../server/aiovr';
 import {
+  addDependency,
   addNote,
   createInvestigation,
   createTask,
@@ -19,14 +20,17 @@ import {
   listInvestigations,
   listTasks,
   moveTask,
+  removeDependency,
   requireInvestigation,
   requireTask,
   setInvestigationStatus,
   setStatus,
   updateInvestigation,
   updateTask,
+  validateBranchName,
   type MoveTarget,
 } from '../server/repo';
+import { defaultBaseBranch } from '../server/branches';
 import { findIssue, issueFacets, listIssues } from '../server/issues';
 import {
   addAttachment,
@@ -47,8 +51,10 @@ import {
 import {
   INVESTIGATION_STATUS_LABELS,
   INVESTIGATION_STATUSES,
+  parseEstimateUnits,
   STATUS_LABELS,
   STATUSES,
+  unmetDependencies,
   type Comparison,
   type InvestigationStatus,
   type Priority,
@@ -64,7 +70,7 @@ interface Args {
 }
 
 /** Flags that may be repeated; their values collect into an array. */
-const REPEATABLE = new Set(['scenario', 'folder', 'tag']);
+const REPEATABLE = new Set(['scenario', 'folder', 'tag', 'depends-on']);
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
@@ -100,7 +106,9 @@ function parseArgs(argv: string[]): Args {
       }
     }
 
-    if (REPEATABLE.has(key)) {
+    // A `--no-x` negation is never a value to collect: `--no-depends-on` means
+    // "clear the list", which is the boolean false, not the string "false".
+    if (REPEATABLE.has(key) && value !== false) {
       const existing = flags[key];
       const list = Array.isArray(existing) ? existing : [];
       list.push(String(value));
@@ -125,6 +133,12 @@ function flagList(args: Args, name: string): string[] | undefined {
   if (Array.isArray(value)) return value;
   if (typeof value === 'boolean') return undefined;
   return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+/** `--units <n>`, the task's duration on the plan. Absent leaves it alone. */
+function flagUnits(args: Args): number | undefined {
+  const value = flagString(args, 'units');
+  return value === undefined ? undefined : parseEstimateUnits(value);
 }
 
 function flagBool(args: Args, name: string, fallback = false): boolean {
@@ -227,15 +241,33 @@ function commandList(args: Args): void {
   print();
 }
 
+/** Every task there is, closed ones included — the universe a blocker has to be
+ *  resolved against, since a filtered list may not contain it. */
+function allTasks(): Task[] {
+  return listTasks({ includeClosed: true });
+}
+
+/** The blockers of `task` that are not finished yet. */
+function blockers(task: Task, universe = allTasks()): Task[] {
+  return unmetDependencies(task, universe);
+}
+
 /** The shared list rendering. The leading number is the row's place in the
  *  manual order, which is what `tasks move` and the web UI rearrange. */
 function printTaskLines(tasks: Task[]): void {
+  const universe = allTasks();
   print();
   tasks.forEach((task, index) => {
     const tags = task.tags.length ? dim(`  [${task.tags.join(', ')}]`) : '';
     const priority = task.priority === 'high' ? red('!') : task.priority === 'low' ? dim('.') : ' ';
     const place = dim(String(index + 1).padStart(3));
-    print(`${place}  ${bold(task.ref.padEnd(6))} ${priority} ${statusBadge(task.status).padEnd(22)} ${task.title}${tags}`);
+    // Marked rather than reordered or hidden: the list is the user's queue, and
+    // it is for them to decide what a blocked task at the top means.
+    const waiting = blockers(task, universe);
+    const blocked = waiting.length
+      ? yellow(`  ⊘ waiting on ${waiting.map((one) => one.ref).join(', ')}`)
+      : '';
+    print(`${place}  ${bold(task.ref.padEnd(6))} ${priority} ${statusBadge(task.status).padEnd(22)} ${task.title}${tags}${blocked}`);
   });
   print();
 }
@@ -287,7 +319,10 @@ function commandShow(args: Args): void {
 
   print();
   print(`  ${bold(detail.ref)}  ${detail.title}`);
-  print(`  ${statusBadge(detail.status)}   ${dim(`priority: ${detail.priority}`)}`);
+  print(
+    `  ${statusBadge(detail.status)}   ${dim(`priority: ${detail.priority}`)}   ` +
+      dim(`estimate: ${detail.estimateUnits} unit${detail.estimateUnits === 1 ? '' : 's'}`),
+  );
   if (detail.tags.length) print(`  ${dim(`tags: ${detail.tags.join(', ')}`)}`);
   if (detail.description) {
     print();
@@ -297,6 +332,28 @@ function commandShow(args: Args): void {
   print();
   print(`  ${dim('branch:')} ${detail.branchName ?? '(none — legacy completed task)'}`);
   print(`  ${dim('checkpoint:')} ${detail.checkpointName ?? '(none)'}`);
+
+  if (detail.dependsOn.length || detail.blocks.length) {
+    const universe = allTasks();
+    const byRef = new Map(universe.map((task) => [task.ref, task]));
+    const line = (ref: string): string => {
+      const task = byRef.get(ref);
+      if (!task) return `    ${bold(ref)}`;
+      return `    ${bold(task.ref.padEnd(6))} ${statusBadge(task.status).padEnd(22)} ${task.title}`;
+    };
+
+    if (detail.dependsOn.length) {
+      const waiting = blockers(detail, universe);
+      print();
+      print(`  ${dim('depends on')}${waiting.length ? yellow(`  — ${waiting.length} still open`) : green('  — all done')}`);
+      for (const ref of detail.dependsOn) print(line(ref));
+    }
+    if (detail.blocks.length) {
+      print();
+      print(`  ${dim('blocks')}`);
+      for (const ref of detail.blocks) print(line(ref));
+    }
+  }
 
   for (const run of detail.runs) {
     print();
@@ -316,7 +373,7 @@ function commandShow(args: Args): void {
 
 function commandNew(args: Args): void {
   const title = args.positional.slice(1).join(' ');
-  if (!title) throw new Error('Usage: tasks new "<title>" [--branch <name>] [--desc <text>] [--priority high]');
+  if (!title) throw new Error('Usage: tasks new "<title>" [--branch <name>] [--desc <text>] [--priority high] [--units <n>]');
 
   const priority = flagString(args, 'priority');
   if (priority && !isPriority(priority)) {
@@ -330,6 +387,8 @@ function commandNew(args: Args): void {
     tags: flagList(args, 'tag'),
     branchName: flagString(args, 'branch'),
     investigationRef: flagString(args, 'investigation'),
+    dependsOn: flagList(args, 'depends-on'),
+    estimateUnits: flagUnits(args),
   });
 
   if (flagBool(args, 'json')) {
@@ -339,13 +398,14 @@ function commandNew(args: Args): void {
 
   print(`${green('created')}  ${bold(task.ref)}  ${task.title}`);
   if (task.investigationRef) print(dim(`from investigation ${task.investigationRef}`));
+  if (task.dependsOn.length) print(dim(`depends on ${task.dependsOn.join(', ')}`));
   print(dim(`branch: '${task.branchName}'`));
   print(dim(`checkpoint name will be '${task.checkpointName}'`));
 }
 
 function commandEdit(args: Args): void {
   const ref = args.positional[1];
-  if (!ref) throw new Error('Usage: tasks edit <ref> [--title x] [--desc x] [--priority x] [--tag x]');
+  if (!ref) throw new Error('Usage: tasks edit <ref> [--title x] [--desc x] [--priority x] [--tag x] [--units <n>]');
 
   const priority = flagString(args, 'priority');
   if (priority && !isPriority(priority)) {
@@ -362,12 +422,18 @@ function commandEdit(args: Args): void {
 
   // `--no-investigation` parses to false, which is how a link gets removed.
   const investigation = args.flags.investigation;
+  // `--depends-on` replaces the whole set (it is repeatable, so listing them
+  // all is natural); `--no-depends-on` clears it. `tasks dep add/rm` is the
+  // one-at-a-time form.
+  const depends = args.flags['depends-on'];
   const task = updateTask(ref, {
     title: flagString(args, 'title'),
     description: flagString(args, 'desc') ?? flagString(args, 'description'),
     priority: priority as Priority | undefined,
     tags: flagList(args, 'tag'),
     investigationRef: investigation === false ? null : flagString(args, 'investigation'),
+    dependsOn: depends === false ? [] : flagList(args, 'depends-on'),
+    estimateUnits: flagUnits(args),
   });
 
   if (flagBool(args, 'json')) {
@@ -388,6 +454,116 @@ function commandNote(args: Args): void {
     return;
   }
   print(`${green('noted')}  ${bold(task.ref)}`);
+}
+
+/* -------------------------------------------------------- dependencies */
+
+const DEP_USAGE =
+  'Usage: tasks dep <add|rm|list> <ref> [<blocker-ref>...]\n' +
+  '       tasks dep add T-4 T-2 T-3     T-4 waits for T-2 and T-3';
+
+function dependencyAdd(args: Args, remove: boolean): void {
+  const ref = args.positional[2];
+  const blockerRefs = args.positional.slice(3);
+  if (!ref || !blockerRefs.length) throw new Error(DEP_USAGE);
+
+  let task = requireTask(ref);
+  for (const blockerRef of blockerRefs) {
+    task = remove ? removeDependency(task.ref, blockerRef) : addDependency(task.ref, blockerRef);
+  }
+
+  if (flagBool(args, 'json')) {
+    emitJson({ task: getTaskDetail(task.ref) });
+    return;
+  }
+
+  print(
+    `${green(remove ? 'removed' : 'added')}  ${bold(task.ref)} ${
+      remove ? 'no longer depends on' : 'depends on'
+    } ${blockerRefs.join(', ')}`,
+  );
+  const waiting = blockers(task);
+  print(
+    waiting.length
+      ? yellow(`  waiting on ${waiting.map((one) => `${one.ref} (${STATUS_LABELS[one.status]})`).join(', ')}`)
+      : green('  nothing is holding it up'),
+  );
+}
+
+/**
+ * The whole graph, or one task's corner of it.
+ *
+ * Closed tasks are included: a dependency that has been satisfied is the reason
+ * a task is now workable, and dropping it from the picture hides that.
+ */
+function dependencyList(args: Args): void {
+  const ref = args.positional[2];
+  const universe = allTasks();
+  const byRef = new Map(universe.map((task) => [task.ref, task]));
+  const subjects = ref
+    ? [requireTask(ref)]
+    : universe.filter((task) => task.dependsOn.length || task.blocks.length);
+
+  if (flagBool(args, 'json')) {
+    emitJson({
+      tasks: subjects.map((task) => ({
+        ref: task.ref,
+        title: task.title,
+        status: task.status,
+        dependsOn: task.dependsOn,
+        blocks: task.blocks,
+        blockedBy: blockers(task, universe).map((one) => one.ref),
+      })),
+    });
+    return;
+  }
+
+  if (!subjects.length) {
+    print(dim('No dependencies recorded. Add one with `tasks dep add <ref> <blocker-ref>`.'));
+    return;
+  }
+
+  print();
+  for (const task of subjects) {
+    const waiting = blockers(task, universe);
+    print(
+      `  ${bold(task.ref.padEnd(6))} ${statusBadge(task.status).padEnd(22)} ${task.title}${
+        waiting.length ? yellow('  ⊘ blocked') : ''
+      }`,
+    );
+    for (const blockerRef of task.dependsOn) {
+      const blocker = byRef.get(blockerRef);
+      const done = blocker ? !waiting.includes(blocker) : false;
+      print(
+        `      ${dim('waits for')} ${bold(blockerRef.padEnd(6))} ${
+          blocker ? statusBadge(blocker.status) : dim('(missing)')
+        }${done ? green('  ✓') : ''}`,
+      );
+    }
+    for (const blockedRef of task.blocks) {
+      print(`      ${dim('blocks   ')} ${bold(blockedRef)}`);
+    }
+  }
+  print();
+}
+
+function commandDependency(args: Args): void {
+  switch (args.positional[1]) {
+    case 'add':
+      return dependencyAdd(args, false);
+    case 'rm':
+    case 'remove':
+    case 'delete':
+      return dependencyAdd(args, true);
+    case 'list':
+    case 'ls':
+    case 'show':
+    case undefined:
+      return dependencyList(args);
+    default:
+      // `tasks dep T-4` is how anyone actually asks about one task.
+      return dependencyList({ ...args, positional: ['dep', 'list', args.positional[1]!] });
+  }
 }
 
 function commandRemove(args: Args): void {
@@ -1141,18 +1317,98 @@ function requireAssignedBranch(task: Task): void {
   }
 }
 
+const localBranchExists = (name: string): boolean =>
+  Bun.spawnSync(['git', 'show-ref', '--verify', '--quiet', `refs/heads/${name}`], {
+    cwd: workspace().repoRoot,
+  }).exitCode === 0;
+
+/**
+ * Where a task's branch should be cut from.
+ *
+ * A finished dependency's work is on *its* branch and nowhere else yet, so a
+ * task that waits for it has to start from there — branching from the base
+ * would mean writing against code that is not present. With no such dependency
+ * this is the base branch, never whatever happens to be checked out.
+ *
+ * Several finished dependencies have no single right answer: one branch cannot
+ * be cut from two, and picking one silently would hide the other's work. That
+ * is a decision for the user, so it is refused with the choices spelled out.
+ */
+function branchStartPoint(task: Task, explicit?: string): { start: string; reason: string } {
+  if (explicit) {
+    const start = validateBranchName(explicit);
+    if (!localBranchExists(start)) throw new Error(`Cannot branch from '${start}': no such local branch.`);
+    return { start, reason: 'asked for with --from' };
+  }
+
+  const universe = allTasks();
+  const waiting = new Set(blockers(task, universe).map((one) => one.ref));
+  const finished = task.dependsOn
+    .map((depRef) => universe.find((one) => one.ref === depRef))
+    .filter((dep): dep is Task => !!dep && !waiting.has(dep.ref) && !!dep.branchName)
+    .filter((dep) => localBranchExists(dep.branchName!));
+
+  if (finished.length > 1) {
+    throw new Error(
+      `${task.ref} depends on several finished tasks (${finished.map((one) => one.ref).join(', ')}), ` +
+        'so there is no single branch to start from. Combine them into one delivery branch first, ' +
+        `then: tasks branch ${task.ref} --from <that-branch>`,
+    );
+  }
+  if (finished.length === 1) {
+    const dep = finished[0]!;
+    return { start: dep.branchName!, reason: `${dep.ref} — the task this one depends on` };
+  }
+
+  const base = defaultBaseBranch();
+  if (localBranchExists(base)) return { start: base, reason: 'the base branch' };
+  if (
+    Bun.spawnSync(['git', 'rev-parse', '--verify', '--quiet', `origin/${base}`], {
+      cwd: workspace().repoRoot,
+    }).exitCode === 0
+  ) {
+    return { start: `origin/${base}`, reason: "the base branch, from origin (it is not local yet)" };
+  }
+  throw new Error(`Cannot find the base branch '${base}' locally or on origin. Pass --from <branch>.`);
+}
+
 function commandBranch(args: Args): void {
   const ref = args.positional[1];
-  if (!ref) throw new Error('Usage: tasks branch <ref>');
+  if (!ref) throw new Error('Usage: tasks branch <ref> [--from <branch>]');
   const task = requireTask(ref);
   if (!task.branchName) throw new Error(`${task.ref} has no assigned branch (legacy completed task).`);
+
   const cwd = workspace().repoRoot;
-  const exists = Bun.spawnSync(['git', 'show-ref', '--verify', '--quiet', `refs/heads/${task.branchName}`], { cwd }).exitCode === 0;
-  const result = Bun.spawnSync(exists ? ['git', 'switch', task.branchName] : ['git', 'switch', '-c', task.branchName], {
-    cwd, stdout: 'inherit', stderr: 'inherit',
-  });
+  const exists = localBranchExists(task.branchName);
+  const requestedFrom = flagString(args, 'from');
+  // An existing branch is switched to as-is: it already has a history, and
+  // rebasing it onto something else is not this command's business.
+  const from = exists ? null : branchStartPoint(task, requestedFrom);
+  if (exists && requestedFrom) {
+    print(dim(`'${task.branchName}' already exists, so --from ${requestedFrom} was not used.`));
+  }
+
+  const result = Bun.spawnSync(
+    exists ? ['git', 'switch', task.branchName] : ['git', 'switch', '-c', task.branchName, from!.start],
+    { cwd, stdout: 'inherit', stderr: 'inherit' },
+  );
   if (result.exitCode !== 0) throw new Error(`Could not switch to '${task.branchName}'.`);
+
   print(`${green('on branch')}  ${task.branchName}`);
+  if (from) print(dim(`branched from '${from.start}' — ${from.reason}`));
+
+  // Said, not enforced: starting blocked work is the user's call, but it must
+  // not be something they find out about afterwards.
+  const waiting = blockers(task);
+  if (waiting.length) {
+    print(
+      yellow(
+        `  ⊘ ${task.ref} is waiting on ${waiting
+          .map((one) => `${one.ref} (${STATUS_LABELS[one.status]})`)
+          .join(', ')} — that work is not on this branch.`,
+      ),
+    );
+  }
 }
 
 async function commandTransition(args: Args, status: Status): Promise<void> {
@@ -1291,11 +1547,21 @@ ${bold('Tasks')}
   tasks list [--status <s>] [--tag <t>] [--investigation <ref>] [--json]
   tasks show <ref> [--json]
   tasks new "<title>" [--branch <name>] [--desc <text>] [--priority low|medium|high] [--tag <t>]
-                      [--investigation <ref>]
+                      [--investigation <ref>] [--depends-on <ref>]
   tasks edit <ref> [--title <t>] [--desc <t>] [--priority <p>] [--status <s>] [--tag <t>]
                    [--investigation <ref> | --no-investigation]
+                   [--depends-on <ref> | --no-depends-on]
   tasks note <ref> <text>
   tasks rm <ref>
+
+${bold('Dependencies')}   "this task waits for that one"
+  tasks dep add <ref> <blocker-ref>...   the task waits for each blocker
+  tasks dep rm <ref> <blocker-ref>...
+  tasks dep list [<ref>] [--json]        the graph, or one task's corner of it
+    tasks dep T-4                        shorthand for list
+    A blocker counts as met at Dev Complete: the work is on its branch by then.
+    Blocked tasks are marked ⊘ in the list, never hidden or reordered — the
+    queue stays yours. Circular dependencies are refused when they are added.
 
 ${bold('List order')}   the list is the queue; ${bold('/work-task')} takes the task at the top
   tasks move <ref> --top | --bottom | --up | --down
@@ -1305,6 +1571,9 @@ ${bold('List order')}   the list is the queue; ${bold('/work-task')} takes the t
 
 ${bold('Workflow')}   backlog → in_progress → dev_complete → verified
   tasks branch <ref>             create/switch to the task's assigned branch
+    --from <branch>              cut it from this branch instead
+    A new branch is cut from the base branch — or from the branch of the task
+    this one depends on, when that task is finished and its work is only there.
   tasks start <ref>              move to in_progress (requires assigned branch)
   tasks done <ref>               capture the after-checkpoint, move to dev_complete
                                  (--no-checkpoint to skip the capture)
@@ -1382,6 +1651,10 @@ async function main(): Promise<void> {
     case 'move':
     case 'mv':
       return commandMove(args);
+    case 'dep':
+    case 'deps':
+    case 'depends':
+      return commandDependency(args);
     case 'investigation':
     case 'investigations':
     case 'inv':

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import type {
-  AgentCommand,
-  AgentEnvironment,
-  AgentModel,
-  AgentRun,
-  AgentRunDetail,
-  AgentRunMode,
+import {
+  AGENT_PERMISSION_MODE_LABELS,
+  type AgentCommand,
+  type AgentEnvironment,
+  type AgentModel,
+  type AgentPermissionMode,
+  type AgentRun,
+  type AgentRunDetail,
+  type AgentRunMode,
 } from '@shared/types';
 import { api } from '../api';
 
@@ -44,7 +46,7 @@ const modelsError = ref<string | null>(null);
 const harness = ref<string>('claude');
 const model = ref('');
 const mode = ref<AgentRunMode>('terminal');
-const unattended = ref(true);
+const permissionMode = ref<AgentPermissionMode>('auto');
 const extra = ref('');
 
 const error = ref<string | null>(null);
@@ -78,6 +80,31 @@ const groupedModels = computed(() => {
   return [...groups.entries()];
 });
 
+/** What each mode actually means, in the terms this app's two commands work in.
+ *  Both are mostly shell (`tasks …`, `git …`), which is what makes the
+ *  difference between `auto` and `never ask` matter here. */
+const PERMISSION_HINTS: Record<AgentPermissionMode, string> = {
+  manual: 'Claude asks before each edit and each command. Its default.',
+  auto: 'Edits and safe commands go through unasked; anything risky still stops to ask. The mode Shift+Tab reaches in the terminal.',
+  plan: 'Reads and proposes a plan, changes nothing.',
+  bypassPermissions: 'Never asks about anything. The only mode a headless run can finish in, since nobody is there to answer.',
+};
+
+/** Shown verbatim so the run is never a surprise — and `manual` genuinely passes
+ *  no flag, rather than being hidden behind a friendly word. */
+const permissionFlag = computed(() =>
+  permissionMode.value === 'manual' ? 'no --permission-mode flag' : `--permission-mode ${permissionMode.value}`,
+);
+
+/** Claude is the only harness with permission modes; pi has no equivalent. */
+const supportsPermissions = computed(() => harness.value === 'claude');
+
+/** A headless run cannot answer a question, so anything that might ask will
+ *  sit there until it is stopped. */
+const permissionStalls = computed(
+  () => mode.value === 'print' && supportsPermissions.value && permissionMode.value !== 'bypassPermissions',
+);
+
 const isFinished = computed(
   () => !!run.value && run.value.status !== 'running' && run.value.status !== 'launched',
 );
@@ -98,6 +125,17 @@ onMounted(async () => {
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught);
   }
+});
+
+/**
+ * Each run mode has its own sensible default, because the question is different:
+ * a terminal run can answer a prompt, so `auto` leaves the risky ones to you; a
+ * headless run cannot answer anything, so its only useful mode is the one that
+ * never asks. Switching mode moves to that mode's default rather than carrying
+ * a choice across into a place it means something else.
+ */
+watch(mode, (next) => {
+  permissionMode.value = next === 'print' ? 'bypassPermissions' : 'auto';
 });
 
 watch(
@@ -134,7 +172,7 @@ async function start(): Promise<void> {
       extra: extra.value,
       subjectKind: props.subjectKind,
       subjectRef: props.subjectRef,
-      unattended: unattended.value,
+      permissionMode: permissionMode.value,
     });
     run.value = started;
     output.value = '';
@@ -297,17 +335,26 @@ watch(output, () => {
           </label>
         </div>
 
-        <label v-if="mode === 'print' && harness === 'claude'" class="agent-mode">
-          <input v-model="unattended" type="checkbox" />
-          <span>
-            <strong>Let it act without approval prompts</strong>
-            <span class="faint">
-              — <span class="mono">--permission-mode bypassPermissions</span>. Both commands are
-              mostly shell (<span class="mono">tasks</span>, <span class="mono">git</span>), so a
-              headless run stalls on the first one without this.
-            </span>
-          </span>
-        </label>
+        <div v-if="supportsPermissions" class="field">
+          <label for="agent-permission">What it may do without asking</label>
+          <select id="agent-permission" v-model="permissionMode">
+            <option v-for="(label, id) in AGENT_PERMISSION_MODE_LABELS" :key="id" :value="id">
+              {{ label }}
+            </option>
+          </select>
+          <p class="faint">
+            {{ PERMISSION_HINTS[permissionMode] }}
+            <br />
+            Passed as <span class="mono">{{ permissionFlag }}</span>.
+          </p>
+          <p v-if="permissionStalls" class="banner warn">
+            A headless run has nobody to answer a prompt, so
+            <strong>{{ AGENT_PERMISSION_MODE_LABELS[permissionMode] }}</strong> will leave it
+            waiting on the first thing it wants to check. Both commands are mostly shell
+            (<span class="mono">tasks</span>, <span class="mono">git</span>), so that is usually
+            immediate.
+          </p>
+        </div>
 
         <div class="field">
           <label>Prompt</label>

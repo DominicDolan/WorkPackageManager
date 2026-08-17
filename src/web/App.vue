@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import {
+  DEFAULT_ESTIMATE_UNITS,
   INVESTIGATION_STATUS_LABELS,
   ISSUE_SOURCE_LABELS,
   STATUS_LABELS,
   STATUSES,
+  unmetDependencies,
   type CombinedBranchDetail,
   type Investigation,
   type InvestigationDetail as InvestigationDetailModel,
@@ -28,17 +30,29 @@ import IssueCards from './components/IssueCards.vue';
 import IssueDetail from './components/IssueDetail.vue';
 import NoteDetail from './components/NoteDetail.vue';
 import TaskDetail from './components/TaskDetail.vue';
+import TaskSchedule from './components/TaskSchedule.vue';
 import { useLiveUpdates } from './useLiveUpdates';
 import { useLocation } from './useLocation';
 
 /** Which rail section is showing. */
-type View = 'investigations' | 'tasks' | 'branches' | 'combine' | 'notes' | 'issues';
+type View = 'investigations' | 'tasks' | 'plan' | 'branches' | 'combine' | 'notes' | 'issues';
 
 const tasks = ref<Task[]>([]);
 const selected = ref<TaskDetailModel | null>(null);
 const meta = ref<Meta | null>(null);
 const filter = ref<Status | 'all'>('all');
 const error = ref<string | null>(null);
+/** The counterpart to `error` for actions whose success is worth stating —
+ *  a sync that found nothing new has no other way to show it did anything.
+ *  Unlike an error it clears itself: nothing is waiting on it being read. */
+const notice = ref<string | null>(null);
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+
+function showNotice(text: string): void {
+  notice.value = text;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => { notice.value = null; }, 6000);
+}
 const loading = ref(true);
 const creating = ref(false);
 const selectedRefs = ref(new Set<string>());
@@ -52,6 +66,7 @@ const view = ref<View>('tasks');
 const VIEW_PATHS: Record<View, string> = {
   investigations: '/investigations',
   tasks: '/tasks',
+  plan: '/plan',
   branches: '/branches',
   combine: '/combine',
   notes: '/notes',
@@ -101,11 +116,30 @@ const currentBranch = computed(
   () => branches.value.find((branch) => branch.branchName === selectedBranch.value) ?? null,
 );
 
-const newTask = ref({ title: '', description: '', priority: 'medium' as Priority, tags: '', branchName: '' });
+const newTask = ref({
+  title: '',
+  description: '',
+  priority: 'medium' as Priority,
+  tags: '',
+  branchName: '',
+  estimateUnits: DEFAULT_ESTIMATE_UNITS,
+});
 
 const visibleTasks = computed(() =>
   filter.value === 'all' ? tasks.value : tasks.value.filter((task) => task.status === filter.value),
 );
+
+/** For each task still waiting on something, the refs it waits on. Computed
+ *  over the whole list rather than the filtered one, so a blocker hidden by the
+ *  status filter still counts. */
+const blockedBy = computed(() => {
+  const map = new Map<string, string[]>();
+  for (const task of tasks.value) {
+    const waiting = unmetDependencies(task, tasks.value);
+    if (waiting.length) map.set(task.ref, waiting.map((one) => one.ref));
+  }
+  return map;
+});
 
 const counts = computed(() => {
   const result: Record<string, number> = { all: tasks.value.length };
@@ -366,6 +400,40 @@ async function syncNotes(push: boolean): Promise<void> {
   }
 }
 
+/**
+ * Fetch and fast-forward the notes repository, then reload whichever of the two
+ * views it backs is on screen. Notes and Issues are the same folder, so this is
+ * the same button in both places.
+ */
+async function pullNotes(): Promise<void> {
+  notesLoading.value = true;
+  issuesLoading.value = true;
+  error.value = null;
+  notice.value = null;
+  try {
+    const result = await api.pullNotes();
+    notesWorkspace.value = result.workspace;
+    showNotice(
+      result.received
+        ? `Pulled ${result.received} commit(s) from ${result.upstream}.`
+        : result.upstream
+          ? `Already up to date with ${result.upstream}.${result.unpushed ? ` ${result.unpushed} local commit(s) not pushed.` : ''}`
+          : 'Fetched — this branch is not on the remote yet.',
+    );
+    await Promise.all([
+      view.value === 'notes' ? refreshNotes() : Promise.resolve(),
+      view.value === 'issues' ? refreshIssues() : Promise.resolve(),
+    ]);
+    if (selectedNote.value) selectedNote.value = await reload(() => api.getNote(selectedNote.value!.path));
+    if (selectedIssue.value) selectedIssue.value = await reload(() => api.getIssue(selectedIssue.value!.id));
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    notesLoading.value = false;
+    issuesLoading.value = false;
+  }
+}
+
 /** Creates the folder and `git init`s it — the one action available when the
  *  configured notes folder is not there yet. */
 async function initNotes(): Promise<void> {
@@ -485,6 +553,10 @@ async function showView(next: View): Promise<void> {
   // tree as it is now rather than as it was when the tab was last open.
   if (next === 'branches') await refreshBranches();
 
+  // The plan is a read of the whole task list — estimates and dependencies
+  // included — and the CLI and agents write to it between visits.
+  if (next === 'plan') await refreshList();
+
   // The issue files are refreshed by whatever fetches them, so every visit is a
   // fresh read — and the board opens on the board, not on whatever was last
   // clicked into.
@@ -590,10 +662,18 @@ async function createTask(): Promise<void> {
       priority: newTask.value.priority,
       tags: newTask.value.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
       branchName: newTask.value.branchName.trim() || undefined,
+      estimateUnits: newTask.value.estimateUnits,
     });
 
     creating.value = false;
-    newTask.value = { title: '', description: '', priority: 'medium', tags: '', branchName: '' }; 
+    newTask.value = {
+      title: '',
+      description: '',
+      priority: 'medium',
+      tags: '',
+      branchName: '',
+      estimateUnits: DEFAULT_ESTIMATE_UNITS,
+    };
     await refreshList();
     await select(created.ref);
   } catch (caught) {
@@ -690,7 +770,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="app">
+  <div class="app" :class="{ full: location === '/plan' }">
     <!-- ------------------------------------------------------------- rail -->
     <nav class="rail" aria-label="Sections">
       <button
@@ -721,6 +801,23 @@ onMounted(async () => {
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M9 11l3 3L22 4" />
           <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+        </svg>
+      </button>
+
+      <button
+        class="rail-item"
+        :class="{ active: location === '/plan' }"
+        title="Plan"
+        aria-label="Plan"
+        :aria-current="location === '/plan'"
+        @click="navigateTo('plan')"
+      >
+        <!-- Stacked bars, staggered: the shape of the chart it opens. -->
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 6h9" />
+          <path d="M8 12h11" />
+          <path d="M6 18h7" />
         </svg>
       </button>
 
@@ -882,6 +979,11 @@ onMounted(async () => {
             </span>
           </div>
           <div class="task-item-title">{{ task.title }}</div>
+          <!-- Marked, not filtered or sorted: the order of this list is the
+               user's queue, and a blocked task at the top is information. -->
+          <div v-if="blockedBy.get(task.ref)" class="blocked-note">
+            ⊘ waiting on {{ blockedBy.get(task.ref)!.join(', ') }}
+          </div>
           <div v-if="task.tags.length" class="faint">#{{ task.tags.join(' #') }}</div>
         </button>
 
@@ -985,6 +1087,13 @@ onMounted(async () => {
             <template v-if="notesWorkspace.autoCommit"> · auto-commit on</template>
           </p>
           <div class="row">
+            <button
+              :disabled="notesLoading"
+              title="Fetch and fast-forward the notes repository"
+              @click="pullNotes"
+            >
+              Sync
+            </button>
             <button :disabled="notesLoading || !notesWorkspace.git.dirty" @click="syncNotes(false)">
               Commit
             </button>
@@ -1005,7 +1114,8 @@ onMounted(async () => {
       <div class="sidebar-header">
         <h1>Issues</h1>
         <p class="faint" style="margin: 0 0 10px">
-          Read from the JSON files in the notes folder. Nothing here is fetched or written.
+          Read from the JSON files in the notes folder. Sync pulls that repository;
+          nothing here is written back to an issue tracker.
         </p>
         <input
           v-model="issuesFilter.q"
@@ -1054,10 +1164,30 @@ onMounted(async () => {
           </template>
         </p>
       </div>
+
+      <!-- The same folder, and the same pull, as the Notes view — whoever is
+           looking at issues is the one who wants them current. -->
+      <div v-if="notesWorkspace" class="notes-status">
+        <p class="mono faint" :title="notesWorkspace.dir">{{ notesWorkspace.dir }}</p>
+        <template v-if="!notesWorkspace.git.repo">
+          <p class="faint">Not a Git repository — there is nothing to pull.</p>
+        </template>
+        <template v-else>
+          <p class="faint">
+            <span class="mono">{{ notesWorkspace.git.branch ?? 'detached' }}</span>
+            <template v-if="notesWorkspace.git.lastCommit">
+              · {{ notesWorkspace.git.lastCommit.shortSha }}
+            </template>
+          </p>
+          <button :disabled="issuesLoading" title="Fetch and fast-forward the notes repository" @click="pullNotes">
+            Sync
+          </button>
+        </template>
+      </div>
     </aside>
 
     <!-- ----------------------------------------------------- branches list -->
-    <aside v-else class="sidebar">
+    <aside v-else-if="location !== '/plan'" class="sidebar">
       <div class="sidebar-header">
         <h1>Branches</h1>
         <p class="faint" style="margin: 0">
@@ -1108,9 +1238,19 @@ onMounted(async () => {
       :key="selected.ref"
       :task="selected"
       :aio-vr-ready="Boolean(meta?.aioVrInstalled && meta?.aioVrWorkspaceExists)"
+      :all-tasks="tasks"
       @changed="onChanged"
       @deleted="onDeleted"
       @open-investigation="openInvestigation"
+      @open-task="openTask"
+    />
+
+    <TaskSchedule
+      v-else-if="location === '/plan'"
+      :tasks="tasks"
+      :selected-ref="selected?.ref ?? null"
+      @open-task="openTask"
+      @changed="refreshList"
     />
 
     <CombineBranches
@@ -1186,6 +1326,14 @@ onMounted(async () => {
     <div v-if="error" class="toast" role="alert">
       <span>{{ error }}</span>
       <button class="toast-dismiss" aria-label="Dismiss" @click="error = null">×</button>
+    </div>
+
+    <!-- The same corner, for something that went right and is worth a word:
+         a pull that brought nothing back looks identical to one that failed
+         unless it says so. -->
+    <div v-else-if="notice" class="toast ok" role="status">
+      <span>{{ notice }}</span>
+      <button class="toast-dismiss" aria-label="Dismiss" @click="notice = null">×</button>
     </div>
 
     <!-- ------------------------------------------------- new investigation -->
@@ -1271,6 +1419,10 @@ onMounted(async () => {
               <option value="medium">medium</option>
               <option value="high">high</option>
             </select>
+          </div>
+          <div class="field" style="flex: 1">
+            <label for="new-units">Units</label>
+            <input id="new-units" v-model.number="newTask.estimateUnits" type="number" min="1" />
           </div>
           <div class="field" style="flex: 2">
             <label for="new-tags">Tags (comma separated)</label>

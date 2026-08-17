@@ -209,12 +209,15 @@ agents should use.
 | `tasks investigation rm <ref>` | Delete it; the tasks it filed are kept, unlinked |
 | `tasks list [--status s] [--tag t]` | All tasks, in list order. `--investigation <ref>` |
 | `tasks show <ref>` | One task with its history and checkpoint results |
-| `tasks new "<title>"` | Create; assigns a generated branch. `--branch`, `--desc`, `--priority`, `--tag`, `--investigation` |
-| `tasks edit <ref>` | Change `--title`, `--desc`, `--priority`, `--status`, `--tag`, `--investigation` |
+| `tasks new "<title>"` | Create; assigns a generated branch. `--branch`, `--desc`, `--priority`, `--tag`, `--investigation`, `--depends-on`, `--units` |
+| `tasks edit <ref>` | Change `--title`, `--desc`, `--priority`, `--status`, `--tag`, `--investigation`, `--depends-on`, `--units` |
 | `tasks note <ref> <text>` | Append a note to the history |
+| `tasks dep add <ref> <blocker-ref>...` | Make the task wait for each blocker |
+| `tasks dep rm <ref> <blocker-ref>...` | Stop waiting for them |
+| `tasks dep list [<ref>]` | The dependency graph, or one task's corner of it |
 | `tasks move <ref> --top\|--bottom\|--up\|--down` | Reorder the list |
 | `tasks move <ref> --before\|--after <ref>` | Reorder relative to another task |
-| `tasks branch <ref>` | Create or switch to the task's assigned branch |
+| `tasks branch <ref> [--from <branch>]` | Create or switch to the task's assigned branch |
 | `tasks start\|done\|verify\|reopen <ref>` | Move through the workflow (`start` requires the assigned branch) |
 | `tasks checkpoint before\|after\|status <ref>` | Drive aio-vr |
 | `tasks web [--port n] [--dev]` | Serve the UI |
@@ -245,18 +248,97 @@ within a filtered view rearranges those rows and leaves the hidden ones where
 they were. Existing databases are backfilled with the ordering the list used
 before manual order existed, so nothing appears to move on upgrade.
 
+### Dependencies
+
+A task can wait for other tasks: `tasks dep add T-4 T-2` records that T-4 needs
+T-2 first. In the web UI the same thing is done from a task's **Dependencies**
+section — pick a task from the list to wait for, or remove one — and that
+section also shows what is waiting on *this* task.
+
+A blocker counts as met once it reaches **Dev Complete**: by then its work
+exists on its branch, which is what the dependent task actually needs. Waiting
+for a human's **Verified** sign-off would hold up work that is already unblocked.
+
+Being blocked is **stated, never enforced**. A blocked task keeps its place in
+the queue, keeps all its buttons, and is simply marked `⊘ waiting on …` in the
+list and in `tasks list`. The order of the queue is a decision you make, and
+starting something anyway is a judgement call rather than a mistake.
+
+Circular dependencies are refused at the point they would be created — a cycle
+means every task in it is blocked forever, which is never what was meant.
+Deleting a task removes its edges; the tasks on either side of it stay.
+
+#### Where a dependent task's branch is cut from
+
+A finished dependency's work lives on **its** branch and nowhere else until it
+is combined and merged. So `tasks branch <ref>` cuts a new branch from that
+dependency's branch rather than from the base — otherwise the task would be
+written against code that is not there. It says which start point it used.
+
+- No dependencies, or none finished → the **base branch** (never whatever
+  happens to be checked out).
+- **One** finished dependency → that task's branch.
+- **Several** finished dependencies → refused, because one branch cannot be cut
+  from two. Combine them into a delivery branch first, then
+  `tasks branch <ref> --from <that-branch>`.
+- `--from <branch>` overrides all of it.
+
+An existing branch is switched to unchanged; this only chooses a start point
+when the branch is being created. When the task is still waiting on something,
+`tasks branch` says so and carries on — it does not refuse.
+
+### The plan
+
+**Plan** in the rail draws every task as a bar on a shared axis, the way a Gantt
+chart does — except the axis is **units**, not dates. One unit is one task's
+worth of work; most tasks are one unit, and `--units` (or the stepper on the
+chart, or the field in the task editor) says when something is bigger. Nothing
+here is an hour, a day or a calendar: the plan says what order the work can
+happen in and how long the chain is, not when any of it lands.
+
+Start times are not stored. Every dependency is finish-to-start with no lag, so
+a task starts at the latest finish among its blockers, and a task waiting on
+nothing starts at unit 1. That is computed in the browser out of Vue's own
+reactivity — one `computed` per task, each reading its blockers' — so changing
+one estimate re-lays out exactly the tasks downstream of it and leaves the rest
+of the plan cached. Stepping an estimate up or down on the chart redraws the
+whole downstream chain before the write to the server has even finished.
+
+Closed tasks are off the plan unless you ask for them, and a dependency pointing
+at a task the plan is not showing is **ignored rather than assumed** — same rule
+the blocked markers in the list follow. A dashed link means the blocker is not
+finished yet; a solid one means the work it needs already exists.
+
+There is no lag, no "start no earlier than", and no non-working time. A cycle
+cannot normally exist (the server refuses to create one), and if one somehow
+does, the plan drops the edge that closes it rather than hanging.
+
 ### Prepare and combine task branches (web UI)
 
 A **Verified** task can be closed from its detail view with **Clean checkpoint & close**. This runs `aio-vr clean --name <task-checkpoint>` first; only a successful cleanup marks the task **Closed**. Closed tasks are omitted from the normal list but remain available through an explicit status query/API request.
 
 In `tasks web`, tick two or more **Dev Complete** or **Verified** tasks, enter the
 new combined branch name, and select **Combine branches**. The server requires a
-clean working tree and creates the combined branch from the branch currently
-checked out. It cherry-picks each selected task branch's complete commit range,
-in task-list order, producing a normal linear branch. This is intentionally not
-a rebase or merge: a cherry-pick-based copy is directly portable to another
-repository. Resolve any reported cherry-pick conflict on the newly-created
-branch before retrying. **Close tasks** is checked by default. When checked,
+clean working tree and always cuts the combined branch from the **base branch**
+(`baseBranch` in `tasks.config.json`, otherwise the repository's default branch)
+— never from whatever is checked out, so it does not matter which branch you are
+on when you start. The base is fetched and fast-forwarded to `origin` first, so
+the work lands on top of current `master` rather than on whatever was there the
+last time anyone pulled. If the base cannot be fetched, or has diverged from
+`origin` (commits on each side), the combine stops rather than build on a stale
+or ambiguous base; a base that is merely *ahead* of `origin` is used as-is, with
+the unpushed commits riding along.
+
+Each selected task branch's commits are then cherry-picked in task-list order —
+its complete range since it forked from the base, the same range the PR will
+show — producing a normal linear branch. This is intentionally not a rebase or
+merge: a cherry-pick-based copy is directly portable to another repository.
+Ranges are resolved before the branch is created, so a task with nothing to pick
+fails without leaving a stray branch behind. The review screen lists those
+commits — subject line and short SHA, per task, in pick order — so what you are
+about to build is visible before you build it; a task with nothing to pick is
+called out there rather than after the click. Resolve any reported cherry-pick
+conflict on the newly-created branch before retrying. **Close tasks** is checked by default. When checked,
 every selected task must be Verified; after all cherry-picks succeed, each
 checkpoint is cleaned and its task is closed.
 
@@ -284,6 +366,8 @@ tasks investigation show I-1 --json    # the brief to work from
 tasks list --json                      # the queue, top first
 tasks list --status in_progress --json # is something already being worked?
 tasks show T-1 --json                  # full detail incl. per-scenario results
+tasks dep list --json                  # the dependency graph, with what is blocked
+tasks dep add T-4 T-2                  # T-4 waits for T-2
 tasks notes list --json                # what has been written down
 tasks notes show <path> --raw          # the Markdown body, nothing else
 tasks issues list --json               # every issue fetched into the notes folder
@@ -301,12 +385,17 @@ Two global slash commands wrap this, installed in both `~/.claude/commands/` and
   description carries enough detail that the next agent does not have to repeat
   the investigation. It changes no code. With no ref it takes the investigation
   waiting to be run. When the brief names an issue (`#677`, an issue URL, a work
-  item), it reads that issue first — see [Issues](#issues).
+  item), it reads that issue first — see [Issues](#issues). Where a split leaves
+  a real ordering — the API cannot be written before its schema — it records that
+  as a [dependency](#dependencies) rather than a sentence in a description.
 - **`/work-task [ref]`** — drives one task through the whole workflow: branch
   from the base branch → `checkpoint before` → make the change →
   `checkpoint after` → `tasks done`. With no ref it takes the task at the top of
   the list. It stops rather than starting a second task when one is already
-  `in_progress`.
+  `in_progress`, and stops to ask when the task is waiting on a
+  [dependency](#dependencies) that is not finished. When the dependency *is*
+  finished it branches from that task's branch instead of the base, since that
+  is the only place the dependency's work exists yet.
 
 The natural pairing is `/plan-tasks` to fill the backlog, then `/work-task` to
 empty it. Both can also be fired from the web UI against whatever is on screen —
@@ -351,11 +440,31 @@ Needs `agentTerminal`, or a known emulator on PATH.
 
 **Headless (`-p`)** runs it detached with stdout and stderr captured to a log
 the dialog streams back, so it survives closing the tab and can be stopped from
-the same dialog. Nobody is at a terminal to approve a tool call, so a Claude
-Code run offers `--permission-mode bypassPermissions`: both commands are mostly
-shell (`tasks …`, `git …`), and without it a headless run stops dead on the
-first one. Turn it off and it falls back to `acceptEdits`, which is safer and
-usually stalls.
+the same dialog. Nobody is at a terminal to approve a tool call, which is why
+its permission mode defaults the way it does — see below.
+
+### What it may do without asking
+
+Claude Code's permission mode is a property of the session, not of how it was
+launched, so the dialog offers it for **both** ways of running. `pi` has no
+equivalent and the control is hidden for it.
+
+| Choice | Flag | What it means |
+| --- | --- | --- |
+| Ask every time | *(none passed)* | Claude's own default: it asks before each edit and each command. |
+| **Auto** | `--permission-mode auto` | Edits and safe commands go through unasked; risky ones still stop to ask. The mode Shift+Tab reaches inside the terminal UI — this just starts there. |
+| Plan only | `--permission-mode plan` | Reads and proposes, changes nothing. |
+| Never ask | `--permission-mode bypassPermissions` | Asks about nothing at all. |
+
+"Ask every time" is the one mode expressed by passing *no* flag rather than by
+naming it, so a `claude` build that spells these modes differently still works.
+
+A terminal run defaults to **Auto** — it is interactive, so the questions worth
+asking still get asked. A headless run defaults to **Never ask**, because it is
+the only mode it can finish in: both commands are mostly shell (`tasks …`,
+`git …`), so anything else stops dead on the first one with nobody there to
+answer. Choosing something else for a headless run is allowed and the dialog
+warns that it will probably stall.
 
 Every launch is recorded — harness, model, mode, the exact argv and the prompt —
 and the last runs for whatever you are looking at are listed in the dialog, so a
@@ -418,11 +527,24 @@ With `notesAutoCommit` on (the default) every write — save, attach, rename,
 delete — is committed as it happens, so the history is Git's rather than
 nobody's. A failed commit never loses the edit: the file is written first, and
 `tasks notes sync` picks up whatever could not be committed. The Notes view shows
-the branch, the uncommitted count and the unpushed count, with **Commit** and
-**Push** buttons for a folder that has a remote.
+the branch, the uncommitted count and the unpushed count, with **Sync**,
+**Commit** and **Push** buttons for a folder that has a remote.
 
-Pushing is the only operation here that talks to a network, and it is never
-automatic.
+**Sync** fetches the notes repository and fast-forwards onto what came back —
+the "go and get what everyone else wrote" action. It is deliberately
+fast-forward only: a merge that stopped half-done would leave the notes folder
+conflicted with no way to resolve it from this UI, so a genuinely diverged
+repository is reported and left untouched for you to reconcile in a terminal.
+It does not commit first either — the Commit button beside it does that, and
+quietly committing a half-written note because you asked to pull would be a
+surprise. Uncommitted edits that the incoming commits would overwrite make Git
+refuse the fast-forward, and it says which files.
+
+The same **Sync** button appears in the Issues view, because it is the same
+folder and the same pull; see below.
+
+Fetching and pushing are the only operations here that talk to a network, and
+neither is automatic.
 
 ### CLI
 
@@ -444,11 +566,17 @@ note without quoting it. `tasks notes <path>` is shorthand for `show`.
 ## Issues
 
 The Issues view reads every `.json` file in the notes folder, recognises the ones
-that describe an issue, and shows them as cards. **Nothing here fetches or
-writes.** Whatever pulls the files down — `gh issue view --json`, a script, an
+that describe an issue, and shows them as cards. **Nothing here talks to an issue
+tracker.** Whatever produces the files — `gh issue view --json`, a script, an
 agent — is somebody else's job; this view is a reader, and the files are re-read
 on every request, so replacing one and switching back to the tab is the whole
 refresh story.
+
+The one network action is **Sync** in the sidebar: it fetches and fast-forwards
+the notes repository, which is where the issue files live, so issues somebody
+else committed appear without leaving the view. It is the same button, and the
+same pull, as the one in the Notes view — see [Git](#git) above for exactly what
+it will and will not do.
 
 Both of these are understood, along with the bare provider response and a bulk
 export (an array, or Azure DevOps' `{ count, value: [...] }`):
@@ -505,9 +633,12 @@ tasks web --dev     # Vite dev server on webPort, API on apiPort
 ```
 
 The rail on the far left switches between **Investigations**, **Tasks**,
-**Branches**, **Notes** and **Issues**. Investigations come first because that is
+**Plan**, **Branches**, **Notes** and **Issues**. Investigations come first because that is
 where work starts: write the brief, run `/plan-tasks` against it, and the tasks it
 produced appear underneath it.
+
+**Plan** takes the whole window — it is a chart, not a record — and is described
+under [The plan](#the-plan). Clicking any bar opens that task.
 
 **Issues** is a board rather than a list: the filters (search, state, source,
 label) are on the left and the cards take the whole pane, with a click opening

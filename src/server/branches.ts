@@ -60,6 +60,12 @@ export function branchExists(branch: string): boolean {
   return git(['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]).code === 0;
 }
 
+/** Any resolvable ref, not just a local branch — so a base that exists only as
+ *  `origin/master` (a fresh clone, before the combine's fetch) still works. */
+export function refExists(ref: string): boolean {
+  return git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]).code === 0;
+}
+
 /** The repository's default branch, as GitHub sees it — the natural PR base
  *  when a combined branch has no recorded one. Falls back to `master`. */
 export function defaultBaseBranch(): string {
@@ -74,6 +80,93 @@ export function defaultBaseBranch(): string {
     if (branchExists(candidate)) return candidate;
   }
   return 'master';
+}
+
+/** A fetch is a network round trip, and an unreachable remote must fail rather
+ *  than hang the request. */
+const FETCH_TIMEOUT_MS = 120_000;
+
+export interface BaseRefresh {
+  /** False when the repository has no `origin` — a local-only repo is fine. */
+  fetched: boolean;
+  /** True when the local base actually moved to catch up with `origin`. */
+  advanced: boolean;
+  /** Set when the local base is ahead of `origin` — unpushed commits ride along. */
+  aheadOfRemote: boolean;
+}
+
+/**
+ * Bring the local base branch up to date with `origin` before anything is cut
+ * from it.
+ *
+ * A delivery branch built on a stale base produces a PR full of the diff
+ * between the two, so this runs before the branch is created rather than being
+ * left to the user. It only ever fast-forwards: if the local base has commits
+ * `origin` does not, that is the user's business and the combine proceeds on
+ * top of them, and if the two have genuinely diverged the combine stops rather
+ * than guess which side to keep.
+ *
+ * The caller must have checked the working tree is clean — updating a base that
+ * happens to be the checked-out branch is a real merge.
+ */
+export function refreshBaseBranch(base: string): BaseRefresh {
+  const idle: BaseRefresh = { fetched: false, advanced: false, aheadOfRemote: false };
+
+  const remotes = git(['remote']).stdout.split('\n').map((line) => line.trim());
+  if (!remotes.includes('origin')) {
+    if (!branchExists(base)) throw new Error(`Base branch '${base}' does not exist locally.`);
+    return idle;
+  }
+
+  const fetched = runSync(['git', 'fetch', 'origin', base], FETCH_TIMEOUT_MS);
+  if (fetched.timedOut) {
+    throw new Error(`Fetching '${base}' from origin timed out, so it could not be brought up to date.`);
+  }
+  if (fetched.code !== 0) {
+    throw new Error(
+      `Could not fetch '${base}' from origin, so the delivery branch would be cut from a stale base: ${
+        fetched.stderr.trim() || `git fetch exited ${fetched.code}`}`,
+    );
+  }
+
+  const remoteSha = git(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${base}`]).stdout.trim();
+  if (!remoteSha) {
+    // A base that exists only locally — nothing to catch up with.
+    if (!branchExists(base)) throw new Error(`Base branch '${base}' exists neither locally nor on origin.`);
+    return { fetched: true, advanced: false, aheadOfRemote: false };
+  }
+
+  if (!branchExists(base)) {
+    const created = git(['branch', base, `origin/${base}`]);
+    if (created.code !== 0) {
+      throw new Error(created.stderr.trim() || `Could not create '${base}' from origin/${base}.`);
+    }
+    return { fetched: true, advanced: true, aheadOfRemote: false };
+  }
+
+  const localSha = git(['rev-parse', '--verify', `refs/heads/${base}`]).stdout.trim();
+  if (localSha === remoteSha) return { fetched: true, advanced: false, aheadOfRemote: false };
+
+  const localIsBehind = git(['merge-base', '--is-ancestor', localSha, remoteSha]).code === 0;
+  if (!localIsBehind) {
+    const remoteIsBehind = git(['merge-base', '--is-ancestor', remoteSha, localSha]).code === 0;
+    if (remoteIsBehind) return { fetched: true, advanced: false, aheadOfRemote: true };
+    throw new Error(
+      `Local '${base}' has diverged from origin/${base} — they each have commits the other does not. ` +
+      `Reconcile '${base}' by hand before building a delivery branch from it.`,
+    );
+  }
+
+  // `git branch -f` refuses to move a branch that is checked out here or in a
+  // linked worktree, so the checked-out case has to go through a merge.
+  const advanced = currentBranch() === base
+    ? git(['merge', '--ff-only', `origin/${base}`])
+    : git(['branch', '-f', base, `origin/${base}`]);
+
+  if (advanced.code !== 0) {
+    throw new Error(advanced.stderr.trim() || `Could not fast-forward '${base}' to origin/${base}.`);
+  }
+  return { fetched: true, advanced: true, aheadOfRemote: false };
 }
 
 /**
@@ -92,7 +185,7 @@ export function readBranch(branch: string, base: string | null): BranchGitInfo {
   const upstream = upstreamResult.code === 0 ? upstreamResult.stdout.trim() || null : null;
 
   let range: string | null = null;
-  if (base && branchExists(base)) {
+  if (base && refExists(base)) {
     const mergeBase = git(['merge-base', base, branch]);
     if (mergeBase.code === 0 && mergeBase.stdout.trim()) {
       range = `${mergeBase.stdout.trim()}..${branch}`;

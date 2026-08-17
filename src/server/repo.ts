@@ -3,7 +3,9 @@ import { workspace } from '../config/paths';
 import {
   branchNameFor,
   checkpointNameFor,
+  DEFAULT_ESTIMATE_UNITS,
   INVESTIGATION_STATUSES,
+  parseEstimateUnits,
   PRIORITIES,
   STATUSES,
   type CheckpointRun,
@@ -31,6 +33,7 @@ interface TaskRow {
   priority: string;
   position: number;
   tags: string;
+  estimate_units: number;
   investigation_ref: string | null;
   branch_name: string | null;
   checkpoint_name: string | null;
@@ -42,7 +45,44 @@ interface TaskRow {
   closed_at: string | null;
 }
 
-function toTask(row: TaskRow): Task {
+/**
+ * Every dependency edge, as two lookups keyed by ref.
+ *
+ * Read whole rather than per task: the edge table is one row per dependency
+ * across the entire workspace, so one query costs less than a correlated
+ * subquery per row and gives both directions at once. Ordered by the blocking
+ * task's list position so a task's blockers read in queue order.
+ */
+interface DependencyIndex {
+  dependsOn: Map<string, string[]>;
+  blocks: Map<string, string[]>;
+}
+
+function dependencyIndex(): DependencyIndex {
+  const rows = getDb()
+    .query<{ task_ref: string; blocker_ref: string }, []>(
+      `SELECT t.ref AS task_ref, b.ref AS blocker_ref
+         FROM task_dependencies d
+         JOIN tasks t ON t.id = d.task_id
+         JOIN tasks b ON b.id = d.depends_on_id
+        ORDER BY b.position ASC, b.id DESC`,
+    )
+    .all();
+
+  const index: DependencyIndex = { dependsOn: new Map(), blocks: new Map() };
+  for (const row of rows) {
+    const forward = index.dependsOn.get(row.task_ref);
+    if (forward) forward.push(row.blocker_ref);
+    else index.dependsOn.set(row.task_ref, [row.blocker_ref]);
+
+    const reverse = index.blocks.get(row.blocker_ref);
+    if (reverse) reverse.push(row.task_ref);
+    else index.blocks.set(row.blocker_ref, [row.task_ref]);
+  }
+  return index;
+}
+
+function toTask(row: TaskRow, edges: DependencyIndex = dependencyIndex()): Task {
   return {
     id: row.id,
     ref: row.ref,
@@ -52,6 +92,9 @@ function toTask(row: TaskRow): Task {
     priority: row.priority as Priority,
     position: row.position,
     tags: JSON.parse(row.tags) as string[],
+    estimateUnits: row.estimate_units,
+    dependsOn: edges.dependsOn.get(row.ref) ?? [],
+    blocks: edges.blocks.get(row.ref) ?? [],
     investigationRef: row.investigation_ref,
     branchName: row.branch_name,
     checkpointName: row.checkpoint_name,
@@ -138,7 +181,9 @@ export function listTasks(filter?: {
     )
     .all(params);
 
-  return rows.map(toTask);
+  // One index for the whole page rather than one per row.
+  const edges = dependencyIndex();
+  return rows.map((row) => toTask(row, edges));
 }
 
 export function findTask(ref: string): Task | null {
@@ -301,6 +346,10 @@ export interface CreateInput {
   /** The investigation this task came out of, if any. Validated here so a typo'd
    *  ref fails loudly rather than producing a task nothing links to. */
   investigationRef?: string;
+  /** Refs of tasks this one has to wait for. */
+  dependsOn?: string[];
+  /** Plan duration in units. Defaults to one. */
+  estimateUnits?: number;
 }
 
 export function createTask(input: CreateInput): Task {
@@ -312,6 +361,11 @@ export function createTask(input: CreateInput): Task {
   const investigation = input.investigationRef
     ? requireInvestigation(input.investigationRef).ref
     : null;
+  // Same reasoning as the investigation above: a ref that does not resolve must
+  // fail before the task exists, not leave one behind with half its blockers.
+  const blockers = [...new Set((input.dependsOn ?? []).map((one) => requireTask(one).ref))];
+  const estimateUnits =
+    input.estimateUnits === undefined ? DEFAULT_ESTIMATE_UNITS : parseEstimateUnits(input.estimateUnits);
 
   const at = nowIso();
   const ref = nextRef();
@@ -321,10 +375,10 @@ export function createTask(input: CreateInput): Task {
 
   getDb()
     .query(
-      `INSERT INTO tasks (ref, title, description, status, priority, position, tags, branch_name,
-                          investigation_ref, checkpoint_name, created_at, updated_at)
-       VALUES ($ref, $title, $description, 'backlog', $priority, $position, $tags, $branch,
-               $investigation, $checkpoint, $at, $at)`,
+      `INSERT INTO tasks (ref, title, description, status, priority, position, tags, estimate_units,
+                          branch_name, investigation_ref, checkpoint_name, created_at, updated_at)
+       VALUES ($ref, $title, $description, 'backlog', $priority, $position, $tags, $units,
+               $branch, $investigation, $checkpoint, $at, $at)`,
     )
     .run({
       $ref: ref,
@@ -336,6 +390,7 @@ export function createTask(input: CreateInput): Task {
       $description: input.description?.trim() ?? '',
       $priority: input.priority ?? 'medium',
       $tags: JSON.stringify(input.tags ?? []),
+      $units: estimateUnits,
       $branch: branchName,
       $investigation: investigation,
       $checkpoint: checkpointNameFor(ref, workspace().config.checkpointPrefix),
@@ -347,7 +402,9 @@ export function createTask(input: CreateInput): Task {
     toStatus: 'backlog',
     note: investigation ? `${title} (from ${investigation})` : title,
   });
-  return task;
+  // A brand-new task cannot be part of a cycle, so this only ever inserts.
+  for (const blockerRef of blockers) addDependency(task.ref, blockerRef);
+  return requireTask(ref);
 }
 
 export interface UpdateInput {
@@ -357,10 +414,18 @@ export interface UpdateInput {
   tags?: string[];
   /** Link the task to an investigation, or pass null to unlink it. */
   investigationRef?: string | null;
+  /** Replaces the task's blockers outright; an empty array clears them. */
+  dependsOn?: string[];
+  /** Plan duration in units. */
+  estimateUnits?: number;
 }
 
 export function updateTask(ref: string, input: UpdateInput): Task {
   const task = requireTask(ref);
+
+  // Dependencies live in their own table and write their own history, so they
+  // are applied around the column update rather than folded into it.
+  if (input.dependsOn !== undefined) setDependencies(task.ref, input.dependsOn);
 
   const assignments: string[] = [];
   const params: Record<string, string | number | null> = { $ref: task.ref, $at: nowIso() };
@@ -388,6 +453,11 @@ export function updateTask(ref: string, input: UpdateInput): Task {
     params.$tags = JSON.stringify(input.tags);
     changed.push('tags');
   }
+  if (input.estimateUnits !== undefined) {
+    assignments.push('estimate_units = $units');
+    params.$units = parseEstimateUnits(input.estimateUnits);
+    changed.push('estimate');
+  }
   if (input.investigationRef !== undefined) {
     assignments.push('investigation_ref = $investigation');
     params.$investigation = input.investigationRef
@@ -396,7 +466,8 @@ export function updateTask(ref: string, input: UpdateInput): Task {
     changed.push('investigation');
   }
 
-  if (!assignments.length) return task;
+  // Re-read: a dependency change above is a change even when no column moved.
+  if (!assignments.length) return requireTask(task.ref);
 
   getDb()
     .query(`UPDATE tasks SET ${assignments.join(', ')}, updated_at = $at WHERE ref = $ref`)
@@ -440,6 +511,92 @@ export function addNote(ref: string, note: string): Task {
 export function deleteTask(ref: string): void {
   const task = requireTask(ref);
   getDb().query('DELETE FROM tasks WHERE id = $id').run({ $id: task.id });
+}
+
+/* ------------------------------------------------------------ dependencies */
+
+/**
+ * Would `blockerRef` end up depending on `ref`, directly or through a chain?
+ *
+ * Walks the existing edges forward from the proposed blocker. Cycles are
+ * rejected at write time rather than tolerated and worked around at read time:
+ * a cycle means every task in it is permanently blocked, which is never what
+ * anybody meant to record.
+ */
+function dependsOnTransitively(fromRef: string, targetRef: string): boolean {
+  const { dependsOn } = dependencyIndex();
+  const seen = new Set<string>();
+  const queue = [fromRef];
+
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (current === targetRef) return true;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    queue.push(...(dependsOn.get(current) ?? []));
+  }
+  return false;
+}
+
+/** Record that `ref` waits for `blockerRef`. Idempotent. */
+export function addDependency(ref: string, blockerRef: string): Task {
+  const task = requireTask(ref);
+  const blocker = requireTask(blockerRef);
+
+  if (task.ref === blocker.ref) throw new Error(`${task.ref} cannot depend on itself.`);
+  if (task.dependsOn.includes(blocker.ref)) return task;
+  if (dependsOnTransitively(blocker.ref, task.ref)) {
+    throw new Error(
+      `${blocker.ref} already depends on ${task.ref}, so this would make a circular dependency.`,
+    );
+  }
+
+  getDb()
+    .query(
+      `INSERT INTO task_dependencies (task_id, depends_on_id, created_at)
+       VALUES ($task, $blocker, $at)
+       ON CONFLICT DO NOTHING`,
+    )
+    .run({ $task: task.id, $blocker: blocker.id, $at: nowIso() });
+
+  touch(task.ref);
+  addEvent(task.id, 'edited', { note: `now depends on ${blocker.ref} (${blocker.title})` });
+  return requireTask(task.ref);
+}
+
+export function removeDependency(ref: string, blockerRef: string): Task {
+  const task = requireTask(ref);
+  const blocker = requireTask(blockerRef);
+  if (!task.dependsOn.includes(blocker.ref)) return task;
+
+  getDb()
+    .query('DELETE FROM task_dependencies WHERE task_id = $task AND depends_on_id = $blocker')
+    .run({ $task: task.id, $blocker: blocker.id });
+
+  touch(task.ref);
+  addEvent(task.id, 'edited', { note: `no longer depends on ${blocker.ref}` });
+  return requireTask(task.ref);
+}
+
+/** Replace a task's blockers wholesale — what the UI's editor and the CLI's
+ *  `--depends-on` both want. Expressed as a diff so the history says what
+ *  actually changed rather than "dependencies edited". */
+export function setDependencies(ref: string, blockerRefs: string[]): Task {
+  const task = requireTask(ref);
+  // Resolved first so a typo in the middle of a list cannot half-apply.
+  const wanted = [...new Set(blockerRefs.map((one) => requireTask(one).ref))];
+
+  for (const blockerRef of task.dependsOn) {
+    if (!wanted.includes(blockerRef)) removeDependency(task.ref, blockerRef);
+  }
+  for (const blockerRef of wanted) addDependency(task.ref, blockerRef);
+
+  return requireTask(task.ref);
+}
+
+/** Bump `updated_at` for a change that lives in another table. */
+function touch(ref: string): void {
+  getDb().query('UPDATE tasks SET updated_at = $at WHERE ref = $ref').run({ $at: nowIso(), $ref: ref });
 }
 
 /* ------------------------------------------------------------- list order */

@@ -1,24 +1,39 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import type { TaskDetail } from '@shared/types';
+import type { BranchCommit, TaskDetail } from '@shared/types';
 import { api } from '../api';
 
 const props = defineProps<{ refs: string[] }>();
 const emit = defineEmits<{ close: []; started: [branchName: string] }>();
-type Row = { task: TaskDetail; exists: boolean; candidates: string[] };
+type Row = { task: TaskDetail; exists: boolean; candidates: string[]; commits: BranchCommit[] };
 const rows = ref<Row[]>([]);
 const loading = ref(true);
 const saving = ref<string | null>(null);
 const error = ref<string | null>(null);
 const branchName = ref('');
 const closeTasks = ref(true);
+const base = ref('');
+const working = ref(false);
 /** One task takes the same path as a combine — cut a branch, cherry-pick onto
  *  it, hand it to the PR flow — so only the wording changes. */
 const single = computed(() => props.refs.length === 1);
+/** Every commit that will be picked, in the order it will be picked. */
+const totalCommits = computed(() => rows.value.reduce((sum, row) => sum + row.commits.length, 0));
+/** A task whose branch is missing, or which has nothing to pick, would only be
+ *  rejected by the server — so say so here instead of after the click. */
+const ready = computed(() =>
+  Boolean(branchName.value.trim()) &&
+  rows.value.length > 0 &&
+  rows.value.every((row) => row.exists && row.commits.length > 0),
+);
 
 async function load() {
   loading.value = true; error.value = null;
-  try { rows.value = (await api.previewCombine(props.refs)).tasks; }
+  try {
+    const preview = await api.previewCombine(props.refs);
+    rows.value = preview.tasks;
+    base.value = preview.base;
+  }
   catch (caught) { error.value = caught instanceof Error ? caught.message : String(caught); }
   finally { loading.value = false; }
 }
@@ -29,12 +44,14 @@ async function assign(row: Row, name: string) {
   finally { saving.value = null; }
 }
 async function combine() {
-  if (!branchName.value.trim() || rows.value.some((row) => !row.exists)) return;
+  if (working.value || !ready.value) return;
+  working.value = true;
   error.value = null;
   try {
     const result = await api.combineTasks(rows.value.map((row) => row.task.ref), branchName.value.trim(), closeTasks.value);
     emit('started', result.branchName);
   } catch (caught) { error.value = caught instanceof Error ? caught.message : String(caught); }
+  finally { working.value = false; }
 }
 onMounted(load);
 </script>
@@ -60,11 +77,30 @@ onMounted(load);
           </select>
           <span v-else class="faint">No matching local branch found</span>
         </template>
+
+        <ol v-if="row.commits.length" class="commit-preview">
+          <li v-for="commit in row.commits" :key="commit.sha">
+            <code class="mono">{{ commit.shortSha }}</code>
+            <span>{{ commit.subject }}</span>
+          </li>
+        </ol>
+        <p v-else-if="row.exists" class="faint commit-preview-empty">
+          No commits ahead of <code class="mono">{{ base }}</code> — this task has nothing to pick.
+        </p>
       </div>
     </div>
+    <p v-if="!loading && rows.length" class="faint">
+      {{ totalCommits }} commit(s) will be cherry-picked onto the new branch, in this order.
+    </p>
     <div class="panel"><label>{{ single ? 'Branch name' : 'Combined branch name' }}</label><input v-model="branchName" placeholder="feature/my-delivery" />
       <label class="combine-close"><input v-model="closeTasks" type="checkbox" /> {{ single ? 'Close the task after completion if it is verified' : 'Close verified tasks after completion' }}</label>
-      <button class="primary" :disabled="!branchName.trim() || rows.some((row) => !row.exists)" @click="combine">{{ single ? 'Prepare Branch' : 'Combine All' }}</button>
+      <p v-if="base" class="faint">
+        Cut from <code class="mono">{{ base }}</code>, which is fetched and fast-forwarded to
+        <code class="mono">origin/{{ base }}</code> first. The branch you have checked out now does not matter.
+      </p>
+      <button class="primary" :disabled="working || !ready" @click="combine">
+        {{ working ? 'Working…' : single ? 'Prepare Branch' : 'Combine All' }}
+      </button>
     </div>
   </section>
 </template>

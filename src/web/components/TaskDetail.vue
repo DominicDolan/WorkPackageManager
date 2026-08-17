@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import {
+  DEFAULT_ESTIMATE_UNITS,
+  MAX_ESTIMATE_UNITS,
   STATUS_LABELS,
+  satisfiesDependency,
   type Comparison,
   type Priority,
   type Status,
+  type Task,
   type TaskDetail,
 } from '@shared/types';
 import { api } from '../api';
@@ -12,11 +16,18 @@ import AgentRunDialog from './AgentRunDialog.vue';
 import ComparisonCard from './ComparisonCard.vue';
 import MarkdownBlock from './MarkdownBlock.vue';
 
-const props = defineProps<{ task: TaskDetail; aioVrReady: boolean }>();
+const props = defineProps<{
+  task: TaskDetail;
+  aioVrReady: boolean;
+  /** The task list as the sidebar has it — what the dependency picker offers,
+   *  and how a blocker's ref becomes a title and a status. */
+  allTasks: Task[];
+}>();
 const emit = defineEmits<{
   changed: [TaskDetail];
   deleted: [string];
   openInvestigation: [string];
+  openTask: [string];
 }>();
 
 const busy = ref<string | null>(null);
@@ -25,7 +36,13 @@ const editing = ref(false);
 const noteText = ref('');
 const working = ref(false);
 
-const draft = ref({ title: '', description: '', priority: 'medium' as Priority, tags: '' });
+const draft = ref({
+  title: '',
+  description: '',
+  priority: 'medium' as Priority,
+  tags: '',
+  estimateUnits: DEFAULT_ESTIMATE_UNITS,
+});
 
 watch(
   () => props.task.ref,
@@ -34,6 +51,7 @@ watch(
     error.value = null;
     noteText.value = '';
     working.value = false;
+    addingBlocker.value = '';
   },
 );
 
@@ -54,6 +72,7 @@ function beginEdit(): void {
     description: props.task.description,
     priority: props.task.priority,
     tags: props.task.tags.join(', '),
+    estimateUnits: props.task.estimateUnits ?? DEFAULT_ESTIMATE_UNITS,
   };
   editing.value = true;
 }
@@ -78,6 +97,7 @@ const saveEdit = () =>
       description: draft.value.description,
       priority: draft.value.priority,
       tags: draft.value.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+      estimateUnits: draft.value.estimateUnits,
     }),
   ).then(() => {
     if (!error.value) editing.value = false;
@@ -107,6 +127,50 @@ async function remove(): Promise<void> {
     busy.value = null;
   }
 }
+
+/* ----------------------------------------------------------- dependencies */
+
+const addingBlocker = ref('');
+
+const taskByRef = computed(() => new Map(props.allTasks.map((task) => [task.ref, task])));
+
+/** A blocker as much as is known about it. A ref with no task behind it is one
+ *  the sidebar is not currently carrying — a closed task, most often — so it is
+ *  shown as itself rather than dropped. */
+interface Link {
+  ref: string;
+  task: Task | null;
+  met: boolean;
+}
+
+const toLink = (ref: string): Link => {
+  const task = taskByRef.value.get(ref) ?? null;
+  return { ref, task, met: task ? satisfiesDependency(task.status) : true };
+};
+
+const blockers = computed(() => props.task.dependsOn.map(toLink));
+const blocking = computed(() => props.task.blocks.map(toLink));
+const unmet = computed(() => blockers.value.filter((link) => !link.met));
+
+/** Everything this task could newly wait for: not itself, not already a
+ *  blocker, and not something already waiting on it — the server refuses a
+ *  cycle, but there is no reason to offer one. */
+const blockerOptions = computed(() =>
+  props.allTasks.filter(
+    (task) =>
+      task.ref !== props.task.ref &&
+      !props.task.dependsOn.includes(task.ref) &&
+      !props.task.blocks.includes(task.ref),
+  ),
+);
+
+const addBlocker = () =>
+  run('dependency', () => api.addDependencies(props.task.ref, [addingBlocker.value])).then(() => {
+    if (!error.value) addingBlocker.value = '';
+  });
+
+const removeBlocker = (blockerRef: string) =>
+  run(`dependency-${blockerRef}`, () => api.removeDependency(props.task.ref, blockerRef));
 
 /* ------------------------------------------------------------ checkpoints */
 
@@ -222,6 +286,11 @@ const eventText = (event: TaskDetail['events'][number]): string => {
       <div class="row" style="flex-wrap: wrap; margin-bottom: 8px">
         <span class="badge" :class="task.status">{{ STATUS_LABELS[task.status] }}</span>
         <span :class="`priority-${task.priority}`">{{ task.priority }}</span>
+        <!-- The plan's unit of time, shown here so the number the Plan view
+             schedules on is visible from the task itself. -->
+        <span class="faint" title="Estimate, in plan units">
+          {{ task.estimateUnits }} unit{{ task.estimateUnits === 1 ? '' : 's' }}
+        </span>
         <span v-for="tag in task.tags" :key="tag" class="faint">#{{ tag }}</span>
         <button
           v-if="task.investigationRef"
@@ -241,6 +310,12 @@ const eventText = (event: TaskDetail['events'][number]): string => {
            next agent repeating the investigation, and it is written in Markdown. -->
       <MarkdownBlock v-if="task.description" :source="task.description" />
       <p class="mono faint">Branch: {{ task.branchName ?? 'None (legacy completed task)' }}</p>
+
+      <!-- Stated, not enforced: the buttons below stay live, because deciding
+           to start something anyway is a judgement call, not a mistake. -->
+      <p v-if="unmet.length" class="banner warn">
+        Waiting on {{ unmet.map((link) => link.ref).join(', ') }} — not finished yet.
+      </p>
 
       <div class="row" style="flex-wrap: wrap; margin-top: 14px">
         <!-- /work-task drives the whole workflow — branch, before, change,
@@ -277,6 +352,16 @@ const eventText = (event: TaskDetail['events'][number]): string => {
             <option value="high">high</option>
           </select>
         </div>
+        <div class="field" style="flex: 1">
+          <label for="edit-units">Units <span class="faint">(plan length)</span></label>
+          <input
+            id="edit-units"
+            v-model.number="draft.estimateUnits"
+            type="number"
+            min="1"
+            :max="MAX_ESTIMATE_UNITS"
+          />
+        </div>
         <div class="field" style="flex: 2">
           <label for="edit-tags">Tags (comma separated)</label>
           <input id="edit-tags" v-model="draft.tags" />
@@ -288,6 +373,69 @@ const eventText = (event: TaskDetail['events'][number]): string => {
         </button>
         <button :disabled="!!busy" @click="editing = false">Cancel</button>
       </div>
+    </div>
+
+    <!-- ------------------------------------------------------ dependencies -->
+    <div class="section">
+      <h3>Dependencies</h3>
+
+      <div class="panel">
+        <div class="field">
+          <label for="add-blocker">This task waits for</label>
+          <div class="row">
+            <select id="add-blocker" v-model="addingBlocker" style="flex: 1">
+              <option value="">Choose a task…</option>
+              <option v-for="option in blockerOptions" :key="option.ref" :value="option.ref">
+                {{ option.ref }} — {{ option.title }}
+              </option>
+            </select>
+            <button :disabled="!addingBlocker || !!busy" @click="addBlocker">
+              {{ busy === 'dependency' ? 'Adding…' : 'Add' }}
+            </button>
+          </div>
+        </div>
+
+        <ul v-if="blockers.length" class="dependency-list">
+          <li v-for="link in blockers" :key="link.ref">
+            <button class="task-chip" :title="`Open ${link.ref}`" @click="emit('openTask', link.ref)">
+              <span class="mono">{{ link.ref }}</span>
+              <span v-if="link.task" class="badge" :class="link.task.status">
+                {{ STATUS_LABELS[link.task.status] }}
+              </span>
+              <span class="task-chip-title">{{ link.task?.title ?? 'not in the current list' }}</span>
+            </button>
+            <span class="spacer" />
+            <span :class="link.met ? 'dependency-met' : 'dependency-unmet'">
+              {{ link.met ? '✓ done' : '⊘ waiting' }}
+            </span>
+            <button
+              class="danger"
+              :disabled="!!busy"
+              :title="`Stop waiting for ${link.ref}`"
+              @click="removeBlocker(link.ref)"
+            >
+              {{ busy === `dependency-${link.ref}` ? '…' : 'Remove' }}
+            </button>
+          </li>
+        </ul>
+        <p v-else class="faint">Nothing is holding this task up.</p>
+      </div>
+
+      <template v-if="blocking.length">
+        <p class="faint" style="margin: 14px 0 6px">Waiting on this task</p>
+        <div class="row" style="flex-wrap: wrap">
+          <button
+            v-for="link in blocking"
+            :key="link.ref"
+            class="task-chip"
+            :title="`Open ${link.ref}`"
+            @click="emit('openTask', link.ref)"
+          >
+            <span class="mono">{{ link.ref }}</span>
+            <span class="task-chip-title">{{ link.task?.title ?? 'not in the current list' }}</span>
+          </button>
+        </div>
+      </template>
     </div>
 
     <!-- ------------------------------------------------------- checkpoints -->

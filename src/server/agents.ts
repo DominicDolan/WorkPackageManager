@@ -5,12 +5,14 @@ import { getDb, nowIso } from './db';
 import {
   AGENT_COMMANDS,
   AGENT_HARNESSES,
+  AGENT_PERMISSION_MODES,
   AGENT_RUN_MODES,
   type AgentCommand,
   type AgentEnvironment,
   type AgentHarnessId,
   type AgentHarnessInfo,
   type AgentModel,
+  type AgentPermissionMode,
   type AgentRun,
   type AgentRunDetail,
   type AgentRunMode,
@@ -32,6 +34,10 @@ import {
  * - **print** runs `-p` headless, detached, with stdout and stderr pumped into a
  *   log file the UI streams back. Nobody is at a terminal to approve anything,
  *   so a headless run has to be told up front that it may act unattended.
+ *
+ * Orthogonal to both is Claude Code's permission mode, which is a property of
+ * the session rather than of how it was launched: `auto` is as meaningful in a
+ * terminal window — where it is what Shift+Tab reaches — as it is headless.
  *
  * Adding a harness is one entry in `HARNESSES`: what it is called, how it takes
  * a model, how it spells "run this and exit", and how (or whether) it can list
@@ -90,7 +96,12 @@ interface HarnessDef {
    * The argv for one run, minus any terminal wrapper. `model` is empty when the
    * harness's own default should stand.
    */
-  argv(input: { prompt: string; model: string; mode: AgentRunMode; unattended: boolean }): string[];
+  argv(input: {
+    prompt: string;
+    model: string;
+    mode: AgentRunMode;
+    permissionMode: AgentPermissionMode;
+  }): string[];
 }
 
 /**
@@ -113,17 +124,17 @@ const HARNESSES: HarnessDef[] = [
     bin: 'claude',
     modelsLazy: false,
     models: () => CLAUDE_MODELS,
-    argv: ({ prompt, model, mode, unattended }) => {
+    argv: ({ prompt, model, mode, permissionMode }) => {
       const argv = ['claude'];
       if (model) argv.push('--model', model);
-      if (mode === 'print') {
-        argv.push('--print');
-        // A headless run has nobody to approve a tool call. `acceptEdits` still
-        // stops dead on the first Bash command, and both slash commands are
-        // mostly Bash (`tasks …`, `git …`), so an unattended run means exactly
-        // that or it means nothing.
-        argv.push('--permission-mode', unattended ? 'bypassPermissions' : 'acceptEdits');
-      }
+      // `manual` is Claude's own default, and saying so explicitly would break
+      // against a build that spells these modes differently — so it is the one
+      // value expressed by passing nothing.
+      if (permissionMode !== 'manual') argv.push('--permission-mode', permissionMode);
+      // The flag governs an interactive session too, which is the whole point of
+      // offering it here: `auto` is what the terminal UI reaches with Shift+Tab,
+      // available at launch instead of two keystrokes in.
+      if (mode === 'print') argv.push('--print');
       argv.push(prompt);
       return argv;
     },
@@ -136,6 +147,9 @@ const HARNESSES: HarnessDef[] = [
     // knows, and takes long enough to be worth fetching only when asked for.
     modelsLazy: true,
     models: listPiModels,
+    // `pi` has no equivalent of a permission mode — `--approve` is about trusting
+    // project files, not about what the agent may do — so it is ignored here
+    // rather than approximated.
     argv: ({ prompt, model, mode }) => {
       const argv = ['pi'];
       if (model) argv.push('--model', model);
@@ -353,14 +367,17 @@ export interface StartRunInput {
   extra: string;
   subjectKind: string;
   subjectRef: string;
-  /** Headless only: let the agent act without approval prompts. */
-  unattended: boolean;
+  /** How much the agent may do without asking. Claude Code only. */
+  permissionMode: AgentPermissionMode;
 }
 
 export function startRun(input: StartRunInput): AgentRun {
   const definition = harness(input.harness);
   if (!AGENT_RUN_MODES.includes(input.mode)) throw new Error(`Unknown run mode '${input.mode}'.`);
   if (!AGENT_COMMANDS.includes(input.command)) throw new Error(`Unknown command '${input.command}'.`);
+  if (!AGENT_PERMISSION_MODES.includes(input.permissionMode)) {
+    throw new Error(`Unknown permission mode '${input.permissionMode}'.`);
+  }
   if (!onPath(definition.bin)) {
     throw new Error(`${definition.bin} is not on PATH, so it cannot be run from here.`);
   }
@@ -370,7 +387,7 @@ export function startRun(input: StartRunInput): AgentRun {
     prompt,
     model: input.model,
     mode: input.mode,
-    unattended: input.unattended,
+    permissionMode: input.permissionMode,
   });
 
   let argv = agentArgv;

@@ -20,6 +20,8 @@ const SCHEMA = [
      -- row inserted without one still sorts deterministically until it does.
      position         INTEGER NOT NULL DEFAULT 0,
      tags             TEXT    NOT NULL DEFAULT '[]',
+     -- Duration on the plan, in abstract units. One is "a task".
+     estimate_units   INTEGER NOT NULL DEFAULT 1,
      investigation_ref TEXT,
      branch_name      TEXT,
      checkpoint_name  TEXT,
@@ -42,6 +44,22 @@ const SCHEMA = [
    )`,
 
   `CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, id)`,
+
+  // "task_id waits for depends_on_id". One row per edge, both sides cascading:
+  // deleting a task must not leave an edge pointing at a ref nothing can
+  // resolve. The composite primary key makes re-adding an existing edge a
+  // no-op rather than a duplicate.
+  `CREATE TABLE IF NOT EXISTS task_dependencies (
+     task_id       INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+     depends_on_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+     created_at    TEXT    NOT NULL,
+     PRIMARY KEY (task_id, depends_on_id)
+   )`,
+
+  // The reverse direction — "what is waiting on this task" — is asked as often
+  // as the forward one, and the primary key only indexes the forward one.
+  `CREATE INDEX IF NOT EXISTS idx_task_dependencies_blocker
+     ON task_dependencies(depends_on_id)`,
 
   // One row per `aio-vr before` / `aio-vr after` invocation.
   `CREATE TABLE IF NOT EXISTS checkpoint_runs (
@@ -164,6 +182,9 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'tasks', column: 'investigation_ref', definition: 'TEXT' },
   // Manual list order. Existing rows all land on 0 and are backfilled below.
   { table: 'tasks', column: 'position', definition: 'INTEGER NOT NULL DEFAULT 0' },
+  // Plan duration. Existing rows land on one unit, which is what they would
+  // have been estimated at anyway.
+  { table: 'tasks', column: 'estimate_units', definition: 'INTEGER NOT NULL DEFAULT 1' },
   { table: 'combined_branches', column: 'combine_state', definition: "TEXT NOT NULL DEFAULT 'complete'" },
   { table: 'combined_branches', column: 'combine_pending_commits', definition: "TEXT NOT NULL DEFAULT '[]'" },
   { table: 'combined_branches', column: 'combine_close_tasks', definition: 'INTEGER NOT NULL DEFAULT 0' },

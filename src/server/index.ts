@@ -4,6 +4,7 @@ import { packageRoot } from '../config/paths';
 import { resolveArtifact, workspace } from '../config/paths';
 import { aioVrAvailable, captureAfter, captureBefore, cleanCheckpoint } from './aiovr';
 import {
+  addDependency,
   addNote,
   createInvestigation,
   createTask,
@@ -21,6 +22,7 @@ import {
   listTasks,
   moveTask,
   recordCombine,
+  removeDependency,
   renameCombinedBranch,
   reorderTasks,
   requireCombinedBranch,
@@ -53,6 +55,7 @@ import {
   listNotes,
   listTags,
   notesWorkspaceInfo,
+  pullNotes,
   readNote,
   removeAttachment,
   resolveNoteAsset,
@@ -66,15 +69,20 @@ import {
   defaultBaseBranch,
   generatePrDescription,
   readBranch,
+  refreshBaseBranch,
   toolAvailability,
+  type BaseRefresh,
 } from './branches';
 import {
   AGENT_COMMANDS,
+  AGENT_PERMISSION_MODES,
   AGENT_RUN_MODES,
   INVESTIGATION_STATUSES,
+  parseEstimateUnits,
   PRIORITIES,
   STATUSES,
   type AgentCommand,
+  type AgentPermissionMode,
   type AgentRunMode,
   type CombinedBranchDetail,
   type InvestigationStatus,
@@ -122,6 +130,22 @@ function parseTags(value: unknown): string[] | undefined {
   return value.map((tag) => String(tag).trim()).filter(Boolean);
 }
 
+/** A plan estimate from a request body, absent staying absent so a PATCH that
+ *  does not mention it leaves the stored one alone. */
+function parseUnits(value: unknown): number | undefined {
+  return value === undefined ? undefined : parseEstimateUnits(value);
+}
+
+/** A list of task refs from a request body. Absent stays absent — an empty
+ *  array is a deliberate "no dependencies" and must not be confused with it. */
+function parseRefs(value: unknown, field: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((ref) => typeof ref !== 'string')) {
+    throw new Error(`${field} must be an array of task references.`);
+  }
+  return (value as string[]).map((ref) => ref.trim()).filter(Boolean);
+}
+
 function git(args: string[]): { code: number; stdout: string; stderr: string } {
   const result = Bun.spawnSync(['git', ...args], { cwd: ws.repoRoot });
   return { code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
@@ -153,7 +177,15 @@ async function finishCombine(branchName: string, taskRefs: string[], closeTasks:
   return tasks.map((task) => getTaskDetail(task.ref));
 }
 
-async function combineTasks(refs: string[], requestedBranch: string, closeTasks: boolean): Promise<{ branchName: string; tasks: ReturnType<typeof getTaskDetail>[]; conflicted: boolean }> {
+interface CombineResult {
+  branchName: string;
+  tasks: ReturnType<typeof getTaskDetail>[];
+  conflicted: boolean;
+  /** What the branch was cut from, and what had to happen to get it current. */
+  base: { branch: string } & BaseRefresh;
+}
+
+async function combineTasks(refs: string[], requestedBranch: string, closeTasks: boolean): Promise<CombineResult> {
   const branchName = validateBranchName(requestedBranch);
   const uniqueRefs = [...new Set(refs)];
   if (uniqueRefs.length < 1) throw new Error('Select at least one task.');
@@ -186,42 +218,55 @@ async function combineTasks(refs: string[], requestedBranch: string, closeTasks:
   }
 
   const current = git(['branch', '--show-current']).stdout.trim();
-  if (!current) throw new Error('Cannot cherry-pick from a detached HEAD. Switch to a branch first.');
-  // A delivery branch may be cut while another branch is checked out, but its
-  // PR target is the repository's configured/default branch—not its new name
-  // or necessarily the branch currently checked out.
+  // The delivery branch is always cut from the base branch, never from whatever
+  // happens to be checked out — a PR's diff is against its base, so anything
+  // else puts unrelated commits in it (or, when the checked-out branch is one of
+  // the selected task branches, leaves that task with an empty range).
   const baseBranch = defaultBaseBranch();
   if (cherryPickInProgress()) {
-    throw new Error(`A cherry-pick is already paused on '${current}'. Resolve and stage its conflicts, then use the delivery branch's Continue button (or run 'git cherry-pick --abort' to cancel it) before starting another one.`);
+    throw new Error(`A cherry-pick is already paused on '${current || 'HEAD'}'. Resolve and stage its conflicts, then use the delivery branch's Continue button (or run 'git cherry-pick --abort' to cancel it) before starting another one.`);
   }
   if (git(['status', '--porcelain']).stdout.trim()) throw new Error('Working tree must be clean before building a delivery branch.');
   if (git(['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`]).code === 0) {
     throw new Error(`Branch '${branchName}' already exists.`);
   }
 
-  const create = git(['switch', '-c', branchName]);
-  if (create.code !== 0) throw new Error(create.stderr.trim() || `Could not create '${branchName}'.`);
+  // Catch the base up with origin first, so the work is picked onto current
+  // master rather than onto whatever it was the last time anyone pulled.
+  const baseRefresh = refreshBaseBranch(baseBranch);
+
   // The branch name can have been corrected after the task detail was loaded.
   tasks = uniqueRefs.map((ref) => getTaskDetail(ref));
+  // Every range is resolved before the branch is created, so a task with nothing
+  // to pick fails without leaving a stray branch behind.
   const commitsToPick: string[] = [];
   for (const task of tasks) {
-    const base = git(['merge-base', 'HEAD', task.branchName!]);
-    if (base.code !== 0 || !base.stdout.trim()) throw new Error(`Could not find a common ancestor for ${task.ref} (${task.branchName}).`);
-    const commits = git(['rev-list', '--reverse', `${base.stdout.trim()}..${task.branchName}`]);
-    if (commits.code !== 0 || !commits.stdout.trim()) throw new Error(`${task.ref} (${task.branchName}) has no commits to pick.`);
+    const forkPoint = git(['merge-base', baseBranch, task.branchName!]);
+    if (forkPoint.code !== 0 || !forkPoint.stdout.trim()) throw new Error(`Could not find a common ancestor between '${baseBranch}' and ${task.ref} (${task.branchName}).`);
+    const commits = git(['rev-list', '--reverse', `${forkPoint.stdout.trim()}..${task.branchName}`]);
+    if (commits.code !== 0) throw new Error(commits.stderr.trim() || `Could not read the commits on ${task.ref} (${task.branchName}).`);
+    if (!commits.stdout.trim()) throw new Error(`${task.ref} (${task.branchName}) has no commits that '${baseBranch}' does not already have.`);
     commitsToPick.push(...commits.stdout.trim().split('\n'));
   }
+
+  const create = git(['switch', '-c', branchName, baseBranch]);
+  if (create.code !== 0) throw new Error(create.stderr.trim() || `Could not create '${branchName}' from '${baseBranch}'.`);
   for (let index = 0; index < commitsToPick.length; index++) {
     if (git(['cherry-pick', commitsToPick[index]!]).code !== 0) {
       recordCombine({ branchName, baseBranch, taskRefs: tasks.map((task) => task.ref), combineState: 'conflict', combinePendingCommits: commitsToPick.slice(index + 1), combineCloseTasks: closeTasks });
-      return { branchName, tasks, conflicted: true };
+      return { branchName, tasks, conflicted: true, base: { branch: baseBranch, ...baseRefresh } };
     }
   }
   // `finishCombine` marks the selected tasks and needs the durable delivery
   // branch record. Record it before finishing so a conflict-free combine does
   // not try to look up a branch that has not been saved yet.
   recordCombine({ branchName, baseBranch, taskRefs: tasks.map((task) => task.ref), combineCloseTasks: closeTasks });
-  return { branchName, tasks: await finishCombine(branchName, tasks.map((task) => task.ref), closeTasks), conflicted: false };
+  return {
+    branchName,
+    tasks: await finishCombine(branchName, tasks.map((task) => task.ref), closeTasks),
+    conflicted: false,
+    base: { branch: baseBranch, ...baseRefresh },
+  };
 }
 
 async function continueCombine(branchName: string): Promise<{ branchName: string; tasks: ReturnType<typeof getTaskDetail>[] }> {
@@ -456,6 +501,12 @@ async function handleNotes(request: Request, url: URL, rest: string[]): Promise<
   if (rawPath === 'init') {
     if (request.method !== 'POST') return fail('Method not allowed.', 405);
     return json({ init: initNotes(), workspace: notesWorkspaceInfo() });
+  }
+
+  // Both the Notes view and Issues are backed by this folder, so both offer it.
+  if (rawPath === 'pull') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    return json({ ...pullNotes(), workspace: notesWorkspaceInfo() });
   }
 
   if (rawPath === 'sync') {
@@ -698,7 +749,7 @@ async function handleAgents(request: Request, url: URL, rest: string[]): Promise
       extra?: string;
       subjectKind?: string;
       subjectRef?: string;
-      unattended?: boolean;
+      permissionMode?: string;
     }>(request);
 
     if (!input.harness) return fail('A harness is required.');
@@ -707,6 +758,12 @@ async function handleAgents(request: Request, url: URL, rest: string[]): Promise
     }
     if (!input.mode || !AGENT_RUN_MODES.includes(input.mode as AgentRunMode)) {
       return fail(`mode must be one of: ${AGENT_RUN_MODES.join(', ')}.`);
+    }
+    if (
+      input.permissionMode !== undefined &&
+      !AGENT_PERMISSION_MODES.includes(input.permissionMode as AgentPermissionMode)
+    ) {
+      return fail(`permissionMode must be one of: ${AGENT_PERMISSION_MODES.join(', ')}.`);
     }
 
     return json(
@@ -720,7 +777,10 @@ async function handleAgents(request: Request, url: URL, rest: string[]): Promise
           extra: input.extra ?? '',
           subjectKind: input.subjectKind ?? 'other',
           subjectRef: input.subjectRef ?? '',
-          unattended: input.unattended ?? true,
+          // A headless run has nobody to answer a prompt, so it defaults to the
+          // only mode that never asks; an interactive one keeps Claude's default.
+          permissionMode: (input.permissionMode as AgentPermissionMode | undefined)
+            ?? (input.mode === 'print' ? 'bypassPermissions' : 'manual'),
         }),
       },
       201,
@@ -830,6 +890,8 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
         tags?: unknown;
         branchName?: string;
         investigationRef?: string;
+        dependsOn?: unknown;
+        estimateUnits?: unknown;
       }>(request);
 
       if (!input.title) return fail('A task needs a title.');
@@ -846,6 +908,8 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
             tags: parseTags(input.tags),
             branchName: input.branchName,
             investigationRef: input.investigationRef,
+            dependsOn: parseRefs(input.dependsOn, 'dependsOn'),
+            estimateUnits: parseUnits(input.estimateUnits),
           }),
         },
         201,
@@ -872,10 +936,22 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
     const input = await body<{ refs?: unknown }>(request);
     if (!Array.isArray(input.refs) || !input.refs.every((ref) => typeof ref === 'string')) return fail('refs must be an array of task references.');
     const localBranches = git(['for-each-ref', '--format=%(refname:short)', 'refs/heads']).stdout.trim().split('\n').filter(Boolean);
-    return json({ tasks: [...new Set(input.refs as string[])].map((ref) => {
+    const base = defaultBaseBranch();
+    // The preview does not fetch — opening the dialog should not touch the
+    // network. It reads the range against the base as it stands, which is the
+    // fork point either way unless the base has since absorbed these very
+    // commits, and falls back to origin's copy when the base is not local yet.
+    const previewBase = branchExists(base) ? base : `origin/${base}`;
+    return json({ base, tasks: [...new Set(input.refs as string[])].map((ref) => {
       const task = getTaskDetail(ref);
       const candidates = localBranches.filter((name) => name.toLowerCase().includes(`/${ref.toLowerCase()}-`));
-      return { task, exists: !!task.branchName && localBranches.includes(task.branchName), candidates };
+      const exists = !!task.branchName && localBranches.includes(task.branchName);
+      return {
+        task,
+        exists,
+        candidates,
+        commits: exists ? readBranch(task.branchName!, previewBase).commits : [],
+      };
     }) });
   }
 
@@ -897,7 +973,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
       return fail('closeTasks must be a boolean.');
     }
     const result = await combineTasks(input.refs, input.branchName, input.closeTasks ?? true);
-    return json({ branchName: result.branchName, tasks: result.tasks }, 201);
+    return json({ branchName: result.branchName, tasks: result.tasks, conflicted: result.conflicted, base: result.base }, 201);
   }
 
   const [ref, action, phase] = rest;
@@ -918,6 +994,8 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
         tags?: unknown;
         investigationRef?: string | null;
         branchName?: string;
+        dependsOn?: unknown;
+        estimateUnits?: unknown;
       }>(request);
 
       if (input.priority && !isPriority(input.priority)) {
@@ -931,6 +1009,8 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
         priority: input.priority as never,
         tags: parseTags(input.tags),
         investigationRef: input.investigationRef,
+        dependsOn: parseRefs(input.dependsOn, 'dependsOn'),
+        estimateUnits: parseUnits(input.estimateUnits),
       });
       return json({ task: getTaskDetail(ref!) });
     }
@@ -938,6 +1018,27 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
     if (request.method === 'DELETE') {
       deleteTask(ref!);
       return json({ deleted: ref });
+    }
+
+    return fail('Method not allowed.', 405);
+  }
+
+  // /api/tasks/:ref/dependencies — handled before the POST-only guard below,
+  // because removing one blocker is a DELETE on the edge rather than a POST.
+  if (action === 'dependencies') {
+    const blockerRef = rest[2];
+
+    if (blockerRef !== undefined) {
+      if (request.method !== 'DELETE') return fail('Method not allowed.', 405);
+      return json({ task: getTaskDetail(removeDependency(ref!, decodeURIComponent(blockerRef)).ref) });
+    }
+
+    if (request.method === 'POST') {
+      const input = await body<{ dependsOn?: unknown }>(request);
+      const refs = parseRefs(input.dependsOn, 'dependsOn');
+      if (!refs?.length) return fail('dependsOn must name at least one task.');
+      for (const blocker of refs) addDependency(ref!, blocker);
+      return json({ task: getTaskDetail(ref!) });
     }
 
     return fail('Method not allowed.', 405);

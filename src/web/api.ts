@@ -2,9 +2,11 @@ import type {
   AgentCommand,
   AgentEnvironment,
   AgentModel,
+  AgentPermissionMode,
   AgentRun,
   AgentRunDetail,
   AgentRunMode,
+  BranchCommit,
   CombinedBranchDetail,
   Investigation,
   InvestigationDetail,
@@ -88,19 +90,33 @@ export const api = {
 
   getTask: (ref: string) => request<{ task: TaskDetail }>(`/tasks/${ref}`).then((r) => r.task),
 
-  createTask: (input: { title: string; description?: string; priority?: Priority; tags?: string[]; branchName?: string; investigationRef?: string }) =>
+  createTask: (input: { title: string; description?: string; priority?: Priority; tags?: string[]; branchName?: string; investigationRef?: string; dependsOn?: string[]; estimateUnits?: number }) =>
     request<{ task: Task }>('/tasks', { method: 'POST', body: JSON.stringify(input) }).then(
       (r) => r.task,
     ),
 
   updateTask: (
     ref: string,
-    input: { title?: string; description?: string; priority?: Priority; tags?: string[]; branchName?: string },
+    input: { title?: string; description?: string; priority?: Priority; tags?: string[]; branchName?: string; dependsOn?: string[]; estimateUnits?: number },
   ) =>
     request<{ task: TaskDetail }>(`/tasks/${ref}`, {
       method: 'PATCH',
       body: JSON.stringify(input),
     }).then((r) => r.task),
+
+  /** Make `ref` wait for each of `dependsOn`. Refused by the server if it would
+   *  close a loop. */
+  addDependencies: (ref: string, dependsOn: string[]) =>
+    request<{ task: TaskDetail }>(`/tasks/${ref}/dependencies`, {
+      method: 'POST',
+      body: JSON.stringify({ dependsOn }),
+    }).then((r) => r.task),
+
+  removeDependency: (ref: string, blockerRef: string) =>
+    request<{ task: TaskDetail }>(
+      `/tasks/${ref}/dependencies/${encodeURIComponent(blockerRef)}`,
+      { method: 'DELETE' },
+    ).then((r) => r.task),
 
   deleteTask: (ref: string) => request<{ deleted: string }>(`/tasks/${ref}`, { method: 'DELETE' }),
 
@@ -114,12 +130,20 @@ export const api = {
     }).then((r) => r.tasks),
 
   previewCombine: (refs: string[]) =>
-    request<{ tasks: { task: TaskDetail; exists: boolean; candidates: string[] }[] }>('/tasks/combine/preview', {
+    request<{
+      base: string;
+      tasks: { task: TaskDetail; exists: boolean; candidates: string[]; commits: BranchCommit[] }[];
+    }>('/tasks/combine/preview', {
       method: 'POST', body: JSON.stringify({ refs }),
     }),
 
   combineTasks: (refs: string[], branchName: string, closeTasks: boolean) =>
-    request<{ branchName: string; tasks: TaskDetail[]; conflicted: boolean }>('/tasks/combine', {
+    request<{
+      branchName: string;
+      tasks: TaskDetail[];
+      conflicted: boolean;
+      base: { branch: string; fetched: boolean; advanced: boolean; aheadOfRemote: boolean };
+    }>('/tasks/combine', {
       method: 'POST',
       body: JSON.stringify({ refs, branchName, closeTasks }),
     }),
@@ -289,7 +313,7 @@ export const api = {
     extra: string;
     subjectKind: string;
     subjectRef: string;
-    unattended: boolean;
+    permissionMode: AgentPermissionMode;
   }) =>
     request<{ run: AgentRun }>('/agents/run', {
       method: 'POST',
@@ -315,6 +339,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ push }),
     }),
+
+  /** Fetch and fast-forward the notes repository — the source of both the Notes
+   *  view and Issues, so both offer it. */
+  pullNotes: () =>
+    request<{
+      received: number;
+      upstream: string | null;
+      unpushed: number;
+      git: NotesGitInfo;
+      workspace: NotesWorkspaceInfo;
+    }>('/notes/pull', { method: 'POST' }),
 };
 
 /** Branch names contain slashes, so they travel as a single encoded segment. */

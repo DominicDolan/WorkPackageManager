@@ -415,6 +415,12 @@ label {
   box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
 }
 
+.toast.ok {
+  border-color: var(--verified);
+  color: var(--verified);
+  background: color-mix(in srgb, var(--verified) 14%, var(--bg-panel));
+}
+
 .toast-dismiss {
   background: none;
   border: none;
@@ -464,6 +470,36 @@ label {
   border-radius: 6px;
   background: var(--bg);
   color: var(--accent);
+}
+
+/* ---------------------------------------------------------- dependencies */
+
+/* The "waiting on" line under a task in the list. Coloured like an unfinished
+   status rather than like an error: waiting is normal, not a fault. */
+.blocked-note {
+  color: var(--devcomplete);
+}
+
+.dependency-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dependency-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.dependency-met {
+  color: var(--verified);
+}
+
+.dependency-unmet {
+  color: var(--devcomplete);
 }
 
 /* -------------------------------------------------------------- branches */
@@ -760,6 +796,14 @@ label {
 .combine-row:last-child { border-bottom: 0; }
 .combine-row select { grid-column: 3 / span 2; }
 @media (max-width: 700px) { .combine-row { grid-template-columns: auto 1fr; } .combine-row code, .combine-row select { grid-column: 1 / -1; } }
+
+/* The commits this task contributes, spanning the whole row beneath it. */
+.commit-preview,
+.commit-preview-empty { grid-column: 1 / -1; margin: 2px 0 0; }
+.commit-preview { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.commit-preview li { display: flex; gap: 8px; align-items: baseline; font-size: 12px; line-height: 1.5; }
+.commit-preview code { color: var(--text-faint); flex: none; }
+.commit-preview span { color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------------------------------------------------------------- notes */
 
@@ -1370,3 +1414,274 @@ label {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.25; }
 }
+
+/* ------------------------------------------------------------- plan view */
+
+/* The plan is a chart, not a record: it wants the whole window rather than the
+   third column, so the list rail steps aside for it. */
+.app.full {
+  grid-template-columns: 52px 1fr;
+}
+
+/* The chart scrolls inside itself, so the pane around it must not: two nested
+   scrollers would take the sticky axis off screen with the page. */
+.schedule {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 24px;
+}
+
+.schedule-header h2 {
+  margin: 0 0 4px;
+}
+
+.schedule-header p {
+  margin: 0;
+  max-width: 70ch;
+}
+
+.schedule-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 16px 0 12px;
+  flex-wrap: wrap;
+}
+
+.schedule-toggle,
+.schedule-zoom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.schedule-zoom input {
+  width: 110px;
+}
+
+.schedule-summary {
+  margin: 0;
+}
+
+/* One scroller for the whole chart, so the axis, the bars and the links can
+   never disagree about where a unit is. */
+.schedule-scroll {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  min-height: 0;
+  flex: 1;
+}
+
+.schedule-canvas {
+  position: relative;
+}
+
+.schedule-head {
+  display: flex;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.schedule-tick {
+  flex: none;
+  border-left: 1px solid var(--border);
+  padding: 8px 0 0 8px;
+  font-size: 12px;
+  color: var(--text-faint);
+  box-sizing: border-box;
+}
+
+.schedule-body {
+  position: relative;
+}
+
+.schedule-rule {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  opacity: 0.5;
+}
+
+.schedule-links {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.schedule-links path {
+  fill: none;
+  stroke: var(--text-faint);
+  stroke-width: 1.5;
+}
+
+/* Dashed means the blocker has not finished: the link is a plan, not a fact. */
+.schedule-links path.waiting {
+  stroke: var(--devcomplete);
+  stroke-dasharray: 4 3;
+}
+
+.schedule-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+}
+
+.schedule-row.selected .schedule-label,
+.schedule-row:hover .schedule-label {
+  background: var(--bg-raised);
+}
+
+/* Sticky, so the task a bar belongs to is still readable once the plan is
+   scrolled past its own labels. */
+.schedule-label {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 0 10px;
+  box-sizing: border-box;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.schedule-head-label {
+  color: var(--text-faint);
+  font-size: 12px;
+  border-bottom: none;
+  z-index: 4;
+}
+
+.schedule-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.schedule-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schedule-units {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--text-dim);
+}
+
+.schedule-units.busy {
+  opacity: 0.5;
+}
+
+.schedule-units button {
+  padding: 0 6px;
+  min-width: 0;
+  line-height: 18px;
+  font-size: 13px;
+}
+
+.schedule-units .mono {
+  min-width: 18px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.schedule-bar {
+  position: absolute;
+  top: 5px;
+  height: 22px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 22%, transparent);
+  color: var(--backlog);
+  font-size: 12px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.schedule-bar:hover {
+  background: color-mix(in srgb, currentColor 38%, transparent);
+}
+
+/* Dashed like the links into it: this bar is where the plan says the work goes,
+   not where anything has been agreed to start. */
+.schedule-bar.waiting {
+  border-style: dashed;
+}
+
+.schedule-bar.in_progress { color: var(--progress); }
+.schedule-bar.dev_complete { color: var(--devcomplete); }
+.schedule-bar.verified { color: var(--verified); }
+.schedule-bar.closed { color: var(--text-faint); }
+
+.schedule-bar-text {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.schedule-row.selected .schedule-bar {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.schedule-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+
+.schedule-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 30%, transparent);
+  color: var(--backlog);
+}
+
+.schedule-swatch.in_progress { color: var(--progress); }
+.schedule-swatch.dev_complete { color: var(--devcomplete); }
+.schedule-swatch.verified { color: var(--verified); }
+.schedule-swatch.closed { color: var(--text-faint); }

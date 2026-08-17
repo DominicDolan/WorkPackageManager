@@ -42,9 +42,20 @@ export interface Task {
    *  contiguous: a reorder only permutes the positions it was handed. */
   position: number;
   tags: string[];
+  /** How long the task takes on the plan, in abstract units — see
+   *  `DEFAULT_ESTIMATE_UNITS`. Deliberately not hours: the schedule view orders
+   *  work, it does not date it. */
+  estimateUnits: number;
   /** The investigation that filed this task, when one did. Plain ref, not a
    *  foreign key — a task outlives the investigation that produced it. */
   investigationRef: string | null;
+  /** Refs of the tasks this one waits on, nearest the top of the list first.
+   *  Plain refs rather than ids, so the shape matches how everything else here
+   *  addresses a task. */
+  dependsOn: string[];
+  /** Refs of the tasks waiting on this one — the other side of `dependsOn`,
+   *  materialised so a list view can mark a blocker without a second request. */
+  blocks: string[];
   /** The Git branch assigned when the task is created. Legacy completed tasks may not have one. */
   branchName: string | null;
   checkpointName: string | null;
@@ -54,6 +65,61 @@ export interface Task {
   devCompletedAt: string | null;
   verifiedAt: string | null;
   closedAt: string | null;
+}
+
+/**
+ * How long a task takes when nobody says otherwise.
+ *
+ * The plan's time axis is units, not hours — one unit is "a task", and most
+ * tasks are one of them. Anything bigger is the exception a human types in, so
+ * the default has to be the common case rather than an empty field.
+ */
+export const DEFAULT_ESTIMATE_UNITS = 1;
+
+/** The largest estimate accepted. Not a real limit on work, just a guard against
+ *  a typo'd `100` becoming a chart nothing can render. */
+export const MAX_ESTIMATE_UNITS = 999;
+
+/** Coerce anything into a usable estimate, or throw saying why it is not one. */
+export function parseEstimateUnits(value: unknown): number {
+  const units = typeof value === 'string' ? Number(value.trim()) : value;
+  if (typeof units !== 'number' || !Number.isInteger(units) || units < 1 || units > MAX_ESTIMATE_UNITS) {
+    throw new Error(`An estimate must be a whole number of units between 1 and ${MAX_ESTIMATE_UNITS}.`);
+  }
+  return units;
+}
+
+/**
+ * Statuses that satisfy a dependency.
+ *
+ * A blocker counts as done once its work exists on its branch — that is what
+ * the next task actually needs — so `dev_complete` is enough. Waiting for
+ * `verified` would mean a human sign-off gates work that is already unblocked.
+ */
+export const DEPENDENCY_SATISFIED_STATUSES: readonly Status[] = [
+  'dev_complete',
+  'verified',
+  'closed',
+];
+
+/** Whether a blocker's status still holds up the tasks that depend on it. */
+export function satisfiesDependency(status: Status): boolean {
+  return DEPENDENCY_SATISFIED_STATUSES.includes(status);
+}
+
+/**
+ * The blockers of `task` that are not done yet, given whatever tasks are to
+ * hand. Refs that are not in `known` are skipped rather than assumed blocking:
+ * a filtered list is a partial view, not evidence that a task is gone.
+ */
+export function unmetDependencies(task: Task, known: Iterable<Task>): Task[] {
+  if (!task.dependsOn.length) return [];
+  const byRef = new Map<string, Task>();
+  for (const one of known) byRef.set(one.ref.toLowerCase(), one);
+
+  return task.dependsOn
+    .map((ref) => byRef.get(ref.toLowerCase()))
+    .filter((blocker): blocker is Task => !!blocker && !satisfiesDependency(blocker.status));
 }
 
 export interface TaskEvent {
@@ -388,6 +454,25 @@ export type AgentCommand = (typeof AGENT_COMMANDS)[number];
  */
 export const AGENT_RUN_MODES = ['terminal', 'print'] as const;
 export type AgentRunMode = (typeof AGENT_RUN_MODES)[number];
+
+/**
+ * How much the agent may do without asking — Claude Code's `--permission-mode`,
+ * which applies to an interactive session just as much as a headless one.
+ *
+ * `manual` is the odd one out: it is Claude's own default, so it is expressed by
+ * passing no flag at all rather than by naming it. That keeps a harness whose
+ * build predates these mode names working, and it is the reason this list is the
+ * app's own vocabulary rather than a mirror of whatever the CLI accepts.
+ */
+export const AGENT_PERMISSION_MODES = ['manual', 'auto', 'plan', 'bypassPermissions'] as const;
+export type AgentPermissionMode = (typeof AGENT_PERMISSION_MODES)[number];
+
+export const AGENT_PERMISSION_MODE_LABELS: Record<AgentPermissionMode, string> = {
+  manual: 'Ask every time',
+  auto: 'Auto',
+  plan: 'Plan only',
+  bypassPermissions: 'Never ask',
+};
 
 export type AgentRunStatus = 'launched' | 'running' | 'succeeded' | 'failed' | 'stopped';
 

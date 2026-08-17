@@ -576,18 +576,25 @@ export function resolveNoteLink(notePath: string, href: string): string | null {
 
 /* ---------------------------------------------------------------- git */
 
-function git(args: string[], cwd = ws().notesDir): { code: number; stdout: string; stderr: string } {
+function git(
+  args: string[],
+  cwd = ws().notesDir,
+  timeoutMs?: number,
+): { code: number; stdout: string; stderr: string; timedOut: boolean } {
   const result = Bun.spawnSync(['git', ...args], {
     cwd,
     // Never inherit stdio: a credential prompt on a push would hang the request.
     stdin: 'ignore',
     stdout: 'pipe',
     stderr: 'pipe',
+    ...(timeoutMs ? { timeout: timeoutMs } : {}),
   });
   return {
     code: result.exitCode ?? 1,
     stdout: result.stdout.toString(),
     stderr: result.stderr.toString(),
+    // Bun reports a timeout kill as a signal rather than an exit code.
+    timedOut: result.signalCode === 'SIGTERM' || result.signalCode === 'SIGKILL',
   };
 }
 
@@ -693,6 +700,90 @@ export function syncNotes({ push = false, message }: { push?: boolean; message?:
   }
 
   return { committed, pushed, git: notesGitInfo() };
+}
+
+/** A pull reaches the network, and an unreachable remote must fail rather than
+ *  hold the request open. */
+const FETCH_TIMEOUT_MS = 120_000;
+
+export interface NotesPull {
+  /** Commits the fast-forward brought in. Zero when already up to date. */
+  received: number;
+  /** The remote-tracking ref that was merged, e.g. `origin/main`. */
+  upstream: string | null;
+  /** Local commits the remote does not have — a reminder to push, not a failure. */
+  unpushed: number;
+  git: NotesGitInfo;
+}
+
+/**
+ * Fetch the notes repository and fast-forward onto whatever came back.
+ *
+ * Both the Notes view and Issues read out of this one folder — the issue JSON
+ * files live there too — so this is the single "go and get what everyone else
+ * wrote" action behind both.
+ *
+ * Fast-forward only, deliberately. A merge that stops half-done would leave the
+ * notes folder in a conflicted state that this UI has no way to resolve, so a
+ * genuinely diverged repository is reported and left exactly as it was for the
+ * user to reconcile in a terminal. Local changes are not committed first: the
+ * Commit button next to this one does that, and quietly committing someone's
+ * half-written note because they asked to pull would be a surprise.
+ */
+export function pullNotes(): NotesPull {
+  if (!isNotesRepo()) throw new Error(`${ws().notesDir} is not a Git repository. Run \`tasks notes init\`.`);
+
+  const before = notesGitInfo();
+  if (!before.branch) throw new Error('The notes repository is on a detached HEAD — check out a branch first.');
+
+  const remotes = git(['remote']).stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (!remotes.length) throw new Error('The notes repository has no remote to pull from.');
+  // The branch's own remote when it has one, otherwise the conventional name,
+  // otherwise whatever single remote this repository does have.
+  const remote = before.upstream?.split('/')[0]
+    ?? (remotes.includes('origin') ? 'origin' : remotes[0]!);
+
+  const fetched = git(['fetch', remote], undefined, FETCH_TIMEOUT_MS);
+  if (fetched.timedOut) throw new Error(`Fetching from '${remote}' timed out.`);
+  if (fetched.code !== 0) {
+    throw new Error(fetched.stderr.trim() || `Could not fetch from '${remote}'.`);
+  }
+
+  const tracking = before.upstream ?? `${remote}/${before.branch}`;
+  const remoteSha = git(['rev-parse', '--verify', '--quiet', `${tracking}^{commit}`]).stdout.trim();
+  if (!remoteSha) {
+    // Fetched fine, but this branch does not exist on the remote yet — a local
+    // branch nobody has pushed. Nothing to merge, and nothing wrong.
+    return { received: 0, upstream: null, unpushed: 0, git: notesGitInfo() };
+  }
+
+  const localSha = git(['rev-parse', 'HEAD']).stdout.trim();
+  const countBetween = (range: string): number =>
+    Number(git(['rev-list', '--count', range]).stdout.trim()) || 0;
+
+  if (localSha === remoteSha) {
+    return { received: 0, upstream: tracking, unpushed: 0, git: notesGitInfo() };
+  }
+
+  const behind = git(['merge-base', '--is-ancestor', localSha, remoteSha]).code === 0;
+  if (!behind) {
+    const ahead = git(['merge-base', '--is-ancestor', remoteSha, localSha]).code === 0;
+    if (ahead) {
+      return { received: 0, upstream: tracking, unpushed: countBetween(`${tracking}..HEAD`), git: notesGitInfo() };
+    }
+    throw new Error(
+      `The notes repository has diverged from ${tracking} — each has commits the other does not. ` +
+      'Reconcile it by hand (merge or rebase in a terminal); nothing was changed.',
+    );
+  }
+
+  const received = countBetween(`HEAD..${tracking}`);
+  const merged = git(['merge', '--ff-only', tracking]);
+  if (merged.code !== 0) {
+    throw new Error(merged.stderr.trim() || merged.stdout.trim() || `Could not fast-forward onto ${tracking}.`);
+  }
+
+  return { received, upstream: tracking, unpushed: 0, git: notesGitInfo() };
 }
 
 /**
