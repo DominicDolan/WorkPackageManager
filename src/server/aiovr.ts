@@ -99,6 +99,10 @@ export function checkpointExists(name: string): boolean {
 /** Remove screenshots aio-vr no longer needs for one task checkpoint. */
 export async function cleanCheckpoint(task: Task): Promise<void> {
   const name = nameFor(task);
+  // A task can reach the end of its life without ever capturing a checkpoint —
+  // nothing visual to compare, or the work turned out to need no change at all.
+  // There is nothing to clean then, and aio-vr would exit non-zero.
+  if (!checkpointExists(name)) return;
   if (!aioVrAvailable()) {
     throw new Error(`Could not find the '${aioVrBin()}' executable on PATH. Install aio-visual-regression, or set AIO_VR_BIN.`);
   }
@@ -129,7 +133,9 @@ function buildArgs(phase: Phase, name: string, options: CheckpointOptions): stri
   return args;
 }
 
-async function spawnAioVr(
+/** Exported so the baselines module can drive `run` and `approve` through the
+ *  same executable resolution and environment as checkpoint captures. */
+export async function spawnAioVr(
   args: string[],
   inheritStdio: boolean,
 ): Promise<{ exitCode: number; output: string }> {

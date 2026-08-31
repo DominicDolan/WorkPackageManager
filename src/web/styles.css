@@ -289,6 +289,148 @@ label {
   accent-color: var(--accent);
 }
 
+/* -------------------------------------------------------------- groups */
+
+.group-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.group-switch input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* A heading, not a row: it is sticky so the section a task belongs to stays
+   readable while its own rows scroll past. */
+.group-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.group-head.drop-into {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.group-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  width: 14px;
+  color: var(--text-faint);
+  line-height: 1;
+}
+
+.group-toggle:hover:not(:disabled) {
+  color: var(--text);
+  border-color: transparent;
+}
+
+.group-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--group-color, var(--text-faint));
+}
+
+.group-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The group's branch sits beside the count, and gives way to the name when
+   there is not room for both — which one matters more is not a contest. */
+.group-branch {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.group-action {
+  padding: 2px 8px;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.group-head:hover .group-action,
+.group-action:focus-visible {
+  opacity: 1;
+}
+
+/* The stripe is what ties a row to the heading above it once the list has
+   scrolled far enough that only one of the two is on screen. */
+.task-item.in-group {
+  box-shadow: inset 2px 0 0 var(--group-color, transparent);
+}
+
+.task-item.in-group.selected {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.group-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--group-color, var(--border));
+  color: var(--group-color, var(--text-dim));
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.group-colors {
+  gap: 6px;
+}
+
+.group-color {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+
+.group-color.chosen {
+  border-color: var(--text);
+}
+
+/* The group picker in the task detail header — a select that reads as a chip
+   rather than as a form field, because it sits among badges. */
+.detail-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail-group select {
+  width: auto;
+  padding: 2px 6px;
+  font-size: 12px;
+  background: none;
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+
 /* --------------------------------------------------------- reordering */
 
 .drag-grip {
@@ -542,6 +684,78 @@ label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The next task and its Start button, on one line — the task is the subject and
+   the button is the only thing to do with it. */
+.next-up {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* One scenario's comparison plus the buttons that act on it. The actions sit
+   under the card rather than in its head, which belongs to the disclosure. */
+.baseline-row {
+  margin-bottom: 14px;
+}
+
+.baseline-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px 0;
+  font-size: 12px;
+}
+
+/* The group's work order. Numbered, because the number *is* the information —
+   it is the order the tasks can actually be done in, not just a list of them. */
+.group-queue {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group-queue li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* What a group-wide sign-off did to each task. One row per member, so a task
+   that was left alone or failed is as visible as the ones that moved. */
+.signoff-outcomes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.signoff-outcomes li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+}
+
+.signoff-error {
+  color: var(--danger);
+}
+
+/* Whether a finished task's work actually reached the group branch. The absence
+   is the news, so it is the one that carries a colour. */
+.merged-yes {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.merged-no {
+  font-size: 11px;
+  color: var(--devcomplete);
 }
 
 /* Monospace so the generated Markdown wraps the way GitHub will render it. */
@@ -945,6 +1159,116 @@ label {
   overflow-wrap: anywhere;
 }
 
+/* A thumbnail is a button so it is reachable by keyboard, but it must look like
+   the picture and nothing else. */
+.attachment-open {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+  display: block;
+  line-height: 0;
+}
+
+.attachment-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------- lightbox */
+
+.lightbox {
+  /* Darker than the form dialogs: what is behind an image should recede, and a
+     screenshot on a half-lit page is hard to read. */
+  background: rgba(0, 0, 0, 0.85);
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  cursor: zoom-out;
+}
+
+.lightbox-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 1100px;
+  color: #f2f2f2;
+  font-size: 13px;
+  cursor: auto;
+}
+
+.lightbox-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lightbox-bar .faint {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.lightbox-bar a {
+  color: #f2f2f2;
+}
+
+.lightbox-close {
+  background: none;
+  border: none;
+  color: #f2f2f2;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.lightbox-image {
+  /* Bounded by the viewport, never scaled up past its own pixels: a screenshot
+     blown past 1:1 is blurrier, not bigger. */
+  max-width: 100%;
+  max-height: calc(100vh - 90px);
+  object-fit: contain;
+  border-radius: 4px;
+  background: #111;
+  cursor: auto;
+}
+
+.lightbox-image.loading {
+  min-width: 120px;
+  min-height: 120px;
+}
+
+.lightbox-step {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #f2f2f2;
+  font-size: 30px;
+  line-height: 1;
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.lightbox-step:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.lightbox-step.prev {
+  left: 16px;
+}
+
+.lightbox-step.next {
+  right: 16px;
+}
+
+/* Images in the preview open in the viewer too, so they say so on hover. */
+.note-preview img {
+  cursor: zoom-in;
+}
+
 /* --------------------------------------------------- rendered markdown */
 
 .markdown {
@@ -1306,12 +1630,44 @@ label {
 .badge.agent-failed { color: var(--danger); }
 .badge.agent-stopped { color: var(--text-faint); }
 
+/* A group run's own states. `blocked` is the one worth its own colour: it means
+   the loop stopped with the group half delivered and something wants reading. */
+.badge.group-run-running { color: var(--progress); }
+.badge.group-run-finished { color: var(--verified); }
+.badge.group-run-blocked { color: var(--devcomplete); }
+.badge.group-run-failed { color: var(--danger); }
+.badge.group-run-stopped { color: var(--text-faint); }
+
+.group-run-progress {
+  margin-bottom: 12px;
+}
+
+.group-run-last {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
 .agent-history {
   list-style: none;
   margin: 0;
   padding: 0;
   max-height: 180px;
   overflow-y: auto;
+}
+
+/* The row is a link and Resume is a real action, so they sit side by side
+   rather than nesting one inside the other. */
+.agent-history li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-resume {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 11px;
 }
 
 /* A whole row that behaves like a link rather than a button — the run it opens
@@ -1468,6 +1824,16 @@ label {
   margin: 0;
 }
 
+/* The chart and the summary sit side by side rather than the panel floating
+   over the chart: the row a summary belongs to has to stay visible while it is
+   read, and an overlay covers exactly the bars being compared. */
+.schedule-main {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
 /* One scroller for the whole chart, so the axis, the bars and the links can
    never disagree about where a unit is. */
 .schedule-scroll {
@@ -1476,6 +1842,7 @@ label {
   border-radius: var(--radius);
   background: var(--bg-panel);
   min-height: 0;
+  min-width: 0;
   flex: 1;
 }
 
@@ -1663,6 +2030,115 @@ label {
   outline-offset: 1px;
 }
 
+/* ------------------------------------------------- plan: the task summary */
+
+.schedule-panel {
+  flex: none;
+  width: 340px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 14px 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+}
+
+.schedule-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.schedule-panel-close {
+  padding: 0 8px;
+  line-height: 20px;
+}
+
+.schedule-panel-title {
+  margin: 4px 0 10px;
+  font-size: 16px;
+}
+
+/* Label above value rather than beside it: at 340px a two-column list wraps a
+   branch name onto four lines. */
+.schedule-panel-facts {
+  margin: 14px 0 0;
+  font-size: 13px;
+}
+
+.schedule-panel-facts dt {
+  color: var(--text-faint);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 10px;
+}
+
+.schedule-panel-facts dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.schedule-panel-section {
+  margin-top: 18px;
+}
+
+.schedule-panel-section h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.schedule-panel-refs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.schedule-panel-refs li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.schedule-panel-refs button {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 3px 0;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* A blocker the filter hides has nowhere to jump to, so it reads as text. */
+.schedule-panel-refs button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.schedule-panel-ref-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.schedule-panel-foot {
+  margin-top: 20px;
+}
+
 .schedule-legend {
   display: flex;
   align-items: center;
@@ -1685,3 +2161,126 @@ label {
 .schedule-swatch.dev_complete { color: var(--devcomplete); }
 .schedule-swatch.verified { color: var(--verified); }
 .schedule-swatch.closed { color: var(--text-faint); }
+
+/* ------------------------------------------------------- plan: group bands */
+
+.schedule-row.grouped .schedule-label {
+  box-shadow: inset 2px 0 0 var(--group-color, transparent);
+}
+
+.schedule-band {
+  background: color-mix(in srgb, var(--group-color) 8%, transparent);
+}
+
+.schedule-band-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 12px;
+  box-shadow: inset 3px 0 0 var(--group-color);
+}
+
+.schedule-band-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The group's span, drawn thin so it reads as a bracket over its tasks rather
+   than as another bar competing with them. */
+.schedule-band-span {
+  position: absolute;
+  top: 50%;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 3px;
+  background: var(--group-color);
+  opacity: 0.4;
+}
+
+/* ---------------------------------------------------------------- checks */
+
+.checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.checks li + li {
+  border-top: 1px solid var(--border);
+}
+
+/* The whole row is the toggle: the output is the reason anyone looks at a
+   failed check, and hunting for a disclosure triangle to reach it is friction
+   at exactly the wrong moment. */
+.check-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 10px 14px;
+  color: var(--text);
+}
+
+.check-head:hover {
+  background: var(--bg-raised);
+}
+
+.check-status {
+  flex: none;
+  min-width: 72px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.check-status.passed {
+  color: var(--verified);
+}
+
+.check-status.failed,
+.check-status.timed_out,
+.check-status.error {
+  color: var(--danger);
+}
+
+.check-name {
+  font-weight: 600;
+}
+
+.check-head .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.check-head .faint:last-child {
+  margin-left: auto;
+}
+
+.check-reason {
+  margin: 0;
+  padding: 0 14px 10px 96px;
+}
+
+.check-output {
+  margin: 0;
+  padding: 12px 14px;
+  max-height: 420px;
+  overflow: auto;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

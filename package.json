@@ -10,6 +10,7 @@
     "bin/**/*",
     "src/**/*",
     "dist/**/*",
+    "prompts/**/*",
     "vite.config.ts",
     "tsconfig.json",
     "README.md"

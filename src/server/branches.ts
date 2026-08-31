@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { workspace } from '../config/paths';
 import type { BranchCommit, BranchGitInfo, ToolAvailability } from '../shared/types';
 
@@ -167,6 +169,156 @@ export function refreshBaseBranch(base: string): BaseRefresh {
     throw new Error(advanced.stderr.trim() || `Could not fast-forward '${base}' to origin/${base}.`);
   }
   return { fetched: true, advanced: true, aheadOfRemote: false };
+}
+
+/** True when `ancestor` is already contained in `descendant` — the question
+ *  "is this task's work already on the group branch?". */
+export function isAncestor(ancestor: string, descendant: string): boolean {
+  return git(['merge-base', '--is-ancestor', ancestor, descendant]).code === 0;
+}
+
+/**
+ * Whether `branch` was cut from `integration` after `integration` had already
+ * moved past `base` — meaning `base..branch` carries the integration branch's
+ * earlier work as well as this branch's own.
+ *
+ * The test is against the integration branch's **first-parent** line, not its
+ * full history: a task merged into a group branch is reachable from it, but as
+ * a second parent, and its own commits are exactly what a cherry-pick is
+ * supposed to take. The first-parent line is the group branch's trunk, and it
+ * is linear — so if any of it is behind `branch`, the oldest of it is, which is
+ * the only ancestry test needed.
+ */
+export function builtOnTopOf(base: string, integration: string, branch: string): boolean {
+  const trunk = git(['rev-list', '--first-parent', `${base}..${integration}`])
+    .stdout.trim()
+    .split('\n')
+    .filter(Boolean);
+  const oldest = trunk[trunk.length - 1];
+  return !!oldest && isAncestor(oldest, branch);
+}
+
+/** Nothing staged, nothing modified, no untracked files. */
+export function workingTreeClean(): boolean {
+  return !git(['status', '--porcelain']).stdout.trim();
+}
+
+/** True while a merge is stopped on conflicts and waiting to be committed. */
+export function mergeInProgress(): boolean {
+  return git(['rev-parse', '--verify', '--quiet', 'MERGE_HEAD']).code === 0;
+}
+
+/**
+ * True while a rebase is stopped part-way through.
+ *
+ * Both directories are checked because Git uses one or the other depending on
+ * which backend ran the rebase, and either means the same thing here: the
+ * repository is mid-operation and must not be given another one.
+ */
+export function rebaseInProgress(): boolean {
+  for (const dir of ['rebase-merge', 'rebase-apply']) {
+    const path = git(['rev-parse', '--git-path', dir]).stdout.trim();
+    if (path && existsSync(join(ws.repoRoot, path))) return true;
+  }
+  return false;
+}
+
+/** Whether `branch` has been pushed. A rebase rewrites history, so a branch with
+ *  a counterpart on the remote cannot be linearised without a force-push. */
+export function isPushed(branch: string): boolean {
+  return refExists(`origin/${branch}`);
+}
+
+export function switchBranch(branch: string): void {
+  const switched = git(['switch', branch]);
+  if (switched.code !== 0) {
+    throw new Error(switched.stderr.trim() || `Could not switch to '${branch}'.`);
+  }
+}
+
+/** Create `branch` at `start` without checking it out — how a group branch comes
+ *  into existence, which must not move the user off what they are working on. */
+export function createBranch(branch: string, start: string): void {
+  const created = git(['branch', branch, start]);
+  if (created.code !== 0) {
+    throw new Error(created.stderr.trim() || `Could not create '${branch}' from '${start}'.`);
+  }
+}
+
+/** Create `branch` at `start` and check it out. */
+export function createBranchAt(branch: string, start: string): void {
+  const created = git(['switch', '-c', branch, start]);
+  if (created.code !== 0) {
+    throw new Error(created.stderr.trim() || `Could not create '${branch}' from '${start}'.`);
+  }
+}
+
+export interface RebaseOutcome {
+  rebased: boolean;
+  conflict: string;
+}
+
+/**
+ * Replay `branch` on top of `onto`, so it becomes a straight run of commits
+ * sitting directly on it.
+ *
+ * This is what keeps a group branch linear. Two different things make a branch
+ * crooked and this handles both: a task cut before the group branch moved on
+ * (replayed onto the new tip), and a task branch that has a merge commit inside
+ * it from resolving a collision or pulling a dependency in. A plain rebase drops
+ * merge commits and replays the commits themselves, which flattens the second
+ * case without anything else having to notice it happened.
+ *
+ * Git decides for itself when there is nothing to do: a branch already sitting
+ * linearly on `onto` comes back untouched, same commits, same hashes.
+ *
+ * **A conflict aborts.** The opposite of how a merge conflict is handled — that
+ * one is left in the tree because there is nowhere better to resolve it. A
+ * half-finished rebase is different: it is a repository in a mode, with commits
+ * partly replayed, and a group run reaches this while nobody is watching. Better
+ * to leave the branches exactly as they were and say which two collided.
+ */
+export function rebaseOnto(branch: string, onto: string): RebaseOutcome {
+  // Takes the branch as an argument rather than requiring it checked out: Git
+  // checks it out itself, which is one less state for the caller to restore.
+  const rebased = git(['rebase', onto, branch]);
+  if (rebased.code === 0) return { rebased: true, conflict: '' };
+
+  const detail = rebased.stdout.trim() || rebased.stderr.trim() || `Rebasing '${branch}' onto '${onto}' failed.`;
+  git(['rebase', '--abort']);
+  return { rebased: false, conflict: detail };
+}
+
+export interface MergeOutcome {
+  merged: boolean;
+  /** True when the branch was already contained, so nothing needed doing. */
+  alreadyMerged: boolean;
+  conflict: string;
+}
+
+/**
+ * Fast-forward the currently checked-out branch to `branch`.
+ *
+ * `--ff-only` and never a merge commit: the group branch is meant to read as a
+ * straight list of commits by the time it is reviewed, and a merge commit per
+ * task is exactly what stops it. This can only succeed because `rebaseOnto` has
+ * already put `branch` directly on top — so a refusal here means the caller
+ * skipped that, not that the work collides.
+ */
+export function fastForward(branch: string): MergeOutcome {
+  const current = currentBranch();
+  if (current && isAncestor(branch, current)) {
+    return { merged: true, alreadyMerged: true, conflict: '' };
+  }
+
+  const merged = git(['merge', '--ff-only', branch]);
+  if (merged.code === 0) return { merged: true, alreadyMerged: false, conflict: '' };
+
+  return {
+    merged: false,
+    alreadyMerged: false,
+    conflict: merged.stdout.trim() || merged.stderr.trim() || `Fast-forwarding to '${branch}' failed.`,
+  };
 }
 
 /**
@@ -366,15 +518,18 @@ export async function createPullRequest(input: {
   title: string;
   body: string;
   draft: boolean;
+  /** The name to push and open the PR's head under, if different from `branch`. */
+  remoteBranch?: string | null;
 }): Promise<CreatePrResult> {
   const { branch, base, title, body, draft } = input;
+  const remoteBranch = input.remoteBranch?.trim() || branch;
 
   if (!branchExists(branch)) throw new Error(`Branch '${branch}' does not exist locally.`);
   if (!title.trim()) throw new Error('A pull request needs a title.');
 
-  const existing = runSync(['gh', 'pr', 'view', branch, '--json', 'url', '-q', '.url'], 30_000);
+  const existing = runSync(['gh', 'pr', 'view', remoteBranch, '--json', 'url', '-q', '.url'], 30_000);
   if (existing.code === 0 && existing.stdout.trim()) {
-    throw new Error(`A pull request already exists for '${branch}': ${existing.stdout.trim()}`);
+    throw new Error(`A pull request already exists for '${remoteBranch}': ${existing.stdout.trim()}`);
   }
 
   const hasUpstream =
@@ -382,7 +537,7 @@ export async function createPullRequest(input: {
 
   let pushed = false;
   if (!hasUpstream) {
-    const push = runSync(['git', 'push', '-u', 'origin', branch], GH_TIMEOUT_MS);
+    const push = runSync(['git', 'push', '-u', 'origin', `${branch}:${remoteBranch}`], GH_TIMEOUT_MS);
     if (push.timedOut) throw new Error(`Pushing '${branch}' timed out.`);
     if (push.code !== 0) throw new Error(push.stderr.trim() || `Could not push '${branch}'.`);
     pushed = true;
@@ -392,7 +547,7 @@ export async function createPullRequest(input: {
   await Bun.write(bodyFile, body);
 
   try {
-    const args = ['gh', 'pr', 'create', '--head', branch, '--base', base, '--title', title,
+    const args = ['gh', 'pr', 'create', '--head', remoteBranch, '--base', base, '--title', title,
       '--body-file', bodyFile];
     if (draft) args.push('--draft');
 
@@ -420,5 +575,5 @@ export function toolAvailability(): ToolAvailability {
   const prAgentAvailable = agent !== null && runSync([agent, '--version'], 15_000).code === 0;
   const gh = runSync(['gh', '--version'], 15_000).code === 0;
   const ghAuthed = gh && runSync(['gh', 'auth', 'status'], 15_000).code === 0;
-  return { prAgent: agent, prAgentAvailable, gh, ghAuthed };
+  return { prAgent: agent, prAgentAvailable, checkCount: ws.config.checks.length, gh, ghAuthed };
 }

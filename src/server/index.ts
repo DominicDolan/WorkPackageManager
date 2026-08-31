@@ -6,8 +6,10 @@ import { aioVrAvailable, captureAfter, captureBefore, cleanCheckpoint } from './
 import {
   addDependency,
   addNote,
+  createGroup,
   createInvestigation,
   createTask,
+  deleteGroup,
   deleteInvestigation,
   deleteTask,
   deleteCombinedBranch,
@@ -15,27 +17,34 @@ import {
   getInvestigationDetail,
   getTaskDetail,
   isInvestigationStatus,
+  isModelTier,
   isPriority,
   isStatus,
   listCombinedBranches,
+  listGroups,
   listInvestigations,
   listTasks,
   moveTask,
   recordCombine,
   removeDependency,
   renameCombinedBranch,
+  listGroupRuns,
+  reorderGroups,
   reorderTasks,
   requireCombinedBranch,
   requireTask,
   recordCombinedBranch,
   setInvestigationStatus,
+  setTaskGroup,
   updateCombinedBranch,
+  updateGroup,
   updateInvestigation,
   updateTask,
   updateTaskBranchName,
   setStatus,
 } from './repo';
 import { issueFacets, listIssues, readIssue } from './issues';
+import { reconcileGroupRuns, startGroupRun, stopGroupRun } from './groupRuns';
 import {
   agentEnvironment,
   getRun,
@@ -43,6 +52,7 @@ import {
   listRuns,
   reconcileRuns,
   startRun,
+  resumeRun,
   stopRun,
 } from './agents';
 import { announceChange, currentRevisions, ensureWatchers, onChange } from './watch';
@@ -54,6 +64,7 @@ import {
   listFolders,
   listNotes,
   listTags,
+  indexImageFolders,
   notesWorkspaceInfo,
   pullNotes,
   readNote,
@@ -65,6 +76,7 @@ import {
 } from './notes';
 import {
   branchExists,
+  builtOnTopOf,
   createPullRequest,
   defaultBaseBranch,
   generatePrDescription,
@@ -73,11 +85,13 @@ import {
   toolAvailability,
   type BaseRefresh,
 } from './branches';
+import { checksBlockingPr, checksProgress, configuredChecks, startChecks } from './checks';
 import {
   AGENT_COMMANDS,
   AGENT_PERMISSION_MODES,
   AGENT_RUN_MODES,
   INVESTIGATION_STATUSES,
+  STATUS_LABELS,
   parseEstimateUnits,
   PRIORITIES,
   STATUSES,
@@ -85,11 +99,14 @@ import {
   type AgentPermissionMode,
   type AgentRunMode,
   type CombinedBranchDetail,
+  type GroupAdvanceOutcome,
   type InvestigationStatus,
   type Status,
   type Task,
 } from '../shared/types';
 import { validateBranchName } from './repo';
+import { getGroupDetail, groupBranchOf, mergeTaskIntoGroupBranch } from './groupBranch';
+import { approveBaseline, readBaselines, runBaselines } from './baselines';
 
 const ws = workspace();
 const port = Number(process.env.TASKS_API_PORT ?? ws.config.apiPort);
@@ -111,6 +128,7 @@ function errorResponse(error: unknown): Response {
   const message = error instanceof Error ? error.message : String(error);
   const missing =
     /^No (task|investigation) with ref/.test(message) ||
+    /^No group with ref or name/.test(message) ||
     /^No agent run with id/.test(message) ||
     /^No (note|issue) at /.test(message);
   return fail(message, missing ? 404 : 400);
@@ -151,10 +169,81 @@ function git(args: string[]): { code: number; stdout: string; stderr: string } {
   return { code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
 
+/**
+ * Merge a task into its group's branch, flattened to "what went wrong, if
+ * anything". A task in no group is not a problem — there is simply nothing to
+ * merge into — so that reads as success.
+ */
+function mergeIntoGroupBranch(ref: string): string | null {
+  try {
+    const result = mergeTaskIntoGroupBranch(ref);
+    if (!result.group || result.merged) return null;
+    return (
+      `${ref}'s commits do not replay onto '${result.branch}' — they collide with work already there. ` +
+      `Nothing was changed: the rebase was aborted and both branches are as they were. Resolve it by ` +
+      `hand ('git rebase ${result.branch} ${result.taskBranch}', fix, 'git rebase --continue'), then ` +
+      `merge ${ref} again to register it.\n${result.conflict}`
+    );
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 function cherryPickInProgress(): boolean {
   // Use Git rather than assuming `.git` is a directory: linked worktrees store
   // their state in Git's real directory.
   return git(['rev-parse', '--verify', '--quiet', 'CHERRY_PICK_HEAD']).code === 0;
+}
+
+/**
+ * Take a whole group to Verified, or all the way to Closed.
+ *
+ * Groups are worked as one piece and they finish as one piece, so signing each
+ * member off by hand is busywork the moment a group has more than a couple of
+ * tasks. Closing implies verifying: a task sitting at Dev Complete is walked
+ * through Verified on its way out, which is exactly what doing it by hand would
+ * have done.
+ *
+ * Nothing here is all-or-nothing. A task still being written is left alone, and
+ * one that fails — a checkpoint clean that errors, say — does not stop the rest.
+ * Every task comes back with what happened to it, because "some of them moved"
+ * is the honest answer and the caller has to be able to show it.
+ */
+async function advanceGroup(
+  refOrName: string,
+  target: 'verified' | 'closed',
+): Promise<{ group: ReturnType<typeof getGroupDetail>; outcomes: GroupAdvanceOutcome[] }> {
+  const group = getGroupDetail(refOrName);
+  const outcomes: GroupAdvanceOutcome[] = [];
+
+  for (const task of group.tasks) {
+    const from = task.status;
+    const outcome: GroupAdvanceOutcome = { ref: task.ref, title: task.title, from, to: null };
+
+    if (from === 'closed' || from === target) {
+      outcome.skipped = `Already ${STATUS_LABELS[from]}.`;
+    } else if (from === 'backlog' || from === 'in_progress') {
+      outcome.skipped = `Still ${STATUS_LABELS[from]} — only Dev Complete work can be signed off.`;
+    } else {
+      try {
+        if (from === 'dev_complete') {
+          setStatus(task.ref, 'verified', `Verified with ${group.ref} (${group.name}).`);
+        }
+        if (target === 'closed') await closeTask(task.ref);
+        outcome.to = target;
+      } catch (error) {
+        outcome.error = error instanceof Error ? error.message : String(error);
+        // Say where it actually ended up: a close that failed after the verify
+        // landed leaves the task verified, not where it started.
+        outcome.to = findTask(task.ref)?.status ?? null;
+        if (outcome.to === from) outcome.to = null;
+      }
+    }
+
+    outcomes.push(outcome);
+  }
+
+  return { group: getGroupDetail(group.ref), outcomes };
 }
 
 /** Build one linear branch by cherry-picking each selected task branch, in the
@@ -237,6 +326,22 @@ async function combineTasks(refs: string[], requestedBranch: string, closeTasks:
 
   // The branch name can have been corrected after the task detail was loaded.
   tasks = uniqueRefs.map((ref) => getTaskDetail(ref));
+
+  // A grouped task's branch is cut from its group's branch, so everything the
+  // group has merged so far sits between the base and this task's commits —
+  // cherry-picking `base..taskBranch` would deliver the group's other tasks
+  // under this branch's name. The group branch is already the delivery vehicle
+  // for that work, so this points at it rather than guessing a range.
+  for (const task of tasks) {
+    const owned = groupBranchOf(task);
+    if (!owned || !branchExists(owned.branch)) continue;
+    if (!builtOnTopOf(baseBranch, owned.branch, task.branchName!)) continue;
+    throw new Error(
+      `${task.ref} is in ${owned.group.ref} (${owned.group.name}), and its branch is built on that group's ` +
+        `branch '${owned.branch}' — combining it here would carry the group's other tasks with it. ` +
+        `Deliver the group from '${owned.branch}' instead.`,
+    );
+  }
   // Every range is resolved before the branch is created, so a task with nothing
   // to pick fails without leaving a stray branch behind.
   const commitsToPick: string[] = [];
@@ -302,7 +407,12 @@ function branchDetail(branchName: string): CombinedBranchDetail {
     .map((ref) => findTask(ref))
     .filter((task): task is Task => task !== null);
 
-  return { ...branch, git: readBranch(branch.branchName, base), tasks };
+  return {
+    ...branch,
+    git: readBranch(branch.branchName, base),
+    tasks,
+    checksRunning: checksProgress(branch.branchName),
+  };
 }
 
 async function handleBranches(request: Request, rest: string[]): Promise<Response> {
@@ -327,6 +437,7 @@ async function handleBranches(request: Request, rest: string[]): Promise<Respons
       const input = await body<{
         branchName?: string;
         baseBranch?: string;
+        remoteBranch?: string;
         prTitle?: string;
         prBody?: string;
       }>(request);
@@ -346,8 +457,14 @@ async function handleBranches(request: Request, rest: string[]): Promise<Respons
         const base = validateBranchName(input.baseBranch);
         if (!branchExists(base)) return fail(`PR target branch '${base}' does not exist locally. Use an existing branch such as 'master'.`);
       }
+      if (input.remoteBranch !== undefined && input.remoteBranch.trim()) {
+        validateBranchName(input.remoteBranch);
+      }
       updateCombinedBranch(savedName, {
         baseBranch: input.baseBranch === undefined ? undefined : validateBranchName(input.baseBranch),
+        remoteBranch: input.remoteBranch === undefined
+          ? undefined
+          : (input.remoteBranch.trim() ? validateBranchName(input.remoteBranch) : null),
         prTitle: input.prTitle,
         prBody: input.prBody,
       });
@@ -377,10 +494,31 @@ async function handleBranches(request: Request, rest: string[]): Promise<Respons
     return json({ branch: branchDetail(name) });
   }
 
+  // /api/branches/:name/checks — runs the repo's configured pre-PR commands.
+  if (action === 'checks') {
+    const branch = requireCombinedBranch(name);
+    if (!configuredChecks().length) {
+      return fail('No checks are configured — add "checks" to .tasks/tasks.config.json.');
+    }
+    const base = branch.baseBranch ?? defaultBaseBranch();
+    // Started, not awaited: a suite outlives any request worth holding open, so
+    // this returns immediately and the page follows `checksRunning`.
+    startChecks({ branch: branch.branchName, base });
+    return json({ branch: branchDetail(name) });
+  }
+
   // /api/branches/:name/pr — pushes if needed, then opens the PR with `gh`.
   if (action === 'pr') {
-    const input = await body<{ draft?: boolean }>(request).catch(() => ({}) as { draft?: boolean });
+    const input = await body<{ draft?: boolean; force?: boolean }>(request).catch(
+      () => ({}) as { draft?: boolean; force?: boolean },
+    );
     const branch = requireCombinedBranch(name);
+
+    // The gate. `force` is deliberately available: a check can be broken on
+    // master, or irrelevant to a docs-only branch, and a tool that cannot be
+    // overridden gets worked around instead of used.
+    const blocked = input.force ? null : checksBlockingPr(branch.checks, branch.branchName);
+    if (blocked) throw new Error(`${blocked} Run the checks, or open the pull request anyway.`);
 
     if (branch.prUrl) throw new Error(`A pull request was already opened: ${branch.prUrl}`);
     const base = branch.baseBranch ?? defaultBaseBranch();
@@ -395,6 +533,7 @@ async function handleBranches(request: Request, rest: string[]): Promise<Respons
       title: branch.prTitle,
       body: branch.prBody ?? '',
       draft: input.draft ?? false,
+      remoteBranch: branch.remoteBranch,
     });
 
     updateCombinedBranch(name, { prUrl: result.url, prNumber: result.number });
@@ -520,6 +659,11 @@ async function handleNotes(request: Request, url: URL, rest: string[]): Promise<
   // /api/notes
   if (!rawPath) {
     if (request.method === 'GET') {
+      // Folders of loose images get a note before the list is read, so images
+      // added to the folder by hand show up on the next refresh rather than
+      // needing a command run. It only ever creates, and only where there is no
+      // note to overwrite.
+      indexImageFolders();
       return json({
         notes: listNotes({
           tag: url.searchParams.get('tag') ?? undefined,
@@ -814,10 +958,180 @@ async function handleAgents(request: Request, url: URL, rest: string[]): Promise
     return json({ run: stopRun(runId) });
   }
 
+  // /api/agents/runs/:id/resume — reopen this run's conversation in a terminal.
+  if (action === 'resume') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    return json({ run: resumeRun(runId) });
+  }
+
   return fail('Unknown endpoint.', 404);
 }
 
 /* ----------------------------------------------------------------- routes */
+
+/* ---------------------------------------------------------------- groups */
+
+async function handleGroups(request: Request, rest: string[]): Promise<Response> {
+  const [ref, action] = rest;
+
+  // /api/groups
+  if (!ref) {
+    if (request.method === 'GET') return json({ groups: listGroups() });
+
+    if (request.method === 'POST') {
+      const input = await body<{ name?: string; description?: string; color?: string; branchName?: string; investigationRef?: string }>(request);
+      if (!input.name) return fail('A group needs a name.');
+      const group = createGroup({
+        name: input.name,
+        description: input.description,
+        color: input.color,
+        branchName: input.branchName,
+        investigationRef: input.investigationRef,
+      });
+      return json({ group, groups: listGroups() }, 201);
+    }
+
+    return fail('Method not allowed.', 405);
+  }
+
+  // /api/groups/reorder — the empty groups' order, and how ties are settled.
+  if (ref === 'reorder') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    const input = await body<{ refs?: unknown }>(request);
+    if (!Array.isArray(input.refs) || !input.refs.every((one) => typeof one === 'string')) {
+      return fail('refs must be an array of group references, in their new order.');
+    }
+    return json({ groups: reorderGroups(input.refs as string[]) });
+  }
+
+  // /api/groups/:ref
+  if (!action) {
+    if (request.method === 'GET') {
+      // The group page wants the branch's live Git state and the work order too,
+      // and one read is what keeps them consistent with each other.
+      return json({ group: getGroupDetail(ref) });
+    }
+
+    if (request.method === 'PATCH') {
+      const input = await body<{ name?: string; description?: string; color?: string; branchName?: string }>(request);
+      updateGroup(ref, input);
+      return json({ groups: listGroups(), tasks: listTasks() });
+    }
+
+    if (request.method === 'DELETE') {
+      // The tasks are kept and turned loose; saying which ones is the whole
+      // reassurance a delete confirmation needs.
+      const result = deleteGroup(ref);
+      return json({ deleted: result.ref, released: result.released, groups: listGroups(), tasks: listTasks() });
+    }
+
+    return fail('Method not allowed.', 405);
+  }
+
+  // /api/groups/:ref/advance — sign the whole group off in one go.
+  if (action === 'advance') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    const input = await body<{ status?: unknown }>(request);
+    if (input.status !== 'verified' && input.status !== 'closed') {
+      return fail("status must be 'verified' or 'closed'.");
+    }
+    const result = await advanceGroup(ref, input.status);
+    return json({
+      group: result.group,
+      outcomes: result.outcomes,
+      groups: listGroups(),
+      tasks: listTasks(),
+    });
+  }
+
+  // /api/groups/:ref/run — work the whole group unattended, a fresh headless
+  // agent per task, this server driving the queue between them.
+  if (action === 'run') {
+    if (request.method === 'POST') {
+      const input = await body<{
+        harness?: string;
+        model?: string;
+        permissionMode?: string;
+        extra?: string;
+      }>(request);
+
+      if (!input.harness) return fail('A harness is required.');
+      if (
+        input.permissionMode !== undefined &&
+        !AGENT_PERMISSION_MODES.includes(input.permissionMode as AgentPermissionMode)
+      ) {
+        return fail(`permissionMode must be one of: ${AGENT_PERMISSION_MODES.join(', ')}.`);
+      }
+
+      const started = startGroupRun({
+        groupRef: ref,
+        harness: input.harness,
+        model: input.model ?? '',
+        // Nobody is watching any of these runs, so the only mode that can finish
+        // is the one that never asks. Overridable, but not by omission.
+        permissionMode: (input.permissionMode as AgentPermissionMode | undefined) ?? 'bypassPermissions',
+        extra: input.extra ?? '',
+      });
+
+      return json({ groupRun: started.groupRun, run: started.run, group: getGroupDetail(ref) }, 201);
+    }
+
+    // Stopping kills the agent in flight; the tasks already merged stay merged.
+    if (request.method === 'DELETE') {
+      const group = getGroupDetail(ref);
+      if (!group.run) return fail(`${ref} has no run to stop.`);
+      const groupRun = stopGroupRun(group.run.id);
+      return json({ groupRun, group: getGroupDetail(ref) });
+    }
+
+    return fail('Method not allowed.', 405);
+  }
+
+  // /api/groups/:ref/runs — what the group has been run through before.
+  if (action === 'runs') {
+    if (request.method !== 'GET') return fail('Method not allowed.', 405);
+    return json({ runs: listGroupRuns(ref) });
+  }
+
+  return fail('Unknown endpoint.', 404);
+}
+
+/* ------------------------------------------------------------- baselines */
+
+async function handleBaselines(request: Request, rest: string[]): Promise<Response> {
+  const [action] = rest;
+
+  // /api/baselines — the last run, joined with what has been approved.
+  if (!action) {
+    if (request.method !== 'GET') return fail('Method not allowed.', 405);
+    return json({ report: await readBaselines() });
+  }
+
+  // /api/baselines/run — re-drives the browser, optionally for named scenarios.
+  if (action === 'run') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    const input = await body<{ scenarios?: unknown }>(request).catch(() => ({}) as Record<string, never>);
+    if (input.scenarios !== undefined &&
+        (!Array.isArray(input.scenarios) || input.scenarios.some((one) => typeof one !== 'string'))) {
+      return fail('scenarios must be an array of scenario names.');
+    }
+    // A non-zero exit means "something drifted", which is a result rather than
+    // a failure — so it rides along with the report instead of becoming a 500.
+    return json(await runBaselines((input.scenarios as string[]) ?? []));
+  }
+
+  // /api/baselines/approve — promote one scenario's capture to its baseline.
+  if (action === 'approve') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    const input = await body<{ scenario?: unknown }>(request);
+    if (typeof input.scenario !== 'string' || !input.scenario.trim()) {
+      return fail('A scenario name is required.');
+    }
+    return json({ report: await approveBaseline(input.scenario) });
+  }
+
+  return fail('Unknown endpoint.', 404);
+}
 
 async function handleApi(request: Request, url: URL): Promise<Response> {
   const segments = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
@@ -847,6 +1161,10 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
   if (head === 'issues') return handleIssues(request, url, rest);
 
   if (head === 'investigations') return handleInvestigations(request, url, rest);
+
+  if (head === 'groups') return handleGroups(request, rest);
+
+  if (head === 'baselines') return handleBaselines(request, rest);
 
   // Screenshots are streamed from disk rather than copied into the database.
   if (head === 'image') {
@@ -878,6 +1196,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
           status: status as Status | undefined,
           tag: url.searchParams.get('tag') ?? undefined,
           investigationRef: url.searchParams.get('investigation') ?? undefined,
+          groupRef: url.searchParams.get('group') ?? undefined,
         }),
       });
     }
@@ -887,9 +1206,11 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
         title?: string;
         description?: string;
         priority?: string;
+        recommendedTier?: string | null;
         tags?: unknown;
         branchName?: string;
         investigationRef?: string;
+        groupRef?: string | null;
         dependsOn?: unknown;
         estimateUnits?: unknown;
       }>(request);
@@ -898,6 +1219,9 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
       if (input.priority && !isPriority(input.priority)) {
         return fail(`Unknown priority '${input.priority}'.`);
       }
+      if (input.recommendedTier && !isModelTier(input.recommendedTier)) {
+        return fail(`Unknown tier '${input.recommendedTier}'.`);
+      }
 
       return json(
         {
@@ -905,9 +1229,11 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
             title: input.title,
             description: input.description,
             priority: input.priority as never,
+            recommendedTier: input.recommendedTier as never,
             tags: parseTags(input.tags),
             branchName: input.branchName,
             investigationRef: input.investigationRef,
+            groupRef: input.groupRef,
             dependsOn: parseRefs(input.dependsOn, 'dependsOn'),
             estimateUnits: parseUnits(input.estimateUnits),
           }),
@@ -991,8 +1317,10 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
         title?: string;
         description?: string;
         priority?: string;
+        recommendedTier?: string | null;
         tags?: unknown;
         investigationRef?: string | null;
+        groupRef?: string | null;
         branchName?: string;
         dependsOn?: unknown;
         estimateUnits?: unknown;
@@ -1001,14 +1329,19 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
       if (input.priority && !isPriority(input.priority)) {
         return fail(`Unknown priority '${input.priority}'.`);
       }
+      if (input.recommendedTier && !isModelTier(input.recommendedTier)) {
+        return fail(`Unknown tier '${input.recommendedTier}'.`);
+      }
 
       if (input.branchName !== undefined) updateTaskBranchName(ref!, input.branchName);
       updateTask(ref!, {
         title: input.title,
         description: input.description,
         priority: input.priority as never,
+        recommendedTier: input.recommendedTier as never,
         tags: parseTags(input.tags),
         investigationRef: input.investigationRef,
+        groupRef: input.groupRef,
         dependsOn: parseRefs(input.dependsOn, 'dependsOn'),
         estimateUnits: parseUnits(input.estimateUnits),
       });
@@ -1048,13 +1381,30 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
 
   // /api/tasks/:ref/status
   if (action === 'status') {
-    const input = await body<{ status?: string; note?: string }>(request);
+    const input = await body<{ status?: string; note?: string; merge?: boolean }>(request);
     if (!input.status || !isStatus(input.status)) {
       return fail(`status must be one of: ${STATUSES.join(', ')}.`);
     }
 
     setStatus(ref!, input.status, input.note);
-    return json({ task: getTaskDetail(ref!) });
+
+    // Dev complete is when the work joins the rest of its group's, exactly as
+    // `tasks done` does it. A conflict is reported alongside the task rather
+    // than as a failed request: the status change did happen, and the caller
+    // needs to be told both things.
+    let mergeError: string | null = null;
+    if (input.status === 'dev_complete' && input.merge !== false) {
+      mergeError = mergeIntoGroupBranch(ref!);
+    }
+    return json({ task: getTaskDetail(ref!), mergeError });
+  }
+
+  // /api/tasks/:ref/merge — the group-branch merge on its own, for after a
+  // conflict has been resolved by hand or a merge was skipped.
+  if (action === 'merge') {
+    const mergeError = mergeIntoGroupBranch(ref!);
+    if (mergeError) return fail(mergeError);
+    return json({ task: getTaskDetail(ref!), mergeError: null });
   }
 
   // /api/tasks/:ref/notes
@@ -1064,6 +1414,25 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
 
     addNote(ref!, input.note);
     return json({ task: getTaskDetail(ref!) });
+  }
+
+  // /api/tasks/:ref/group — what dropping a row onto a group sends.
+  //
+  // Separate from PATCH because it is one gesture with two effects: the row
+  // changes group *and* lands somewhere, and the drop decides where. `reposition`
+  // false leaves the queue alone for a caller that is about to reorder it
+  // itself, which is exactly what the drag does.
+  if (action === 'group') {
+    const input = await body<{ groupRef?: unknown; reposition?: unknown }>(request);
+    if (input.groupRef !== null && typeof input.groupRef !== 'string') {
+      return fail('groupRef must be a group reference, or null to remove the task from its group.');
+    }
+    if (input.reposition !== undefined && typeof input.reposition !== 'boolean') {
+      return fail('reposition must be a boolean.');
+    }
+
+    setTaskGroup(ref!, input.groupRef, { reposition: input.reposition });
+    return json({ task: getTaskDetail(ref!), tasks: listTasks(), groups: listGroups() });
   }
 
   // /api/tasks/:ref/move — one task, relative to the list it is already in.
@@ -1139,8 +1508,11 @@ function serveStatic(url: URL): Response {
 }
 
 // Headless agent runs are children of this process, so a restart ended any that
-// were in flight. Settle those rows before anything can read them.
+// were in flight. Settle those rows before anything can read them — and the
+// group runs that were driving some of them, which are stopped rather than
+// picked up again: relaunching agents at boot is not a decision a restart makes.
 reconcileRuns();
+reconcileGroupRuns();
 
 // Start watching before the first tab connects, so the opening revisions a
 // client is handed are already moving with the workspace.

@@ -2,7 +2,7 @@ import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { workspace } from '../config/paths';
-import { branchNameFor } from '../shared/types';
+import { branchNameFor, groupBranchNameFor } from '../shared/types';
 
 let db: Database | undefined;
 
@@ -123,6 +123,30 @@ const SCHEMA = [
      completed_at TEXT
    )`,
 
+  // A named bundle of tasks. Membership is a column on `tasks`, not a join
+  // table, because a task belongs to at most one group — expressing that in the
+  // schema is what keeps it true. Tasks point back by ref rather than by foreign
+  // key, matching investigations: deleting the grouping must not delete work.
+  `CREATE TABLE IF NOT EXISTS task_groups (
+     id                INTEGER PRIMARY KEY AUTOINCREMENT,
+     ref               TEXT    NOT NULL UNIQUE,
+     name              TEXT    NOT NULL,
+     description       TEXT    NOT NULL DEFAULT '',
+     color             TEXT    NOT NULL DEFAULT '',
+     -- The branch this group's work is built on. Every group has one, so it is
+     -- backfilled rather than left null on an older database.
+     branch_name       TEXT    NOT NULL DEFAULT '',
+     position          INTEGER NOT NULL DEFAULT 0,
+     -- Set when the group was created to hold an investigation's output, which
+     -- is also what makes that auto-grouping idempotent.
+     investigation_ref TEXT,
+     created_at        TEXT    NOT NULL,
+     updated_at        TEXT    NOT NULL
+   )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_task_groups_investigation
+     ON task_groups(investigation_ref)`,
+
   // One row per delivery branch produced by combining task branches. Deliberately
   // NOT a foreign key to tasks: combining usually closes the tasks, and a task
   // may later be deleted, but the branch and its PR outlive both.
@@ -130,6 +154,7 @@ const SCHEMA = [
      id          INTEGER PRIMARY KEY AUTOINCREMENT,
      branch_name TEXT    NOT NULL UNIQUE,
      base_branch TEXT,
+     remote_branch TEXT,
      task_refs   TEXT    NOT NULL DEFAULT '[]',
      pr_title    TEXT,
      pr_body     TEXT,
@@ -158,6 +183,9 @@ const SCHEMA = [
      prompt       TEXT    NOT NULL,
      argv_json    TEXT    NOT NULL DEFAULT '[]',
      pid          INTEGER,
+     -- The conversation id handed to the harness at launch, so the session can
+     -- be reopened later. Generated here rather than discovered afterwards.
+     session_id   TEXT,
      status       TEXT    NOT NULL,
      exit_code    INTEGER,
      log_path     TEXT,
@@ -166,6 +194,32 @@ const SCHEMA = [
    )`,
 
   `CREATE INDEX IF NOT EXISTS idx_agent_runs_subject ON agent_runs(subject_kind, subject_ref, id)`,
+
+  // One row per unattended run of a whole group. This is the loop's memory: the
+  // launch settings every task is worked with, which task is in flight, and what
+  // has already been carried to Dev Complete. Not a foreign key to `agent_runs`
+  // for the same reason that table has none — the record of what was attempted
+  // should outlive whatever it was attempted against.
+  `CREATE TABLE IF NOT EXISTS group_runs (
+     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+     group_ref       TEXT    NOT NULL,
+     harness         TEXT    NOT NULL,
+     model           TEXT    NOT NULL DEFAULT '',
+     permission_mode TEXT    NOT NULL,
+     extra           TEXT    NOT NULL DEFAULT '',
+     status          TEXT    NOT NULL,
+     -- The agent_runs row in flight, and what it is pointed at. Both survive the
+     -- loop ending, because "where did it get to" is the first thing asked of a
+     -- run that stopped.
+     current_run_id  INTEGER,
+     current_ref     TEXT,
+     worked_json     TEXT    NOT NULL DEFAULT '[]',
+     stop_reason     TEXT    NOT NULL DEFAULT '',
+     created_at      TEXT    NOT NULL,
+     finished_at     TEXT
+   )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_group_runs_group ON group_runs(group_ref, id)`,
 ];
 
 /**
@@ -180,20 +234,39 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: 'tasks', column: 'closed_at', definition: 'TEXT' },
   // Tasks filed before Investigations existed simply have none.
   { table: 'tasks', column: 'investigation_ref', definition: 'TEXT' },
+  // Tasks filed before groups existed are loose, which is exactly right: a
+  // group is something a human or an investigation puts them into.
+  { table: 'tasks', column: 'group_ref', definition: 'TEXT' },
   // Manual list order. Existing rows all land on 0 and are backfilled below.
   { table: 'tasks', column: 'position', definition: 'INTEGER NOT NULL DEFAULT 0' },
   // Plan duration. Existing rows land on one unit, which is what they would
   // have been estimated at anyway.
   { table: 'tasks', column: 'estimate_units', definition: 'INTEGER NOT NULL DEFAULT 1' },
+  // Groups created before they had branches are backfilled below, because a
+  // group without a branch has nothing for its tasks to be cut from.
+  { table: 'task_groups', column: 'branch_name', definition: "TEXT NOT NULL DEFAULT ''" },
+  // Runs launched before sessions were tracked have none, and cannot be
+  // resumed — the id was the harness's to pick and it was never recorded.
+  { table: 'agent_runs', column: 'session_id', definition: 'TEXT' },
   { table: 'combined_branches', column: 'combine_state', definition: "TEXT NOT NULL DEFAULT 'complete'" },
   { table: 'combined_branches', column: 'combine_pending_commits', definition: "TEXT NOT NULL DEFAULT '[]'" },
   { table: 'combined_branches', column: 'combine_close_tasks', definition: 'INTEGER NOT NULL DEFAULT 0' },
+  // The last pre-PR check run, as a ChecksReport JSON blob. One row, one report:
+  // only the latest matters, because an older one describes code that has moved.
+  { table: 'combined_branches', column: 'checks_json', definition: 'TEXT' },
+  // Set by an investigation when it files a task; null on everything filed
+  // before this existed, and on any task nobody has judged.
+  { table: 'tasks', column: 'recommended_tier', definition: 'TEXT' },
+  // Null means push to origin under the same name as the local branch, which
+  // is the historical default.
+  { table: 'combined_branches', column: 'remote_branch', definition: 'TEXT' },
 ];
 
 /** Indexes over columns that ADDED_COLUMNS may have only just created, so they
  *  cannot live in SCHEMA — that runs before the migrations. */
 const POST_MIGRATION_INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_tasks_investigation ON tasks(investigation_ref)',
+  'CREATE INDEX IF NOT EXISTS idx_tasks_group ON tasks(group_ref)',
 ];
 
 function applyColumnMigrations(database: Database): void {
@@ -223,7 +296,28 @@ function applyColumnMigrations(database: Database): void {
     });
   }
 
+  backfillGroupBranches(database);
   backfillPositions(database);
+}
+
+/**
+ * Give every group a branch name. `''` is the never-assigned sentinel — nothing
+ * writes it deliberately — so this is idempotent and also repairs a row that
+ * somehow slipped in without one.
+ */
+function backfillGroupBranches(database: Database): void {
+  const rows = database
+    .query<{ ref: string; name: string }, []>("SELECT ref, name FROM task_groups WHERE branch_name = ''")
+    .all();
+  if (!rows.length) return;
+
+  const prefix = workspace().config.groupBranchPrefix;
+  const assign = database.query('UPDATE task_groups SET branch_name = $branch WHERE ref = $ref');
+  database.transaction(() => {
+    for (const group of rows) {
+      assign.run({ $ref: group.ref, $branch: groupBranchNameFor(group.ref, group.name, prefix) });
+    }
+  })();
 }
 
 /**
@@ -343,6 +437,11 @@ export function nextRef(): string {
  *  sequences never interleave. */
 export function nextInvestigationRef(): string {
   return `I-${nextCounter('investigation')}`;
+}
+
+/** Next group ref, e.g. `G-2`. Its own counter for the same reason. */
+export function nextGroupRef(): string {
+  return `G-${nextCounter('group')}`;
 }
 
 export function nowIso(): string {

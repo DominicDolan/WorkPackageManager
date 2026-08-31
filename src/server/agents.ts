@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { workspace } from '../config/paths';
 import { getDb, nowIso } from './db';
@@ -23,10 +23,10 @@ import {
  * Running a coding agent against an issue or a task, from the UI.
  *
  * Two things make this simpler than it looks. First, the prompt is the same for
- * both harnesses: `/plan-tasks` and `/work-task` are installed in Claude Code's
- * commands folder *and* in `pi`'s prompts folder, so one string drives either.
- * Second, the two run modes are genuinely different products rather than two
- * settings of one:
+ * both harnesses: `plan-tasks` and `work-task`'s instructions live as Markdown
+ * in this package's `prompts/` folder (see `buildPrompt`) and are inlined into
+ * one message, so the same string drives either. Second, the two run modes are
+ * genuinely different products rather than two settings of one:
  *
  * - **terminal** opens a real terminal window with the agent interactive inside
  *   it. The agent can ask questions and you can answer them. Nothing is captured
@@ -99,9 +99,19 @@ interface HarnessDef {
   argv(input: {
     prompt: string;
     model: string;
+    /** Claude's thinking budget; omitted when the harness does not support it. */
+    effort: 'low' | null;
     mode: AgentRunMode;
     permissionMode: AgentPermissionMode;
+    /** The conversation id to create, so the session can be reopened later. */
+    sessionId: string;
   }): string[];
+  /**
+   * The argv that reopens a session this harness created, always interactive —
+   * resuming exists so a person can carry on the conversation, and a headless
+   * resume would have nobody to carry it on with.
+   */
+  resumeArgv(sessionId: string): string[];
 }
 
 /**
@@ -124,9 +134,13 @@ const HARNESSES: HarnessDef[] = [
     bin: 'claude',
     modelsLazy: false,
     models: () => CLAUDE_MODELS,
-    argv: ({ prompt, model, mode, permissionMode }) => {
+    argv: ({ prompt, model, effort, mode, permissionMode, sessionId }) => {
       const argv = ['claude'];
+      // Naming the conversation up front is what makes Resume possible. The
+      // harness creates it under this id, so nothing has to be discovered.
+      argv.push('--session-id', sessionId);
       if (model) argv.push('--model', model);
+      if (effort) argv.push('--effort', effort);
       // `manual` is Claude's own default, and saying so explicitly would break
       // against a build that spells these modes differently — so it is the one
       // value expressed by passing nothing.
@@ -138,6 +152,7 @@ const HARNESSES: HarnessDef[] = [
       argv.push(prompt);
       return argv;
     },
+    resumeArgv: (sessionId) => ['claude', '--resume', sessionId],
   },
   {
     id: 'pi',
@@ -150,13 +165,16 @@ const HARNESSES: HarnessDef[] = [
     // `pi` has no equivalent of a permission mode — `--approve` is about trusting
     // project files, not about what the agent may do — so it is ignored here
     // rather than approximated.
-    argv: ({ prompt, model, mode }) => {
-      const argv = ['pi'];
+    argv: ({ prompt, model, mode, sessionId }) => {
+      const argv = ['pi', '--session-id', sessionId];
       if (model) argv.push('--model', model);
       if (mode === 'print') argv.push('--print');
       argv.push(prompt);
       return argv;
     },
+    // `pi --session-id` creates the session if it is missing and opens it if it
+    // is not, so reopening is the same flag with no prompt after it.
+    resumeArgv: (sessionId) => ['pi', '--session-id', sessionId],
   },
 ];
 
@@ -246,30 +264,50 @@ export function agentEnvironment(): AgentEnvironment {
     harnesses,
     terminal: terminal ? terminal[0]! : null,
     terminalAvailable: terminal !== null,
+    modelTiers: ws.config.modelTiers,
   };
 }
 
 /* ---------------------------------------------------------------- prompt */
 
 /**
+ * Read one command's instructions — `prompts/<command>.md`, shipped with this
+ * package — with no `$1` substitution done yet. A workspace may override one
+ * by placing its own at `.tasks/prompts/<command>.md`; that is checked first,
+ * so a repository can customize a procedure without patching the package.
+ */
+function promptTemplate(command: AgentCommand): string {
+  const override = join(ws.tasksDir, 'prompts', `${command}.md`);
+  const path = existsSync(override) ? override : join(ws.promptsDir, `${command}.md`);
+  return readFileSync(path, 'utf8');
+}
+
+/**
  * The message the agent receives.
  *
- * The slash command and its ref come first, because a harness reads `$1` off
- * the front of whatever follows the command. Extra prose goes underneath, where
- * the agent still reads it — that part is reliable in both harnesses.
+ * There used to be a slash command for this — `/plan-tasks`, `/work-task` —
+ * installed separately in whatever harness's own commands folder. That made a
+ * run depend on the user's global config rather than this repository, so
+ * instead the full instructions are inlined here: the harness gets one long
+ * message with everything it needs, and nothing has to be installed beyond the
+ * `claude` or `pi` binary itself.
  *
- * What is *not* reliable is a run with no ref at all: `pi` treats the whole
- * message as the arguments, so the first word of the note becomes `$1` and the
- * command sees free text where it wanted a ref. Both commands handle that
- * gracefully (they offer to record it rather than guessing), but it stalls the
- * run — so every caller that has a ref should pass one, which is why the UI
- * always does.
+ * `work-group` is a loop around `work-task`'s procedure, so its template gets
+ * that procedure's own Markdown spliced in whole rather than telling the agent
+ * to go find it — there is nowhere reliable for it to look, since the package
+ * may not be installed anywhere near the repository being worked on.
  */
 export function buildPrompt(command: AgentCommand, target: string, extra: string): string {
-  const head = target.trim() ? `/${command} ${target.trim()}` : `/${command}`;
+  let body = promptTemplate(command).replace(/\$1/g, target.trim());
+  if (command === 'work-group') {
+    // Left unsubstituted deliberately: the appendix's `$1` means "whichever
+    // task the loop is on", not the group ref this template's own `$1` means.
+    body = body.replace('$WORK_TASK_PROCEDURE', promptTemplate('work-task'));
+  }
+
   const note = extra.trim();
-  if (!note) return head;
-  return `${head}\n\nExtra instructions from the user, which take precedence over any default\nthis command would otherwise pick:\n\n${note}`;
+  if (!note) return body;
+  return `${body}\n\nExtra instructions from the user, which take precedence over any default\nthis command would otherwise pick:\n\n${note}`;
 }
 
 /* ------------------------------------------------------------------ runs */
@@ -285,6 +323,7 @@ interface RunRow {
   prompt: string;
   argv_json: string;
   pid: number | null;
+  session_id: string | null;
   status: string;
   exit_code: number | null;
   log_path: string | null;
@@ -303,6 +342,7 @@ function toRun(row: RunRow): AgentRun {
     subjectRef: row.subject_ref,
     prompt: row.prompt,
     argv: JSON.parse(row.argv_json) as string[],
+    sessionId: row.session_id,
     pid: row.pid,
     status: row.status as AgentRunStatus,
     exitCode: row.exit_code,
@@ -319,13 +359,45 @@ function readRow(id: number): RunRow {
   return row;
 }
 
+/**
+ * Told when a run reaches a final state, whatever put it there.
+ *
+ * This is what makes an unattended group run possible: the agent is a child of
+ * this process, so its exit is observed directly rather than guessed at from a
+ * timer or reported back by a hook. Registered rather than imported so the
+ * orchestrator can depend on this module without this module depending on it.
+ */
+type SettledListener = (id: number, status: AgentRunStatus) => void;
+
+const settledListeners = new Set<SettledListener>();
+
+export function onRunSettled(listener: SettledListener): void {
+  settledListeners.add(listener);
+}
+
 function finish(id: number, status: AgentRunStatus, exitCode: number | null): void {
-  getDb()
+  const changed = getDb()
     .query(
       `UPDATE agent_runs SET status = $status, exit_code = $code, finished_at = $at
-        WHERE id = $id`,
+        WHERE id = $id AND status IN ('launched', 'running')`,
     )
-    .run({ $id: id, $status: status, $code: exitCode, $at: nowIso() });
+    .run({ $id: id, $status: status, $code: exitCode, $at: nowIso() }).changes;
+
+  // A run only settles once. Without this guard a stopped run that then exits
+  // would announce itself twice, and a loop listening would launch two tasks.
+  if (!changed) return;
+
+  // Deferred: a listener starting the next agent must not do it inside the
+  // stream-pump callback that is still finishing this one.
+  setTimeout(() => {
+    for (const listener of settledListeners) {
+      try {
+        listener(id, status);
+      } catch {
+        // A listener that throws must not take the run's own bookkeeping with it.
+      }
+    }
+  }, 0);
 }
 
 /** Live children, so a run started in this process can be stopped by id. */
@@ -383,11 +455,21 @@ export function startRun(input: StartRunInput): AgentRun {
   }
 
   const prompt = buildPrompt(input.command, input.target, input.extra);
+  // Chosen here, not read back afterwards. Both harnesses accept a supplied id,
+  // and picking "the newest transcript" would race with any other window the
+  // user happens to have open in this repository.
+  const sessionId = crypto.randomUUID();
+  // Task descriptions and notes are the handoff from the investigating agent.
+  // Spend less of a task agent's budget rediscovering that work; investigation
+  // runs deliberately retain their harness default.
+  const effort = input.command === 'work-task' && definition.id === 'claude' ? 'low' : null;
   const agentArgv = definition.argv({
     prompt,
     model: input.model,
+    effort,
     mode: input.mode,
     permissionMode: input.permissionMode,
+    sessionId,
   });
 
   let argv = agentArgv;
@@ -407,9 +489,9 @@ export function startRun(input: StartRunInput): AgentRun {
     .query<{ id: number }, Record<string, string | number | null>>(
       `INSERT INTO agent_runs
          (harness, model, mode, command, subject_kind, subject_ref, prompt, argv_json,
-          pid, status, log_path, created_at)
+          pid, session_id, status, log_path, created_at)
        VALUES ($harness, $model, $mode, $command, $kind, $ref, $prompt, $argv,
-               NULL, $status, $log, $at)
+               NULL, $session, $status, $log, $at)
        RETURNING id`,
     )
     .get({
@@ -421,6 +503,7 @@ export function startRun(input: StartRunInput): AgentRun {
       $ref: input.subjectRef,
       $prompt: prompt,
       $argv: JSON.stringify(argv),
+      $session: sessionId,
       $status: input.mode === 'terminal' ? 'launched' : 'running',
       $log: null,
       $at: createdAt,
@@ -551,6 +634,51 @@ export function stopRun(id: number): AgentRun {
 
   finish(id, 'stopped', null);
   return toRun(readRow(id));
+}
+
+/**
+ * Reopen a run's conversation in a terminal window.
+ *
+ * Always a new window, and always interactive: resuming exists so a person can
+ * read what the agent did and carry on with it. The original run row is left
+ * exactly as it was — this does not create a run, because it is not one. It is
+ * the same conversation, opened again, and a second row would make the history
+ * claim the agent was launched twice.
+ */
+export function resumeRun(id: number): AgentRun {
+  const row = readRow(id);
+  const definition = harness(row.harness);
+
+  if (!row.session_id) {
+    throw new Error(
+      `Run ${id} was launched before sessions were recorded, so there is no conversation to reopen. ` +
+        'Runs started from now on can be resumed.',
+    );
+  }
+  if (!onPath(definition.bin)) {
+    throw new Error(`${definition.bin} is not on PATH, so the session cannot be reopened.`);
+  }
+
+  const terminal = terminalCommand();
+  if (!terminal) {
+    throw new Error(
+      'No terminal emulator was found, so the session cannot be reopened. ' +
+        'Set "agentTerminal" in .tasks/tasks.config.json.',
+    );
+  }
+
+  // Reuses the launch path's fire-and-forget spawn for the same reason: the
+  // emulator forks its own tree, and the window must outlive this server.
+  const child = Bun.spawn([...terminal, ...definition.resumeArgv(row.session_id)], {
+    cwd: ws.repoRoot,
+    stdin: 'ignore',
+    stdout: 'ignore',
+    stderr: 'ignore',
+    env: { ...process.env, TASKS_DIR: ws.tasksDir },
+  });
+  child.unref();
+
+  return toRun(row);
 }
 
 export function listRuns(filter: { subjectKind?: string; subjectRef?: string; limit?: number } = {}): AgentRun[] {

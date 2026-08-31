@@ -3,13 +3,16 @@ import { computed, ref, watch } from 'vue';
 import {
   DEFAULT_ESTIMATE_UNITS,
   MAX_ESTIMATE_UNITS,
+  MODEL_TIERS,
   STATUS_LABELS,
   satisfiesDependency,
   type Comparison,
+  type ModelTier,
   type Priority,
   type Status,
   type Task,
   type TaskDetail,
+  type TaskGroupSummary,
 } from '@shared/types';
 import { api } from '../api';
 import AgentRunDialog from './AgentRunDialog.vue';
@@ -22,6 +25,8 @@ const props = defineProps<{
   /** The task list as the sidebar has it — what the dependency picker offers,
    *  and how a blocker's ref becomes a title and a status. */
   allTasks: Task[];
+  /** Every group there is — what the group picker offers. */
+  groups: TaskGroupSummary[];
 }>();
 const emit = defineEmits<{
   changed: [TaskDetail];
@@ -40,6 +45,7 @@ const draft = ref({
   title: '',
   description: '',
   priority: 'medium' as Priority,
+  recommendedTier: null as ModelTier | null,
   tags: '',
   estimateUnits: DEFAULT_ESTIMATE_UNITS,
 });
@@ -71,6 +77,7 @@ function beginEdit(): void {
     title: props.task.title,
     description: props.task.description,
     priority: props.task.priority,
+    recommendedTier: props.task.recommendedTier,
     tags: props.task.tags.join(', '),
     estimateUnits: props.task.estimateUnits ?? DEFAULT_ESTIMATE_UNITS,
   };
@@ -96,6 +103,7 @@ const saveEdit = () =>
       title: draft.value.title,
       description: draft.value.description,
       priority: draft.value.priority,
+      recommendedTier: draft.value.recommendedTier,
       tags: draft.value.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
       estimateUnits: draft.value.estimateUnits,
     }),
@@ -103,7 +111,39 @@ const saveEdit = () =>
     if (!error.value) editing.value = false;
   });
 
-const changeStatus = (status: Status) => run(status, () => api.setStatus(props.task.ref, status));
+/** A merge conflict on the way into Dev Complete is a separate line of news
+ *  from a failed request: the status moved, and the branch needs attention. */
+const mergeNotice = ref<string | null>(null);
+
+const changeStatus = (status: Status) =>
+  run(status, async () => {
+    mergeNotice.value = null;
+    const result = await api.setStatus(props.task.ref, status);
+    mergeNotice.value = result.mergeError;
+    return result.task;
+  });
+
+const mergeIntoGroupBranch = () =>
+  run('merge', async () => {
+    mergeNotice.value = null;
+    return api.mergeIntoGroupBranch(props.task.ref);
+  });
+
+/* ----------------------------------------------------------------- group */
+
+const group = computed(
+  () => props.groups.find((one) => one.ref.toLowerCase() === props.task.groupRef?.toLowerCase()) ?? null,
+);
+
+/** Moving a task into a group also moves it beside that group's other tasks in
+ *  the queue — the same thing dragging it there does, so the list does not have
+ *  to be reread to find out where it went. */
+const setGroup = (event: Event) => {
+  const chosen = (event.target as HTMLSelectElement).value;
+  return run('group', () =>
+    api.setTaskGroup(props.task.ref, chosen || null).then((result) => result.task),
+  );
+};
 const closeTask = () => run('closed', () => api.closeTask(props.task.ref));
 
 const capture = (phase: 'before' | 'after') =>
@@ -265,6 +305,14 @@ const eventText = (event: TaskDetail['events'][number]): string => {
 <template>
   <section class="detail">
     <p v-if="error" class="banner">{{ error }}</p>
+    <!-- The status change succeeded and the merge did not, so this is its own
+         line rather than the error banner. -->
+    <p v-if="mergeNotice" class="banner">
+      {{ mergeNotice }}
+      <button :disabled="!!busy" @click="mergeIntoGroupBranch">
+        {{ busy === 'merge' ? 'Merging…' : 'Merge again' }}
+      </button>
+    </p>
 
     <AgentRunDialog
       v-if="working"
@@ -273,6 +321,7 @@ const eventText = (event: TaskDetail['events'][number]): string => {
       subject-kind="task"
       :subject-ref="task.ref"
       :subject-title="task.title"
+      :recommended-tier="task.recommendedTier"
       @close="agentDialogClosed"
     />
 
@@ -286,12 +335,38 @@ const eventText = (event: TaskDetail['events'][number]): string => {
       <div class="row" style="flex-wrap: wrap; margin-bottom: 8px">
         <span class="badge" :class="task.status">{{ STATUS_LABELS[task.status] }}</span>
         <span :class="`priority-${task.priority}`">{{ task.priority }}</span>
+        <span v-if="task.recommendedTier" class="faint" title="What an investigation judged this task needs">
+          tier: {{ task.recommendedTier }}
+        </span>
         <!-- The plan's unit of time, shown here so the number the Plan view
              schedules on is visible from the task itself. -->
         <span class="faint" title="Estimate, in plan units">
           {{ task.estimateUnits }} unit{{ task.estimateUnits === 1 ? '' : 's' }}
         </span>
         <span v-for="tag in task.tags" :key="tag" class="faint">#{{ tag }}</span>
+        <!-- Editable in place rather than behind Edit: which bundle a task
+             belongs to changes far more often than its title does. -->
+        <label class="detail-group" :title="group?.description || 'The group this task is in'">
+          <span
+            class="group-dot"
+            :style="{ background: group?.color ?? 'var(--text-faint)' }"
+            aria-hidden="true"
+          />
+          <select
+            aria-label="Group"
+            :value="task.groupRef ?? ''"
+            :disabled="!!busy"
+            @change="setGroup"
+          >
+            <option value="">No group</option>
+            <option v-for="one in groups" :key="one.ref" :value="one.ref">{{ one.name }}</option>
+          </select>
+        </label>
+        <!-- Where this task's branch is cut from, and where Dev Complete merges
+             it back to — worth seeing without opening the group. -->
+        <span v-if="group" class="mono faint" :title="`${group.ref}'s branch`">
+          → {{ group.branchName }}
+        </span>
         <button
           v-if="task.investigationRef"
           class="task-chip"
@@ -350,6 +425,17 @@ const eventText = (event: TaskDetail['events'][number]): string => {
             <option value="low">low</option>
             <option value="medium">medium</option>
             <option value="high">high</option>
+          </select>
+        </div>
+        <div class="field" style="flex: 1">
+          <label for="edit-tier">Tier <span class="faint">(model recommendation)</span></label>
+          <select
+            id="edit-tier"
+            :value="draft.recommendedTier ?? ''"
+            @change="draft.recommendedTier = (($event.target as HTMLSelectElement).value || null) as ModelTier | null"
+          >
+            <option value="">none</option>
+            <option v-for="tier in MODEL_TIERS" :key="tier" :value="tier">{{ tier }}</option>
           </select>
         </div>
         <div class="field" style="flex: 1">

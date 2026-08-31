@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import { STATUS_LABELS, type CombinedBranchDetail } from '@shared/types';
+import { computed, onUnmounted, ref, watch } from 'vue';
+import { STATUS_LABELS, type CheckRun, type CombinedBranchDetail } from '@shared/types';
 import { api, type Meta } from '../api';
 import MarkdownBlock from './MarkdownBlock.vue';
 
@@ -16,7 +16,7 @@ const busy = ref<string | null>(null);
 const error = ref<string | null>(null);
 const notice = ref<string | null>(null);
 const draft = ref({ title: '', body: '' });
-const branchSettings = ref({ name: '', base: '' });
+const branchSettings = ref({ name: '', base: '', remote: '' });
 const draftDraftPr = ref(false);
 const bodyMode = ref<'write' | 'read'>('write');
 const showCommits = ref(false);
@@ -27,7 +27,11 @@ watch(
   () => [props.branch.branchName, props.branch.updatedAt] as const,
   () => {
     draft.value = { title: props.branch.prTitle ?? '', body: props.branch.prBody ?? '' };
-    branchSettings.value = { name: props.branch.branchName, base: props.branch.baseBranch ?? '' };
+    branchSettings.value = {
+      name: props.branch.branchName,
+      base: props.branch.baseBranch ?? '',
+      remote: props.branch.remoteBranch ?? '',
+    };
     error.value = null;
     notice.value = null;
   },
@@ -50,6 +54,83 @@ const agentName = computed(() => props.meta?.tools.prAgent ?? 'the PR agent');
 const agentReady = computed(() => props.meta?.tools.prAgentAvailable !== false);
 const ghReady = computed(() => props.meta?.tools.gh !== false && props.meta?.tools.ghAuthed !== false);
 
+/* ------------------------------------------------------------------ checks */
+
+const checksConfigured = computed(() => (props.meta?.tools.checkCount ?? 0) > 0);
+const report = computed(() => props.branch.checks);
+/** Stale by commit: a report describes the code that was on the branch when it
+ *  ran, and one more commit makes it a statement about something else. */
+const checksStale = computed(() => {
+  const head = props.branch.git.commits.at(-1)?.sha;
+  return Boolean(report.value?.headSha && head && report.value.headSha !== head);
+});
+/** What the PR button says is wrong, mirroring the server's own gate. */
+const checksBlocking = computed(() => {
+  if (!checksConfigured.value) return null;
+  if (!report.value) return 'Checks have not been run on this branch yet.';
+  if (!report.value.passed) return 'Checks failed.';
+  if (checksStale.value) return 'The branch has new commits since the checks last ran.';
+  return null;
+});
+/* A failure's output is the reason anyone opened this panel, so it starts
+   expanded; a pass starts collapsed. Both are one click from the other, and the
+   two lists record only the departures from that default. */
+const collapsed = ref<string[]>([]);
+const expanded = ref<string[]>([]);
+const failing = (check: CheckRun) => check.status !== 'passed' && check.status !== 'skipped';
+const isOpen = (check: CheckRun) =>
+  failing(check) ? !collapsed.value.includes(check.name) : expanded.value.includes(check.name);
+const toggleCheck = (check: CheckRun) => {
+  const list = failing(check) ? collapsed : expanded;
+  list.value = list.value.includes(check.name)
+    ? list.value.filter((entry) => entry !== check.name)
+    : [...list.value, check.name];
+};
+
+/** Set while a run is in flight — the server starts checks and returns, because
+ *  a suite outlives any request worth holding open. */
+const running = computed(() => props.branch.checksRunning);
+
+async function runChecks(): Promise<void> {
+  error.value = null;
+  try {
+    emit('changed', await api.runChecks(props.branch.branchName));
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  }
+}
+
+/* Poll while a run is going. The server announces the finished report over the
+   live-update stream, but that says nothing about which check is running now,
+   which is the whole content of a five-minute wait. */
+let poll: ReturnType<typeof setInterval> | undefined;
+watch(
+  () => Boolean(props.branch.checksRunning),
+  (active) => {
+    clearInterval(poll);
+    if (!active) return;
+    poll = setInterval(() => {
+      api
+        .getBranch(props.branch.branchName)
+        .then((branch) => emit('changed', branch))
+        .catch(() => {
+          // A poll that fails changes nothing: the next one is two seconds away,
+          // and the run is happening on the server either way.
+        });
+    }, 2000);
+  },
+  { immediate: true },
+);
+onUnmounted(() => clearInterval(poll));
+const checkLabel: Record<string, string> = {
+  passed: 'passed',
+  failed: 'failed',
+  skipped: 'skipped',
+  timed_out: 'timed out',
+  error: 'error',
+};
+const seconds = (ms: number) => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+
 async function run(label: string, action: () => Promise<CombinedBranchDetail>): Promise<void> {
   busy.value = label;
   error.value = null;
@@ -69,6 +150,7 @@ const saveBranchSettings = () => run('branch-settings', () =>
   api.updateBranch(props.branch.branchName, {
     branchName: branchSettings.value.name,
     baseBranch: branchSettings.value.base,
+    remoteBranch: branchSettings.value.remote,
   }),
 );
 
@@ -80,7 +162,7 @@ const save = () =>
     }),
   );
 
-async function createPr(): Promise<void> {
+async function createPr(force = false): Promise<void> {
   if (dirty.value) {
     // The server opens the PR from the stored description, not the form, so an
     // unsaved edit would silently not appear in the PR.
@@ -91,7 +173,7 @@ async function createPr(): Promise<void> {
   busy.value = 'pr';
   error.value = null;
   try {
-    const result = await api.createPr(props.branch.branchName, draftDraftPr.value);
+    const result = await api.createPr(props.branch.branchName, draftDraftPr.value, force);
     notice.value = result.pushed ? 'Branch pushed and pull request opened.' : 'Pull request opened.';
     emit('changed', result.branch);
   } catch (caught) {
@@ -143,6 +225,8 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
       <h3>Branch settings</h3>
       <div class="panel">
         <div class="field"><label for="branch-name">Branch name</label><input id="branch-name" v-model="branchSettings.name" /></div>
+        <div class="field"><label for="branch-remote">Remote branch name</label><input id="branch-remote" v-model="branchSettings.remote" :placeholder="branchSettings.name" /></div>
+        <p class="faint">Push and open the pull request under a different branch name on the remote. Leave blank to push under the same name as the local branch.</p>
         <div class="field"><label for="branch-base">PR target branch</label><input id="branch-base" v-model="branchSettings.base" placeholder="master" /></div>
         <p class="faint">The target branch is the branch the pull request will be opened into. It does not change the commits already picked onto this branch.</p>
         <button :disabled="!!busy || !branchSettings.name.trim() || !branchSettings.base.trim()" @click="saveBranchSettings">
@@ -276,6 +360,60 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
       </div>
     </div>
 
+    <!-- ------------------------------------------------------------ checks -->
+    <div v-if="checksConfigured" class="section">
+      <h3>Checks</h3>
+
+      <div class="row" style="margin-bottom: 12px">
+        <button :disabled="!!busy || !!running || !branch.git.exists" @click="runChecks">
+          {{ running ? 'Running…' : report ? 'Run checks again' : 'Run checks' }}
+        </button>
+        <span class="faint">
+          {{ meta?.tools.checkCount }} configured command(s) — typecheck, lint, tests. Takes as long
+          as they take.
+        </span>
+      </div>
+
+      <p v-if="running" class="banner ok">
+        Running <strong>{{ running.current ?? 'the first check' }}</strong>
+        <template v-if="running.total"> — {{ running.done + 1 }} of {{ running.total }}</template
+        >. It keeps going whether or not this page is open.
+      </p>
+
+      <p v-else-if="!report" class="empty">
+        Not run on this branch yet. The pull request is blocked until they pass.
+      </p>
+
+      <template v-else>
+        <p class="faint">
+          Ran {{ formatDate(report.ranAt) }} against <code class="mono">{{ report.base }}</code
+          >.
+          <template v-if="report.ranOnBranch && report.ranOnBranch !== branch.branchName">
+            <strong>The working tree was on '{{ report.ranOnBranch }}'</strong>, not this branch, so
+            this result describes that tree.
+          </template>
+        </p>
+        <p v-if="checksStale" class="banner warn">
+          The branch has new commits since this ran — the result is stale.
+        </p>
+
+        <ul class="checks">
+          <li v-for="check in report.checks" :key="check.name">
+            <button class="check-head" @click="toggleCheck(check)">
+              <span class="check-status" :class="check.status">{{ checkLabel[check.status] }}</span>
+              <span class="check-name">{{ check.name }}</span>
+              <span class="faint mono">{{ check.command.join(' ') }}</span>
+              <span v-if="check.durationMs" class="faint">{{ seconds(check.durationMs) }}</span>
+            </button>
+            <p v-if="check.reason" class="faint check-reason">{{ check.reason }}</p>
+            <pre v-if="check.output && isOpen(check)" class="check-output">{{
+              check.output
+            }}</pre>
+          </li>
+        </ul>
+      </template>
+    </div>
+
     <!-- ------------------------------------------------------- pull request -->
     <div class="section">
       <h3>Pull request</h3>
@@ -303,12 +441,24 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
           </p>
           <button
             class="primary"
-            :disabled="!!busy || !hasDescription || !branch.git.exists || !ghReady"
-            @click="createPr"
+            :disabled="!!busy || !hasDescription || !branch.git.exists || !ghReady || !!checksBlocking"
+            @click="createPr()"
           >
             {{ busy === 'pr' ? 'Opening…' : 'Create pull request' }}
           </button>
           <p v-if="!hasDescription" class="faint">A title is required before opening the PR.</p>
+          <template v-if="checksBlocking">
+            <p class="faint">{{ checksBlocking }}</p>
+            <!-- The override is deliberate: a check can be broken on master, or
+                 irrelevant to a docs-only branch, and a gate with no way past it
+                 gets worked around instead of used. -->
+            <button
+              :disabled="!!busy || !hasDescription || !branch.git.exists || !ghReady"
+              @click="createPr(true)"
+            >
+              Open anyway, without passing checks
+            </button>
+          </template>
         </div>
       </template>
     </div>

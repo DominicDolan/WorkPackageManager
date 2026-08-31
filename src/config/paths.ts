@@ -31,6 +31,15 @@ export interface Workspace {
   notesDir: string;
   /** Built SPA assets, shipped with the package. */
   distDir: string;
+  /**
+   * Canonical Markdown for the agent commands (`plan-tasks`, `work-task`,
+   * `work-group`), shipped with the package. Inlined into the prompt at
+   * `src/server/agents.ts` rather than invoked as a slash command, so a run
+   * needs nothing installed beyond the harness binary — see
+   * `<promptsDir>/<command>.md`. A workspace may override one by placing its
+   * own at `.tasks/prompts/<command>.md`.
+   */
+  promptsDir: string;
   /** This repository's resolved settings. */
   config: TasksConfig;
 }
@@ -84,6 +93,7 @@ export function workspace(startDir = process.cwd()): Workspace {
       ? resolve(process.env.TASKS_NOTES_DIR)
       : resolve(tasksDir, config.notesDir),
     distDir: join(packageRoot, 'dist', 'web'),
+    promptsDir: join(packageRoot, 'prompts'),
     config,
   };
   return cached;

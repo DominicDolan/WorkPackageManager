@@ -4,21 +4,26 @@ import {
   AGENT_PERMISSION_MODE_LABELS,
   type AgentCommand,
   type AgentEnvironment,
+  type AgentHarnessId,
   type AgentModel,
   type AgentPermissionMode,
   type AgentRun,
   type AgentRunDetail,
   type AgentRunMode,
+  GROUP_RUN_STATUS_LABELS,
+  type GroupRun,
+  type ModelTier,
 } from '@shared/types';
 import { api } from '../api';
 
 /**
  * Point an agent at whatever is on screen.
  *
- * The same dialog drives both slash commands — `/plan-tasks` from an issue,
- * `/work-task` from a task — because the only thing that differs between them is
- * the command name and its argument, and both are installed in Claude Code and
- * `pi` alike.
+ * The same dialog drives every command — `plan-tasks` from an issue, `work-task`
+ * from a task, `work-group` from a group — because the only thing that differs
+ * between them is the command name and its argument, and the server inlines
+ * each one's instructions from this package's `prompts/` folder rather than
+ * relying on anything installed separately in Claude Code or `pi`.
  *
  * Two run modes, and they are not two settings of one thing. A **terminal** run
  * opens a real window with the agent interactive inside it: it can ask, you can
@@ -34,7 +39,43 @@ const props = defineProps<{
   subjectRef: string;
   /** Shown under the heading so it is obvious what is about to be worked on. */
   subjectTitle: string;
+  /**
+   * What an investigation judged this task needs, if anything did. Used only to
+   * pick a starting value for the model dropdown — via `environment.modelTiers`
+   * for whichever harness ends up selected — never to constrain the choice.
+   */
+  recommendedTier?: ModelTier | null;
+  /**
+   * Why a new run cannot be started, or null when one can.
+   *
+   * The dialog still opens — its history and its Resume buttons are the reason
+   * to come here when there is nothing left to start — but Run is refused and
+   * says why rather than launching an agent with no work to do.
+   */
+  startBlockedReason?: string | null;
+  /**
+   * Set to a group ref to run that whole group unattended instead of running
+   * one command.
+   *
+   * The dialog is the same because the choices are the same — harness, model,
+   * what it may do without asking, what else it should know — and they are
+   * chosen once and used for every task in the loop. What changes is what Run
+   * starts: a loop the server drives, launching a fresh `/work-task` per task,
+   * rather than a single agent.
+   */
+  loopGroupRef?: string | null;
+  /**
+   * An existing loop to attach to instead of offering to start one.
+   *
+   * A loop outlives the tab that started it, so the way back to a run already in
+   * flight has to be a dialog that opens straight onto its log rather than onto
+   * a form offering to start a second.
+   */
+  attachGroupRunId?: number | null;
 }>();
+
+/** True when Run starts a loop over a group rather than one command. */
+const isLoop = computed(() => !!props.loopGroupRef);
 
 const emit = defineEmits<{ close: [] }>();
 
@@ -54,11 +95,19 @@ const starting = ref(false);
 const run = ref<AgentRunDetail | AgentRun | null>(null);
 const output = ref('');
 const history = ref<AgentRun[]>([]);
+/** The loop in flight, when this dialog started one. Its `currentRunId` is what
+ *  the log below is following, and it moves on as tasks finish. */
+const groupRun = ref<GroupRun | null>(null);
 
 const LABEL: Record<AgentCommand, string> = {
   'plan-tasks': 'Investigate',
   'work-task': 'Work task',
+  'work-group': 'Work group',
 };
+
+const heading = computed(() =>
+  isLoop.value ? `Work ${props.loopGroupRef} unattended` : `${LABEL[props.command]} with an agent`,
+);
 
 const chosenHarness = computed(
   () => environment.value?.harnesses.find((one) => one.id === harness.value) ?? null,
@@ -66,7 +115,13 @@ const chosenHarness = computed(
 
 /** The prompt as the server will assemble it. Shown so nothing is a surprise. */
 const preview = computed(() => {
-  const head = props.target ? `/${props.command} ${props.target}` : `/${props.command}`;
+  // A loop sends this once per task, with the ref filled in each time — showing
+  // one ref would claim it runs once, which is the thing worth not implying.
+  const head = isLoop.value
+    ? `/work-task <each task in ${props.loopGroupRef}'s work order, one fresh agent each>`
+    : props.target
+      ? `/${props.command} ${props.target}`
+      : `/${props.command}`;
   return extra.value.trim() ? `${head}\n\n${extra.value.trim()}` : head;
 });
 
@@ -105,9 +160,33 @@ const permissionStalls = computed(
   () => mode.value === 'print' && supportsPermissions.value && permissionMode.value !== 'bypassPermissions',
 );
 
-const isFinished = computed(
-  () => !!run.value && run.value.status !== 'running' && run.value.status !== 'launched',
-);
+/**
+ * Reopen a run's conversation in a terminal.
+ *
+ * Available whatever the run's state: a finished session is the usual case
+ * ("what did it decide?"), and a terminal run whose window was closed is the
+ * other. Only a run launched before session ids were recorded cannot.
+ */
+const resuming = ref(false);
+
+async function resume(id: number): Promise<void> {
+  resuming.value = true;
+  error.value = null;
+  try {
+    await api.resumeAgentRun(id);
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    resuming.value = false;
+  }
+}
+
+const isFinished = computed(() => {
+  // Mid-loop, the agent that just exited is not the end of anything — the loop's
+  // own status is what says whether there is more coming.
+  if (groupRun.value) return groupRun.value.status !== 'running';
+  return !!run.value && run.value.status !== 'running' && run.value.status !== 'launched';
+});
 
 onMounted(async () => {
   try {
@@ -117,11 +196,29 @@ onMounted(async () => {
     ]);
     environment.value = env;
     history.value = runs;
+    applyRecommendedTier();
 
     // Prefer an installed harness over the default one that is not.
     const installed = env.harnesses.find((one) => one.available);
     if (installed) harness.value = installed.id;
-    if (!env.terminalAvailable) mode.value = 'print';
+    // A loop is headless and there is no choice about it: a terminal run's pid
+    // belongs to the emulator, so the server has nothing to wait on to know the
+    // task is over, and an agent that can ask questions holds up the queue.
+    if (!env.terminalAvailable || isLoop.value) mode.value = 'print';
+
+    if (props.loopGroupRef && props.attachGroupRunId) {
+      const existing = (await api.listGroupRuns(props.loopGroupRef)).find(
+        (one) => one.id === props.attachGroupRunId,
+      );
+      // Without an agent recorded against it there is no log to open onto, and
+      // the setup form is the more useful thing to show.
+      if (existing?.currentRunId) {
+        groupRun.value = existing;
+        run.value = await api.getAgentRun(existing.currentRunId);
+        output.value = (run.value as AgentRunDetail).output;
+        poll();
+      }
+    }
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught);
   }
@@ -138,6 +235,22 @@ watch(mode, (next) => {
   permissionMode.value = next === 'print' ? 'bypassPermissions' : 'auto';
 });
 
+/**
+ * Fill the model dropdown from the task's recommended tier, resolved through
+ * `environment.modelTiers` for whichever harness is selected. Only ever moves
+ * `model` out of "unset" — it never overwrites a choice already made, by the
+ * user or by an earlier call here, so it is safe to call opportunistically
+ * from wherever a piece it depends on (environment, harness, the model list)
+ * finishes loading, in whatever order that happens to be.
+ */
+function applyRecommendedTier(): void {
+  if (model.value || !props.recommendedTier || !environment.value) return;
+  const candidate = environment.value.modelTiers[harness.value as AgentHarnessId]?.[props.recommendedTier];
+  if (candidate && models.value.some((entry) => entry.id === candidate)) {
+    model.value = candidate;
+  }
+}
+
 watch(
   harness,
   async (id) => {
@@ -148,6 +261,7 @@ watch(
     modelsLoading.value = true;
     try {
       models.value = await api.agentModels(id);
+      applyRecommendedTier();
     } catch (caught) {
       // A missing model list is not a reason to block the run: the harness's own
       // default is a perfectly good answer, and that is what an empty id means.
@@ -163,6 +277,20 @@ async function start(): Promise<void> {
   starting.value = true;
   error.value = null;
   try {
+    if (props.loopGroupRef) {
+      const started = await api.startGroupRun(props.loopGroupRef, {
+        harness: harness.value,
+        model: model.value,
+        permissionMode: permissionMode.value,
+        extra: extra.value,
+      });
+      groupRun.value = started.groupRun;
+      run.value = started.run;
+      output.value = '';
+      poll();
+      return;
+    }
+
     const started = await api.startAgentRun({
       harness: harness.value,
       model: model.value,
@@ -187,22 +315,43 @@ async function start(): Promise<void> {
 /* --------------------------------------------------------------- polling */
 
 let timer: ReturnType<typeof setTimeout> | null = null;
+/** Bumped every time polling is (re)started, so a tick from an abandoned poll
+ *  cannot write over what the current one is showing. */
+let pollToken = 0;
 
-/** Poll the log while a headless run is going. Stops itself when the run does. */
+/**
+ * Poll the log while something is going, and stop when it does.
+ *
+ * A loop is followed rather than a run: the agent in flight changes each time a
+ * task lands, so every tick re-reads which one that is and switches the log to
+ * it. That is also why the loop's status, not the agent's, decides whether to
+ * keep polling — one agent finishing is the middle of a loop, not the end.
+ */
 function poll(): void {
   if (timer) clearTimeout(timer);
-  const id = run.value?.id;
-  if (id === undefined) return;
+  const token = ++pollToken;
 
   const tick = async (): Promise<void> => {
     try {
+      if (groupRun.value && props.loopGroupRef) {
+        const runs = await api.listGroupRuns(props.loopGroupRef);
+        if (token !== pollToken) return;
+        const fresh = runs.find((one) => one.id === groupRun.value?.id);
+        if (fresh) groupRun.value = fresh;
+      }
+
+      const id = groupRun.value ? groupRun.value.currentRunId : (run.value?.id ?? null);
+      if (id === null || id === undefined) return;
+
       const detail = await api.getAgentRun(id);
-      // A late response from a previous run must not overwrite the current one.
-      if (run.value?.id !== id) return;
+      if (token !== pollToken) return;
       run.value = detail;
       output.value = detail.output;
-      if (detail.status === 'running') timer = setTimeout(tick, 1500);
+
+      const going = groupRun.value ? groupRun.value.status === 'running' : detail.status === 'running';
+      if (going) timer = setTimeout(tick, 1500);
     } catch (caught) {
+      if (token !== pollToken) return;
       error.value = caught instanceof Error ? caught.message : String(caught);
     }
   };
@@ -217,7 +366,11 @@ onUnmounted(() => {
 async function stop(): Promise<void> {
   if (!run.value) return;
   try {
-    await api.stopAgentRun(run.value.id);
+    // Stopping a loop kills the agent in flight too, so this is the one call.
+    // Tasks it already merged stay merged — a partly delivered group is the
+    // normal recoverable state, not a mess to unwind.
+    if (groupRun.value && props.loopGroupRef) await api.stopGroupRun(props.loopGroupRef);
+    else await api.stopAgentRun(run.value.id);
     poll();
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught);
@@ -226,6 +379,7 @@ async function stop(): Promise<void> {
 
 /** Reopen a past run's output without starting anything. */
 async function showRun(id: number): Promise<void> {
+  groupRun.value = null;
   run.value = await api.getAgentRun(id);
   output.value = (run.value as AgentRunDetail).output;
   if (run.value.status === 'running') poll();
@@ -233,7 +387,9 @@ async function showRun(id: number): Promise<void> {
 
 function again(): void {
   if (timer) clearTimeout(timer);
+  pollToken += 1;
   run.value = null;
+  groupRun.value = null;
   output.value = '';
 }
 
@@ -252,9 +408,9 @@ watch(output, () => {
 <template>
   <div class="overlay" @click.self="emit('close')">
     <div class="dialog agent-dialog">
-      <h3>{{ LABEL[command] }} with an agent</h3>
+      <h3>{{ heading }}</h3>
       <p class="faint" style="margin-top: -6px">
-        <span class="mono">{{ target || 'no ref — the command picks one' }}</span>
+        <span class="mono">{{ isLoop ? loopGroupRef : target || 'no ref — the command picks one' }}</span>
         <template v-if="subjectTitle"> · {{ subjectTitle }}</template>
       </p>
 
@@ -308,7 +464,19 @@ watch(output, () => {
           </div>
         </div>
 
-        <div class="field">
+        <div v-if="isLoop" class="field">
+          <label>How it runs</label>
+          <p class="faint" style="margin: 0">
+            One headless <span class="mono">/work-task</span> per task, in the group's work
+            order, each with a context of its own — which is the point: a single session
+            working six tasks is carrying five tasks' worth of transcript by the sixth.
+            The next one starts when the previous agent exits <em>and</em> its task has
+            actually reached Dev Complete. Anything else — a merge conflict, a question, a
+            task that did not move — stops the loop and leaves what already merged alone.
+          </p>
+        </div>
+
+        <div v-else class="field">
           <label>How to run it</label>
           <label class="agent-mode">
             <input v-model="mode" type="radio" value="terminal" :disabled="!environment?.terminalAvailable" />
@@ -364,13 +532,18 @@ watch(output, () => {
         <div class="row">
           <button
             class="primary"
-            :disabled="starting || !chosenHarness?.available"
+            :disabled="starting || !chosenHarness?.available || !!startBlockedReason"
+            :title="startBlockedReason ?? undefined"
             @click="start"
           >
-            {{ starting ? 'Starting…' : 'Run' }}
+            {{ starting ? 'Starting…' : isLoop ? 'Run the group' : 'Run' }}
           </button>
           <button :disabled="starting" @click="emit('close')">Cancel</button>
         </div>
+
+        <p v-if="startBlockedReason" class="faint" style="margin: 0">
+          {{ startBlockedReason }}
+        </p>
 
         <!-- ------------------------------------------------- earlier runs -->
         <div v-if="history.length" class="section" style="margin-top: 4px">
@@ -384,6 +557,18 @@ watch(output, () => {
                 <span class="spacer" />
                 <time class="faint">{{ formatTime(entry.createdAt) }}</time>
               </button>
+              <!-- Disabled rather than hidden on an older run: the absence is
+                   worth explaining once, not silently. -->
+              <button
+                class="agent-resume"
+                :disabled="!entry.sessionId || resuming"
+                :title="entry.sessionId
+                  ? `Reopen this ${entry.harness} conversation in a terminal`
+                  : 'This run was launched before session ids were recorded, so there is no conversation to reopen.'"
+                @click="resume(entry.id)"
+              >
+                Resume
+              </button>
             </li>
           </ul>
         </div>
@@ -391,8 +576,30 @@ watch(output, () => {
 
       <!-- ----------------------------------------------------- running run -->
       <template v-else>
+        <div v-if="groupRun" class="panel group-run-progress">
+          <div class="row" style="flex-wrap: wrap">
+            <span class="badge" :class="`group-run-${groupRun.status}`">
+              {{ GROUP_RUN_STATUS_LABELS[groupRun.status] }}
+            </span>
+            <span class="faint">
+              {{ groupRun.worked.length }} task(s) finished
+              <template v-if="groupRun.currentRef && groupRun.status === 'running'">
+                · working <span class="mono">{{ groupRun.currentRef }}</span>
+              </template>
+            </span>
+          </div>
+          <p v-if="groupRun.worked.length" class="faint" style="margin: 8px 0 0">
+            Merged into the group branch:
+            <span class="mono">{{ groupRun.worked.join(', ') }}</span>
+          </p>
+          <p v-if="groupRun.stopReason" class="banner warn" style="margin: 10px 0 0">
+            {{ groupRun.stopReason }}
+          </p>
+        </div>
+
         <div class="row" style="flex-wrap: wrap">
           <span class="badge" :class="`agent-${run.status}`">{{ run.status }}</span>
+          <span v-if="groupRun?.currentRef" class="mono faint">{{ groupRun.currentRef }}</span>
           <span class="mono faint">{{ run.harness }}{{ run.model ? ` · ${run.model}` : '' }}</span>
           <span class="faint">{{ run.mode === 'print' ? 'headless' : 'terminal window' }}</span>
           <span v-if="run.exitCode !== null" class="faint">exit {{ run.exitCode }}</span>
@@ -412,11 +619,21 @@ watch(output, () => {
         </template>
 
         <div class="row">
-          <button v-if="!isFinished && run.mode === 'print'" class="danger" @click="stop">Stop</button>
+          <button v-if="!isFinished && run.mode === 'print'" class="danger" @click="stop">
+            {{ groupRun ? 'Stop the group' : 'Stop' }}
+          </button>
+          <button
+            v-if="run.sessionId"
+            :disabled="resuming"
+            :title="`Reopen this ${run.harness} conversation in a terminal`"
+            @click="resume(run.id)"
+          >
+            {{ resuming ? 'Opening…' : 'Resume' }}
+          </button>
           <button v-if="isFinished" @click="again">Run another</button>
           <span class="spacer" />
           <button class="primary" @click="emit('close')">
-            {{ isFinished || run.mode === 'terminal' ? 'Close' : 'Close (keeps running)' }}
+            {{ isFinished || run.mode === 'terminal' ? 'Close' : 'Close (keeps going)' }}
           </button>
         </div>
       </template>

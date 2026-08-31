@@ -2,12 +2,15 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import {
   DEFAULT_ESTIMATE_UNITS,
+  GROUP_COLORS,
+  groupTasks,
   INVESTIGATION_STATUS_LABELS,
   ISSUE_SOURCE_LABELS,
   STATUS_LABELS,
   STATUSES,
   unmetDependencies,
   type CombinedBranchDetail,
+  type BaselineReport,
   type Investigation,
   type InvestigationDetail as InvestigationDetailModel,
   type IssueDetail as IssueDetailModel,
@@ -20,10 +23,15 @@ import {
   type Status,
   type Task,
   type TaskDetail as TaskDetailModel,
+  type TaskGroup,
+  type TaskGroupDetail,
+  type TaskGroupSummary,
 } from '@shared/types';
 import type { ChangeChannel } from '@shared/types';
 import { api, type Meta } from './api';
 import BranchDetail from './components/BranchDetail.vue';
+import GroupDetail from './components/GroupDetail.vue';
+import BaselineDetail from './components/BaselineDetail.vue';
 import CombineBranches from './components/CombineBranches.vue';
 import InvestigationDetail from './components/InvestigationDetail.vue';
 import IssueCards from './components/IssueCards.vue';
@@ -35,7 +43,15 @@ import { useLiveUpdates } from './useLiveUpdates';
 import { useLocation } from './useLocation';
 
 /** Which rail section is showing. */
-type View = 'investigations' | 'tasks' | 'plan' | 'branches' | 'combine' | 'notes' | 'issues';
+type View =
+  | 'investigations'
+  | 'tasks'
+  | 'plan'
+  | 'branches'
+  | 'baselines'
+  | 'combine'
+  | 'notes'
+  | 'issues';
 
 const tasks = ref<Task[]>([]);
 const selected = ref<TaskDetailModel | null>(null);
@@ -68,14 +84,29 @@ const VIEW_PATHS: Record<View, string> = {
   tasks: '/tasks',
   plan: '/plan',
   branches: '/branches',
+  baselines: '/baselines',
   combine: '/combine',
   notes: '/notes',
   issues: '/issues',
 };
 
+/** `/groups/G-1` is a task-view route: the list stays on the left and the group
+ *  takes the detail pane, the same shape as selecting a task. */
+const GROUP_PATH = /^\/groups\/(.+)$/;
+
 function viewForPath(path: string): View {
+  if (GROUP_PATH.test(path)) return 'tasks';
   return (Object.entries(VIEW_PATHS).find(([, value]) => value === path)?.[0] as View | undefined) ?? 'tasks';
 }
+
+/** The views drawn as one full-width page, with no list column beside them.
+ *  Kept next to the sidebar's own condition so the two cannot drift apart —
+ *  a view missing from here renders into the narrow list column instead. */
+const FULL_WIDTH_PATHS = ['/plan', '/baselines'];
+const fullWidth = computed(() => FULL_WIDTH_PATHS.includes(location.value));
+
+/** True for the routes the task list is the sidebar of. */
+const onTaskRoutes = computed(() => location.value === VIEW_PATHS.tasks || GROUP_PATH.test(location.value));
 
 const investigations = ref<Investigation[]>([]);
 const selectedInvestigation = ref<InvestigationDetailModel | null>(null);
@@ -122,12 +153,289 @@ const newTask = ref({
   priority: 'medium' as Priority,
   tags: '',
   branchName: '',
+  groupRef: '',
   estimateUnits: DEFAULT_ESTIMATE_UNITS,
 });
 
 const visibleTasks = computed(() =>
   filter.value === 'all' ? tasks.value : tasks.value.filter((task) => task.status === filter.value),
 );
+
+/* ---------------------------------------------------------------- groups */
+
+const groups = ref<TaskGroupSummary[]>([]);
+/** Whether the list is drawn in sections. A view preference, so it lives in the
+ *  browser rather than the workspace — two people looking at the same tasks can
+ *  disagree about this. */
+const grouped = ref(localStorage.getItem('tasks.grouped') !== 'off');
+const collapsedGroups = ref(new Set<string>());
+/** The group being created or renamed. `ref: null` means it does not exist yet. */
+const groupDraft = ref<{
+  ref: string | null;
+  name: string;
+  description: string;
+  color: string;
+  branchName: string;
+} | null>(null);
+
+/** The branch name the server would derive, mirrored here so the field is
+ *  filled in as the name is typed rather than appearing only after saving. Once
+ *  the user edits the field it is theirs, and this stops writing to it. */
+const groupBranchTouched = ref(false);
+
+watch(
+  () => groupDraft.value?.name,
+  (name) => {
+    const draft = groupDraft.value;
+    // Only while creating: renaming an existing group must not silently
+    // repoint it at a branch its finished work is not on.
+    if (!draft || draft.ref || groupBranchTouched.value) return;
+    const slug = (name ?? '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60);
+    draft.branchName = slug ? `group/${slug}` : '';
+  },
+);
+const groupBusy = ref(false);
+
+watch(grouped, (on) => localStorage.setItem('tasks.grouped', on ? 'on' : 'off'));
+
+/**
+ * The list as it is drawn: sections when grouping is on, one nameless section
+ * when it is off. Both shapes are the same so the template has one path.
+ */
+const sections = computed(() => {
+  if (!grouped.value) return [{ group: null, items: visibleTasks.value }];
+
+  const all = groupTasks(visibleTasks.value, groups.value, (task) => task);
+  // An empty group is worth a heading in the full list — it is somewhere to drop
+  // work. Under a status filter it is not: every group the filter emptied would
+  // claim to be empty, which is a statement about the filter, not the group.
+  return filter.value === 'all' ? all : all.filter((section) => section.items.length);
+});
+
+/**
+ * Every listed task in the order the sections put them — including the rows a
+ * collapsed group is hiding.
+ *
+ * This, not `visibleTasks`, is what a drag reorders against: the drop lands
+ * between two rows *as sectioned*, and pushing that order back is what makes a
+ * group's tasks contiguous in the queue. Collapsed rows stay in it so folding a
+ * group away cannot scatter the tasks inside it.
+ */
+const listedTasks = computed(() => sections.value.flatMap((section) => section.items));
+
+const groupOf = computed(() => {
+  const index = new Map<string, TaskGroupSummary>();
+  for (const group of groups.value) index.set(group.ref.toLowerCase(), group);
+  return index;
+});
+
+/** The group a task is drawn under, or null when it is loose. Resolved through
+ *  the loaded groups so a ref pointing at a deleted one reads as loose. */
+function groupFor(task: Task): TaskGroupSummary | null {
+  return task.groupRef ? groupOf.value.get(task.groupRef.toLowerCase()) ?? null : null;
+}
+
+function toggleCollapsed(ref_: string): void {
+  const next = new Set(collapsedGroups.value);
+  if (next.has(ref_)) next.delete(ref_);
+  else next.add(ref_);
+  collapsedGroups.value = next;
+}
+
+/**
+ * The last aio-vr baseline run. Read on entering the view rather than up front:
+ * it is a file on disk that aio-vr rewrites, and nobody wants a stale tally.
+ */
+const baselines = ref<BaselineReport | null>(null);
+const baselinesLoading = ref(false);
+
+async function refreshBaselines(): Promise<void> {
+  baselines.value = await api.baselines();
+}
+
+/** What the rail badges: scenarios that differ from their baseline or could not
+ *  be captured. Unchanged ones are not news. */
+const driftedCount = computed(
+  () =>
+    baselines.value?.scenarios.filter(
+      (one) => one.status === 'changed' || one.status === 'failed',
+    ).length ?? 0,
+);
+
+/** The group whose page is open, when the route is a group route. */
+const selectedGroup = ref<TaskGroupDetail | null>(null);
+
+/**
+ * Open a group's page. The task list stays where it is — a group page is a
+ * detail pane like a task's, not a different section of the app — but the task
+ * selection is cleared, because only one thing can be in that pane.
+ */
+async function openGroup(ref_: string): Promise<void> {
+  navigate(`/groups/${encodeURIComponent(ref_)}`);
+  view.value = 'tasks';
+  selected.value = null;
+  error.value = null;
+  try {
+    const group = await api.getGroup(ref_);
+    // A server started before this page existed answers with the bare group and
+    // no Git state. Say that, rather than letting the page fault on the first
+    // field it reads — the fix is a restart, and nothing else will say so.
+    if (!group?.git) {
+      throw new Error(
+        `This server predates the group page, so it cannot report ${ref_}'s branch. ` +
+          'Restart `tasks web` and reload.',
+      );
+    }
+    selectedGroup.value = group;
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+    selectedGroup.value = null;
+  }
+}
+
+/** A group page edits the group, so the sidebar's copy of it is refreshed too. */
+async function onGroupChanged(group: TaskGroupDetail): Promise<void> {
+  selectedGroup.value = group;
+  groups.value = await api.listGroups();
+  await refreshList();
+}
+
+async function onGroupDeleted(ref_: string): Promise<void> {
+  selectedGroup.value = null;
+  navigate(VIEW_PATHS.tasks);
+  groups.value = groups.value.filter((one) => one.ref !== ref_);
+  await refreshList();
+}
+
+function newGroup(): void {
+  groupBranchTouched.value = false;
+  groupDraft.value = {
+    ref: null,
+    name: '',
+    description: '',
+    // Offered rather than imposed: the server picks the next unused colour when
+    // none is sent, and an empty string is how this says "you choose".
+    color: '',
+    // Same again for the branch: empty means "derive it from the name and ref",
+    // which the server can do properly because it knows the ref.
+    branchName: '',
+  };
+}
+
+/** Takes the plain group rather than the summary: the sections hand back what
+ *  `groupTasks` put in them, and the counts are not what is being edited. */
+function editGroup(group: TaskGroup): void {
+  groupBranchTouched.value = true;
+  groupDraft.value = {
+    ref: group.ref,
+    name: group.name,
+    description: group.description,
+    color: group.color,
+    branchName: group.branchName,
+  };
+}
+
+async function saveGroup(): Promise<void> {
+  const draft = groupDraft.value;
+  if (!draft?.name.trim()) return;
+
+  groupBusy.value = true;
+  error.value = null;
+  try {
+    if (draft.ref) {
+      const result = await api.updateGroup(draft.ref, {
+        name: draft.name,
+        description: draft.description,
+        color: draft.color || undefined,
+        branchName: draft.branchName.trim() || undefined,
+      });
+      groups.value = result.groups;
+      tasks.value = result.tasks;
+    } else {
+      const result = await api.createGroup({
+        name: draft.name,
+        description: draft.description,
+        color: draft.color || undefined,
+        branchName: draft.branchName.trim() || undefined,
+      });
+      groups.value = result.groups;
+      grouped.value = true;
+    }
+    groupDraft.value = null;
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    groupBusy.value = false;
+  }
+}
+
+/** Deleting a group keeps its tasks — which is the whole reassurance the
+ *  confirmation needs, so it says so and names how many. */
+async function removeGroup(ref_: string): Promise<void> {
+  const group = groups.value.find((one) => one.ref === ref_);
+  if (!group) return;
+
+  const kept = group.taskCount
+    ? `Its ${group.taskCount} task(s) are kept and become ungrouped.`
+    : 'It is empty.';
+  if (!confirm(`Delete the group '${group.name}'? ${kept}`)) return;
+
+  groupBusy.value = true;
+  error.value = null;
+  try {
+    const result = await api.deleteGroup(group.ref);
+    groups.value = result.groups;
+    tasks.value = result.tasks;
+    groupDraft.value = null;
+    if (result.released.length) {
+      showNotice(`'${group.name}' deleted. ${result.released.length} task(s) are now ungrouped.`);
+    }
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    groupBusy.value = false;
+  }
+}
+
+/**
+ * Group the checked rows in one go — the way to file a batch without dragging
+ * each one, and the only way to do it at all from the keyboard.
+ *
+ * One request per task rather than a bulk endpoint: each assignment also moves
+ * the task beside the rest of its new group, and doing that in sequence is what
+ * keeps the batch landing in the order it was listed in.
+ */
+async function assignGroupToSelection(choice: string): Promise<void> {
+  if (!choice) return;
+  const groupRef = choice === 'none' ? null : choice;
+
+  const refs = visibleTasks.value
+    .filter((task) => selectedRefs.value.has(task.ref))
+    .map((task) => task.ref);
+  if (!refs.length) return;
+
+  error.value = null;
+  try {
+    for (const ref_ of refs) {
+      const result = await api.setTaskGroup(ref_, groupRef);
+      tasks.value = result.tasks;
+      groups.value = result.groups;
+      if (selected.value?.ref === ref_) selected.value = result.task;
+    }
+    const name = groupRef ? groups.value.find((one) => one.ref === groupRef)?.name : null;
+    showNotice(
+      name ? `${refs.length} task(s) moved into '${name}'.` : `${refs.length} task(s) ungrouped.`,
+    );
+    selectedRefs.value = new Set();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+    await refreshList();
+  }
+}
 
 /** For each task still waiting on something, the refs it waits on. Computed
  *  over the whole list rather than the filtered one, so a blocker hidden by the
@@ -150,11 +458,22 @@ const counts = computed(() => {
 });
 
 async function refreshList(): Promise<void> {
-  tasks.value = await api.listTasks();
+  // The two are read together everywhere: a task's section cannot be drawn from
+  // the task alone, and a group's counts move whenever the tasks do.
+  const [nextTasks, nextGroups] = await Promise.all([api.listTasks(), api.listGroups()]);
+  tasks.value = nextTasks;
+  groups.value = nextGroups;
 }
 
 async function select(ref_: string): Promise<void> {
   error.value = null;
+  // The detail pane holds one thing. Picking a task from the list while a group
+  // page is open means the task, so leave the group route rather than selecting
+  // something the pane will not show.
+  if (selectedGroup.value) {
+    selectedGroup.value = null;
+    navigate(VIEW_PATHS.tasks);
+  }
   try {
     selected.value = await api.getTask(ref_);
   } catch (caught) {
@@ -187,6 +506,10 @@ const draggingRef = ref<string | null>(null);
 const dropTargetRef = ref<string | null>(null);
 /** Whether the drop lands below the target row rather than above it. */
 const dropBelow = ref(false);
+/** The group header the pointer is over, when the drop would land on one.
+ *  `''` is the ungrouped section, which is a real target: it is how a task is
+ *  taken out of a group. */
+const dropGroupRef = ref<string | null>(null);
 
 /**
  * Push a new order for the visible rows.
@@ -213,15 +536,53 @@ async function applyOrder(orderedVisibleRefs: string[]): Promise<void> {
   }
 }
 
-/** Move one row `delta` places within the visible list. */
+/**
+ * Move one row `delta` places within the list as it is drawn.
+ *
+ * Crossing a section boundary moves the task into that section's group, because
+ * that is what the row's new surroundings say it is now — the keyboard does the
+ * same thing the drag does.
+ */
 async function moveBy(ref_: string, delta: number): Promise<void> {
-  const order = visibleTasks.value.map((task) => task.ref);
+  const rows = listedTasks.value;
+  const order = rows.map((task) => task.ref);
   const from = order.indexOf(ref_);
   const to = from + delta;
   if (from === -1 || to < 0 || to >= order.length) return;
 
+  const landing = rows[to]!;
+  const moved = rows[from]!;
   order.splice(to, 0, ...order.splice(from, 1));
+
+  if (grouped.value && (landing.groupRef ?? null) !== (moved.groupRef ?? null)) {
+    if (!(await regroup(moved.ref, landing.groupRef ?? null))) return;
+  }
   await applyOrder(order);
+}
+
+/**
+ * Change a dragged or nudged row's group without letting the server also decide
+ * where it goes — the gesture already did that, and `applyOrder` is about to
+ * send it. Returns false when the change failed, so the caller can leave the
+ * order alone rather than reorder rows into a group they did not join.
+ */
+async function regroup(ref_: string, groupRef: string | null): Promise<boolean> {
+  try {
+    const result = await api.setTaskGroup(ref_, groupRef, false);
+    // Only the membership is taken from the response: the order is still the
+    // optimistic one on screen, and `applyOrder` writes it a moment later.
+    const moved = result.tasks.find((task) => task.ref === ref_);
+    tasks.value = tasks.value.map((task) =>
+      task.ref === ref_ && moved ? { ...task, groupRef: moved.groupRef } : task,
+    );
+    groups.value = result.groups;
+    if (selected.value?.ref === ref_) selected.value = result.task;
+    return true;
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+    await refreshList();
+    return false;
+  }
 }
 
 function onDragStart(ref_: string, event: DragEvent): void {
@@ -240,7 +601,61 @@ function onDragOver(ref_: string, event: DragEvent): void {
   // never reach the bottom of the list.
   const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
   dropTargetRef.value = ref_;
+  dropGroupRef.value = null;
   dropBelow.value = event.clientY > box.top + box.height / 2;
+}
+
+/* ------------------------------------------------- dragging into a group */
+
+/**
+ * Hovering a section heading. The heading is a drop target in its own right so
+ * a group can be joined without aiming between two rows — and so an *empty*
+ * group can be dropped into at all.
+ */
+function onGroupDragOver(groupRef: string, event: DragEvent): void {
+  if (!draggingRef.value) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  dropGroupRef.value = groupRef;
+  dropTargetRef.value = null;
+}
+
+function onGroupDragLeave(groupRef: string, event: DragEvent): void {
+  const heading = event.currentTarget as HTMLElement;
+  const entering = event.relatedTarget as Node | null;
+  if (entering && heading.contains(entering)) return;
+  if (dropGroupRef.value === groupRef) dropGroupRef.value = null;
+}
+
+/** Dropping onto a heading puts the task at the top of that section. */
+async function onGroupDrop(groupRef: string): Promise<void> {
+  const moved = draggingRef.value;
+  endDrag();
+  if (!moved) return;
+
+  const target = groupRef || null;
+  const task = tasks.value.find((one) => one.ref === moved);
+  if (!task) return;
+
+  const order = listedTasks.value.map((one) => one.ref);
+  const from = order.indexOf(moved);
+  if (from === -1) return;
+  order.splice(from, 1);
+
+  // Where the section starts, once the dragged row is out of the way. An empty
+  // group has no first row, so the task simply keeps its place in the queue and
+  // only its membership changes.
+  const first = listedTasks.value.find(
+    (one) => one.ref !== moved && (one.groupRef ?? '') === (target ?? ''),
+  );
+
+  if ((task.groupRef ?? null) !== target) {
+    if (!(await regroup(moved, target))) return;
+  }
+  if (!first) return;
+
+  order.splice(order.indexOf(first.ref), 0, moved);
+  await applyOrder(order);
 }
 
 /** `dragleave` also fires when the pointer crosses onto one of the row's own
@@ -259,9 +674,19 @@ async function onDrop(ref_: string): Promise<void> {
   endDrag();
   if (!moved || moved === ref_) return;
 
-  const order = visibleTasks.value.map((task) => task.ref);
+  const rows = listedTasks.value;
+  const order = rows.map((task) => task.ref);
   const from = order.indexOf(moved);
   if (from === -1) return;
+
+  // Dropping onto a row is also how a task joins that row's group: the section
+  // it lands in is the group it is now in, which is the only reading of the
+  // gesture that matches what the list shows afterwards.
+  const target = rows.find((task) => task.ref === ref_);
+  const dragged = rows.find((task) => task.ref === moved);
+  if (grouped.value && target && dragged && (target.groupRef ?? null) !== (dragged.groupRef ?? null)) {
+    if (!(await regroup(moved, target.groupRef ?? null))) return;
+  }
 
   order.splice(from, 1);
   const anchor = order.indexOf(ref_);
@@ -272,6 +697,7 @@ async function onDrop(ref_: string): Promise<void> {
 function endDrag(): void {
   draggingRef.value = null;
   dropTargetRef.value = null;
+  dropGroupRef.value = null;
 }
 
 /* --------------------------------------------------------- investigations */
@@ -553,6 +979,19 @@ async function showView(next: View): Promise<void> {
   // tree as it is now rather than as it was when the tab was last open.
   if (next === 'branches') await refreshBranches();
 
+  // aio-vr rewrites its results file from the terminal as often as from here,
+  // so every visit re-reads it rather than trusting what was last drawn.
+  if (next === 'baselines') {
+    baselinesLoading.value = true;
+    try {
+      await refreshBaselines();
+    } catch (caught) {
+      error.value = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      baselinesLoading.value = false;
+    }
+  }
+
   // The plan is a read of the whole task list — estimates and dependencies
   // included — and the CLI and agents write to it between visits.
   if (next === 'plan') await refreshList();
@@ -609,10 +1048,11 @@ async function showView(next: View): Promise<void> {
   }
 }
 
-/** Jump from a branch's task chip back to that task. */
+/** Jump from a branch's or a group's task chip back to that task. */
 async function openTask(ref_: string): Promise<void> {
   navigate(VIEW_PATHS.tasks);
   view.value = 'tasks';
+  selectedGroup.value = null;
   await select(ref_);
 }
 
@@ -625,6 +1065,16 @@ function combineSelected(): void {
   if (selectedRefs.value.size < 1) return;
   error.value = null;
   navigateTo('combine');
+}
+
+/** Jump from a group's page to that branch in the Branches view, which is where
+ *  the PR is written and opened. */
+async function openBranch(branchName: string): Promise<void> {
+  selectedGroup.value = null;
+  selectedBranch.value = branchName;
+  navigate(VIEW_PATHS.branches);
+  await showView('branches');
+  selectedBranch.value = branchName;
 }
 
 async function combineStarted(branchName: string): Promise<void> {
@@ -662,6 +1112,7 @@ async function createTask(): Promise<void> {
       priority: newTask.value.priority,
       tags: newTask.value.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
       branchName: newTask.value.branchName.trim() || undefined,
+      groupRef: newTask.value.groupRef || null,
       estimateUnits: newTask.value.estimateUnits,
     });
 
@@ -672,6 +1123,7 @@ async function createTask(): Promise<void> {
       priority: 'medium',
       tags: '',
       branchName: '',
+      groupRef: '',
       estimateUnits: DEFAULT_ESTIMATE_UNITS,
     };
     await refreshList();
@@ -701,6 +1153,11 @@ async function refreshFromChange(channel: ChangeChannel): Promise<void> {
     if (channel === 'tasks') {
       await Promise.all([refreshList(), refreshInvestigations()]);
       if (selected.value) selected.value = await reload(() => api.getTask(selected.value!.ref));
+      // A group page shows live Git state, so a change anywhere is a reason to
+      // re-read it — an agent working the group moves both at once.
+      if (selectedGroup.value) {
+        selectedGroup.value = await reload(() => api.getGroup(selectedGroup.value!.ref));
+      }
       if (selectedInvestigation.value) {
         selectedInvestigation.value = await reload(() =>
           api.getInvestigation(selectedInvestigation.value!.ref),
@@ -741,6 +1198,17 @@ const { connected: liveConnected, unavailable: liveUnavailable } = useLiveUpdate
 
 watch(location, (path) => {
   const next = viewForPath(path);
+  // A group route is a real route rather than a typo to be corrected, and Back
+  // out of one lands on the task list without a group selected.
+  const groupRef = GROUP_PATH.exec(path)?.[1];
+  if (groupRef) {
+    if (selectedGroup.value?.ref.toLowerCase() !== decodeURIComponent(groupRef).toLowerCase()) {
+      void openGroup(decodeURIComponent(groupRef));
+    }
+    return;
+  }
+  selectedGroup.value = null;
+
   if (path !== VIEW_PATHS[next]) {
     window.history.replaceState({}, '', VIEW_PATHS[next]);
     location.value = VIEW_PATHS[next];
@@ -752,15 +1220,31 @@ watch(location, (path) => {
 onMounted(async () => {
   try {
     // The rail's investigation count is visible from every view, so the list is
-    // loaded up front even though Tasks is what opens first.
-    [meta.value] = await Promise.all([api.meta(), refreshList(), refreshInvestigations()]);
+    // loaded up front even though Tasks is what opens first. The drift badge is
+    // the same argument: a badge that only appears once you have visited the
+    // view cannot be what tells you to visit it.
+    [meta.value] = await Promise.all([
+      api.meta(),
+      refreshList(),
+      refreshInvestigations(),
+      // Never fatal. A repository with no aio-vr workspace is perfectly normal,
+      // and it must not stop the app from opening.
+      refreshBaselines().catch(() => undefined),
+    ]);
     if (tasks.value.length) await select(tasks.value[0]!.ref);
     const initialView = viewForPath(location.value);
-    if (location.value !== VIEW_PATHS[initialView]) {
-      window.history.replaceState({}, '', VIEW_PATHS[initialView]);
-      location.value = VIEW_PATHS[initialView];
+    // A group page is linkable, so opening one directly has to restore it
+    // rather than being normalised away to the bare task list.
+    const initialGroup = GROUP_PATH.exec(location.value)?.[1];
+    if (initialGroup) {
+      await openGroup(decodeURIComponent(initialGroup));
+    } else {
+      if (location.value !== VIEW_PATHS[initialView]) {
+        window.history.replaceState({}, '', VIEW_PATHS[initialView]);
+        location.value = VIEW_PATHS[initialView];
+      }
+      await showView(initialView);
     }
-    await showView(initialView);
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught);
   } finally {
@@ -770,7 +1254,9 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="app" :class="{ full: location === '/plan' }">
+  <!-- `full` drops the sidebar column. Both views that use it are whole pages
+       rather than a list plus a detail: a chart, and a wall of screenshots. -->
+  <div class="app" :class="{ full: fullWidth }">
     <!-- ------------------------------------------------------------- rail -->
     <nav class="rail" aria-label="Sections">
       <button
@@ -838,6 +1324,26 @@ onMounted(async () => {
           <path d="M15.5 12H12a6 6 0 0 1-6-6" />
         </svg>
         <span v-if="branches.length" class="rail-count">{{ branches.length }}</span>
+      </button>
+
+      <button
+        class="rail-item"
+        :class="{ active: location === '/baselines' }"
+        title="Baselines"
+        aria-label="Baselines"
+        :aria-current="location === '/baselines'"
+        @click="navigateTo('baselines')"
+      >
+        <!-- Two overlaid frames with a gap between them: one image measured
+             against another, which is the whole idea. -->
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="5" width="11" height="11" rx="1.5" />
+          <path d="M10 19h10a1 1 0 0 0 1-1V9" />
+          <path d="M6 11.5l2.5-2.5 3 3" />
+        </svg>
+        <!-- The count is the drift, not the suite: a number here means work. -->
+        <span v-if="driftedCount" class="rail-count">{{ driftedCount }}</span>
       </button>
 
       <button
@@ -925,7 +1431,7 @@ onMounted(async () => {
     </aside>
 
     <!-- -------------------------------------------------------- tasks list -->
-    <aside v-else-if="location === '/tasks'" class="sidebar">
+    <aside v-else-if="onTaskRoutes" class="sidebar">
       <div class="sidebar-header">
         <h1>Tasks</h1>
         <div class="row">
@@ -937,55 +1443,143 @@ onMounted(async () => {
           </select>
           <button class="primary" @click="creating = true">New</button>
         </div>
+        <!-- Grouping is a way of reading this list, not a filter on it: every
+             task is still here either way, and the queue order is unchanged. -->
+        <div class="row" style="margin-top: 8px">
+          <label class="group-switch">
+            <input v-model="grouped" type="checkbox" />
+            Group
+          </label>
+          <span class="spacer" />
+          <button
+            :disabled="groupBusy"
+            title="Create a group and drag tasks into it"
+            @click="newGroup"
+          >
+            New group
+          </button>
+        </div>
       </div>
 
       <div class="task-list">
-        <button
-          v-for="task in visibleTasks"
-          :key="task.ref"
-          class="task-item"
-          :class="{
-            selected: selected?.ref === task.ref,
-            dragging: draggingRef === task.ref,
-            'drop-above': dropTargetRef === task.ref && !dropBelow,
-            'drop-below': dropTargetRef === task.ref && dropBelow,
-          }"
-          draggable="true"
-          :title="`${task.ref} — drag to reorder, or Alt+↑/↓`"
-          @click="select(task.ref)"
-          @dragstart="onDragStart(task.ref, $event)"
-          @dragover="onDragOver(task.ref, $event)"
-          @dragleave="onDragLeave(task.ref, $event)"
-          @drop.prevent="onDrop(task.ref)"
-          @dragend="endDrag"
-          @keydown.alt.up.prevent="moveBy(task.ref, -1)"
-          @keydown.alt.down.prevent="moveBy(task.ref, 1)"
-        >
-          <div class="row">
-            <span class="drag-grip" aria-hidden="true">⠿</span>
-            <input
-              class="task-select"
-              type="checkbox"
-              :checked="selectedRefs.has(task.ref)"
-              :aria-label="`Select ${task.ref}`"
-              @click.stop
-              @change="toggleTask(task.ref)"
+        <template v-for="section in sections" :key="section.group?.ref ?? 'ungrouped'">
+          <!-- The heading is a drop target of its own, so joining a group does
+               not mean aiming between two rows — and so an empty group can be
+               dropped into at all. The ungrouped heading is how a task leaves
+               a group the same way. -->
+          <div
+            v-if="grouped"
+            class="group-head"
+            :class="{ 'drop-into': dropGroupRef === (section.group?.ref ?? '') }"
+            @dragover="onGroupDragOver(section.group?.ref ?? '', $event)"
+            @dragleave="onGroupDragLeave(section.group?.ref ?? '', $event)"
+            @drop.prevent="onGroupDrop(section.group?.ref ?? '')"
+          >
+            <button
+              class="group-toggle"
+              :aria-expanded="!collapsedGroups.has(section.group?.ref ?? '')"
+              :title="collapsedGroups.has(section.group?.ref ?? '') ? 'Expand' : 'Collapse'"
+              @click="toggleCollapsed(section.group?.ref ?? '')"
+            >
+              {{ collapsedGroups.has(section.group?.ref ?? '') ? '▸' : '▾' }}
+            </button>
+            <span
+              class="group-dot"
+              :style="{ background: section.group?.color ?? 'var(--text-faint)' }"
+              aria-hidden="true"
             />
-            <span class="mono faint">{{ task.ref }}</span>
-            <span class="badge" :class="task.status">{{ STATUS_LABELS[task.status] }}</span>
-            <span class="spacer" />
-            <span v-if="task.priority !== 'medium'" :class="`priority-${task.priority}`">
-              {{ task.priority === 'high' ? '!' : '·' }}
+            <span class="group-name">{{ section.group?.name ?? 'Ungrouped' }}</span>
+            <span class="faint">{{ section.items.length }}</span>
+            <span
+              v-if="section.group?.branchName"
+              class="mono faint group-branch"
+              :title="`These tasks are branched from, and merged back into, ${section.group.branchName}`"
+            >
+              {{ section.group.branchName }}
             </span>
+            <span class="spacer" />
+            <template v-if="section.group">
+              <!-- The group's own page: its branch, its work order, and the
+                   button that points an agent at the whole thing. -->
+              <button
+                class="group-action"
+                :title="`Open ${section.group.ref}`"
+                @click="openGroup(section.group.ref)"
+              >
+                Open
+              </button>
+              <button
+                class="group-action"
+                :title="`Rename, recolour or rebranch ${section.group.ref}`"
+                @click="editGroup(section.group)"
+              >
+                Edit
+              </button>
+            </template>
           </div>
-          <div class="task-item-title">{{ task.title }}</div>
-          <!-- Marked, not filtered or sorted: the order of this list is the
-               user's queue, and a blocked task at the top is information. -->
-          <div v-if="blockedBy.get(task.ref)" class="blocked-note">
-            ⊘ waiting on {{ blockedBy.get(task.ref)!.join(', ') }}
-          </div>
-          <div v-if="task.tags.length" class="faint">#{{ task.tags.join(' #') }}</div>
-        </button>
+
+          <template v-if="!collapsedGroups.has(section.group?.ref ?? '')">
+            <button
+              v-for="task in section.items"
+              :key="task.ref"
+              class="task-item"
+              :class="{
+                selected: selected?.ref === task.ref,
+                dragging: draggingRef === task.ref,
+                'drop-above': dropTargetRef === task.ref && !dropBelow,
+                'drop-below': dropTargetRef === task.ref && dropBelow,
+                'in-group': grouped && !!section.group,
+              }"
+              :style="grouped && section.group ? { '--group-color': section.group.color } : undefined"
+              draggable="true"
+              :title="`${task.ref} — drag to reorder or into a group, or Alt+↑/↓`"
+              @click="select(task.ref)"
+              @dragstart="onDragStart(task.ref, $event)"
+              @dragover="onDragOver(task.ref, $event)"
+              @dragleave="onDragLeave(task.ref, $event)"
+              @drop.prevent="onDrop(task.ref)"
+              @dragend="endDrag"
+              @keydown.alt.up.prevent="moveBy(task.ref, -1)"
+              @keydown.alt.down.prevent="moveBy(task.ref, 1)"
+            >
+              <div class="row">
+                <span class="drag-grip" aria-hidden="true">⠿</span>
+                <input
+                  class="task-select"
+                  type="checkbox"
+                  :checked="selectedRefs.has(task.ref)"
+                  :aria-label="`Select ${task.ref}`"
+                  @click.stop
+                  @change="toggleTask(task.ref)"
+                />
+                <span class="mono faint">{{ task.ref }}</span>
+                <span class="badge" :class="task.status">{{ STATUS_LABELS[task.status] }}</span>
+                <span class="spacer" />
+                <span v-if="task.priority !== 'medium'" :class="`priority-${task.priority}`">
+                  {{ task.priority === 'high' ? '!' : '·' }}
+                </span>
+              </div>
+              <div class="task-item-title">{{ task.title }}</div>
+              <!-- Marked, not filtered or sorted: the order of this list is the
+                   user's queue, and a blocked task at the top is information. -->
+              <div v-if="blockedBy.get(task.ref)" class="blocked-note">
+                ⊘ waiting on {{ blockedBy.get(task.ref)!.join(', ') }}
+              </div>
+              <div class="row">
+                <!-- With sections off there is nothing else saying which group a
+                     task is in, and that is exactly when it is worth a chip. -->
+                <span
+                  v-if="!grouped && groupFor(task)"
+                  class="group-chip"
+                  :style="{ '--group-color': groupFor(task)!.color }"
+                >
+                  {{ groupFor(task)!.name }}
+                </span>
+                <span v-if="task.tags.length" class="faint">#{{ task.tags.join(' #') }}</span>
+              </div>
+            </button>
+          </template>
+        </template>
 
         <p v-if="!loading && !visibleTasks.length" class="empty">
           No tasks here yet.
@@ -993,10 +1587,28 @@ onMounted(async () => {
         <p v-else-if="!loading" class="faint reorder-hint">
           Drag to reorder, or Alt+↑/↓. The top task is what
           <span class="mono">/work-task</span> picks up.
+          <template v-if="grouped">
+            Drag a row onto a heading to move it into that group.
+          </template>
         </p>
       </div>
       <div v-if="selectedRefs.size" class="combine-panel">
         <strong>{{ selectedRefs.size }} selected</strong>
+        <!-- Grouping a batch belongs with the other thing you do to a batch.
+             It is also the only way to group without a mouse. -->
+        <div class="row" style="margin: 8px 0">
+          <select
+            aria-label="Move selected tasks to a group"
+            :value="''"
+            @change="assignGroupToSelection(($event.target as HTMLSelectElement).value)"
+          >
+            <!-- The placeholder keeps the empty value, so 'no group' needs one
+                 of its own rather than sharing it and becoming unselectable. -->
+            <option value="" disabled>Move to group…</option>
+            <option v-for="group in groups" :key="group.ref" :value="group.ref">{{ group.name }}</option>
+            <option value="none">No group</option>
+          </select>
+        </div>
         <button class="primary" @click="combineSelected">
           {{ selectedRefs.size === 1 ? 'Review & prepare branch' : 'Review & combine branches' }}
         </button>
@@ -1187,7 +1799,8 @@ onMounted(async () => {
     </aside>
 
     <!-- ----------------------------------------------------- branches list -->
-    <aside v-else-if="location !== '/plan'" class="sidebar">
+    <!-- The catch-all sidebar, skipped by the full-width views. -->
+    <aside v-else-if="!fullWidth" class="sidebar">
       <div class="sidebar-header">
         <h1>Branches</h1>
         <p class="faint" style="margin: 0">
@@ -1233,12 +1846,23 @@ onMounted(async () => {
       @open-task="openTask"
     />
 
+    <GroupDetail
+      v-else-if="selectedGroup"
+      :key="selectedGroup.ref"
+      :group="selectedGroup"
+      @changed="onGroupChanged"
+      @deleted="onGroupDeleted"
+      @open-task="openTask"
+      @open-branch="openBranch"
+    />
+
     <TaskDetail
       v-else-if="location === '/tasks' && selected"
       :key="selected.ref"
       :task="selected"
       :aio-vr-ready="Boolean(meta?.aioVrInstalled && meta?.aioVrWorkspaceExists)"
       :all-tasks="tasks"
+      :groups="groups"
       @changed="onChanged"
       @deleted="onDeleted"
       @open-investigation="openInvestigation"
@@ -1248,9 +1872,16 @@ onMounted(async () => {
     <TaskSchedule
       v-else-if="location === '/plan'"
       :tasks="tasks"
+      :groups="groups"
       :selected-ref="selected?.ref ?? null"
       @open-task="openTask"
       @changed="refreshList"
+    />
+
+    <BaselineDetail
+      v-else-if="location === '/baselines' && baselines"
+      :report="baselines"
+      @changed="baselines = $event"
     />
 
     <CombineBranches
@@ -1395,6 +2026,77 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- ------------------------------------------------------- group editor -->
+    <div v-if="groupDraft" class="overlay" @click.self="groupDraft = null">
+      <div class="dialog">
+        <h3>{{ groupDraft.ref ? `Edit ${groupDraft.ref}` : 'New group' }}</h3>
+        <div class="field">
+          <label for="group-name">Name</label>
+          <input
+            id="group-name"
+            v-model="groupDraft.name"
+            placeholder="Search rework"
+            autofocus
+            @keyup.enter="saveGroup"
+          />
+        </div>
+        <div class="field">
+          <label for="group-desc">Description <span class="faint">(optional)</span></label>
+          <textarea id="group-desc" v-model="groupDraft.description" style="min-height: 70px" />
+        </div>
+        <div class="field">
+          <label for="group-branch">Branch</label>
+          <input
+            id="group-branch"
+            v-model="groupDraft.branchName"
+            class="mono"
+            placeholder="group/search-rework"
+            @input="groupBranchTouched = true"
+          />
+          <p class="faint">
+            Tasks in this group are cut from this branch and merged back into it when
+            they reach Dev Complete, so the group ships as one PR. It is created in Git
+            the first time a task in the group is branched.
+          </p>
+        </div>
+        <div class="field">
+          <label>Colour</label>
+          <!-- A fixed palette rather than a colour picker: these are the ones
+               that stay legible as a 3px band in both themes. -->
+          <div class="row group-colors">
+            <button
+              v-for="color in GROUP_COLORS"
+              :key="color"
+              class="group-color"
+              :class="{ chosen: groupDraft.color === color }"
+              :style="{ background: color }"
+              :aria-label="color"
+              :aria-pressed="groupDraft.color === color"
+              @click="groupDraft.color = color"
+            />
+          </div>
+        </div>
+        <div class="row">
+          <button class="primary" :disabled="!groupDraft.name.trim() || groupBusy" @click="saveGroup">
+            {{ groupBusy ? 'Saving…' : groupDraft.ref ? 'Save' : 'Create' }}
+          </button>
+          <button :disabled="groupBusy" @click="groupDraft = null">Cancel</button>
+          <span class="spacer" />
+          <button
+            v-if="groupDraft.ref"
+            class="danger"
+            :disabled="groupBusy"
+            @click="removeGroup(groupDraft.ref)"
+          >
+            Delete group
+          </button>
+        </div>
+        <p v-if="groupDraft.ref" class="faint">
+          Deleting a group keeps its tasks — they simply stop being in one.
+        </p>
+      </div>
+    </div>
+
     <!-- ---------------------------------------------------------- new task -->
     <div v-if="creating" class="overlay" @click.self="creating = false">
       <div class="dialog">
@@ -1428,6 +2130,15 @@ onMounted(async () => {
             <label for="new-tags">Tags (comma separated)</label>
             <input id="new-tags" v-model="newTask.tags" />
           </div>
+        </div>
+        <div class="field">
+          <label for="new-group">Group <span class="faint">(optional)</span></label>
+          <select id="new-group" v-model="newTask.groupRef">
+            <option value="">No group</option>
+            <option v-for="group in groups" :key="group.ref" :value="group.ref">
+              {{ group.name }}
+            </option>
+          </select>
         </div>
         <div class="row">
           <button class="primary" :disabled="!newTask.title.trim()" @click="createTask">

@@ -327,6 +327,72 @@ export function listTags(): string[] {
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([tag]) => tag);
 }
 
+/**
+ * Give every folder of loose images a note of its own.
+ *
+ * A folder holding nothing but images — a screenshot tool's output directory, a
+ * board exported out of Miro, a pile of references dragged in from a browser —
+ * is invisible to a view that lists `.md` files and nothing else. That is how
+ * they get lost: the files are right there in the repository and the app has no
+ * row to put them in.
+ *
+ * Rather than grow a second kind of list item for them, each such folder gets
+ * the thing the app already knows how to show: a note, titled after the folder
+ * and linking every image in it. From then on it is an ordinary note — editable,
+ * taggable, renameable — and this never looks at that folder again.
+ *
+ * Two rules keep it from ever touching somebody's writing. It only creates, and
+ * only in a folder with no note at all, so a note that exists is never edited,
+ * re-linked or reordered — a folder that already has one shows its loose images
+ * through `readAttachments` instead. And it skips the root, which is every
+ * note's folder rather than a subject of its own; an index note there would be a
+ * second table of contents for the whole collection.
+ *
+ * Idempotent by construction: the note it writes is the `.md` that makes the
+ * folder ineligible next time.
+ */
+export function indexImageFolders(): string[] {
+  if (!notesDirExists()) return [];
+  const root = ws().notesDir;
+  const created: string[] = [];
+
+  const walk = (directory: string): void => {
+    const entries = readdirSync(directory, { withFileTypes: true });
+    const path = relative(root, directory).split(sep).join('/');
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+      const child = path ? `${path}/${entry.name}` : entry.name;
+      if (child === ATTACHMENTS) continue;
+      walk(join(directory, entry.name));
+    }
+
+    if (!path) return;
+    if (entries.some((entry) => entry.isFile() && extname(entry.name).toLowerCase() === '.md')) return;
+
+    const images = entries
+      .filter((entry) => entry.isFile() && !entry.name.startsWith('.') && isImageFile(entry.name))
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b));
+    if (!images.length) return;
+
+    const title = basename(directory);
+    // Linked relatively, and with the folder's own filenames, so the note reads
+    // the same in Obsidian or on GitHub as it does here.
+    const body = images.map((name) => `![${name}](${encodeURI(`./${name}`)})`).join('\n\n');
+
+    try {
+      created.push(createNote({ title, path: `${path}/${slugify(title)}.md`, body }).path);
+    } catch {
+      // A folder whose name yields an unusable path should cost that folder, not
+      // every other one behind it in the walk.
+    }
+  };
+
+  walk(root);
+  return created;
+}
+
 /** Where a note's attachments live, relative to the notes root. */
 function attachmentsFolder(notePath: string): string {
   return `${ATTACHMENTS}/${notePath.replace(/\.md$/i, '')}`;
@@ -340,24 +406,133 @@ function hrefFor(notePath: string, assetPath: string): string {
   return href.startsWith('.') ? href : `./${href}`;
 }
 
-function readAttachments(notePath: string): NoteAttachment[] {
-  const folder = attachmentsFolder(notePath);
-  const absolute = resolveInNotes(folder);
+function isImageFile(name: string): boolean {
+  return IMAGE_EXTENSIONS.has(extname(name).toLowerCase());
+}
+
+/** The files of one folder, described as attachments of the given note. */
+function attachmentsIn(
+  folder: string,
+  notePath: string,
+  accept: (name: string) => boolean,
+  uploaded: boolean,
+): NoteAttachment[] {
+  // `resolveInNotes` refuses the empty string, so the root travels as '.'.
+  const absolute = resolveInNotes(folder || '.');
   if (!absolute || !existsSync(absolute)) return [];
 
   return readdirSync(absolute, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && !entry.name.startsWith('.'))
+    .filter((entry) => entry.isFile() && !entry.name.startsWith('.') && accept(entry.name))
     .map((entry) => {
-      const path = `${folder}/${entry.name}`;
+      const path = folder ? `${folder}/${entry.name}` : entry.name;
       return {
         name: entry.name,
         path,
         href: hrefFor(notePath, path),
         size: statSync(join(absolute, entry.name)).size,
-        isImage: IMAGE_EXTENSIONS.has(extname(entry.name).toLowerCase()),
+        isImage: isImageFile(entry.name),
+        uploaded,
       };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
+    });
+}
+
+/**
+ * What a note has hanging off it: its uploads, and the images sitting beside it.
+ *
+ * The second half matters because most images in a notes folder were never
+ * uploaded through this app. They were dropped in by a screenshot tool, synced
+ * from Obsidian, or copied out of a board export, and they sit next to the note
+ * they belong to rather than under `attachments/`. Reading only the upload
+ * folder made every one of those invisible.
+ *
+ * Only *images* are picked up from the note's own folder. A folder of notes is
+ * also full of files that are not attachments of anything — fetched issue JSON,
+ * exports, stray archives — and listing those under whichever note happens to
+ * share a directory with them would be noise, not evidence.
+ */
+function readAttachments(notePath: string): NoteAttachment[] {
+  const folder = dirname(notePath) === '.' ? '' : dirname(notePath);
+  return [
+    ...attachmentsIn(attachmentsFolder(notePath), notePath, () => true, true),
+    ...attachmentsIn(folder, notePath, isImageFile, false),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** An image in the notes folder, located rather than described. */
+export interface NoteImage {
+  name: string;
+  /** Path relative to the notes root. */
+  path: string;
+  /** Absolute path on disk. The only field a reader outside this app needs. */
+  absolute: string;
+  size: number;
+  /** The note it hangs off, where that is unambiguous. */
+  note: string | null;
+}
+
+/**
+ * Every image in the notes folder, or in one note or folder of it.
+ *
+ * This exists for readers that are not a browser — chiefly an agent, which
+ * cannot see a picture printed to a terminal but can open a file if something
+ * tells it where the file is. So the useful output is not a rendering, it is a
+ * path: absolute, resolved, and ready to hand to whatever does the looking.
+ *
+ * `target` may be a note (its own images, exactly as its detail view shows
+ * them), a folder (everything under it), or nothing at all (the lot).
+ */
+export function listImages(target?: string): NoteImage[] {
+  if (!notesDirExists()) return [];
+  const root = ws().notesDir;
+
+  const describe = (path: string, note: string | null): NoteImage => ({
+    name: basename(path),
+    path,
+    absolute: resolveInNotes(path)!,
+    size: statSync(resolveInNotes(path)!).size,
+    note,
+  });
+
+  if (target?.toLowerCase().endsWith('.md')) {
+    const note = readNote(target);
+    return note.attachments.filter((attachment) => attachment.isImage).map((attachment) => describe(attachment.path, note.path));
+  }
+
+  const scope = target ? normalizeNotePath(target, { extension: false }) : '';
+  const found: NoteImage[] = [];
+
+  const walk = (directory: string): void => {
+    const entries = readdirSync(directory, { withFileTypes: true });
+
+    // Where a folder holds exactly one note, its loose images are that note's.
+    // Two or more and there is no honest answer, so the image gets none rather
+    // than being filed under whichever one sorted first.
+    const notes = entries.filter((entry) => entry.isFile() && extname(entry.name).toLowerCase() === '.md');
+    const sole = notes.length === 1 ? notes[0]!.name : null;
+
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
+      const absolute = join(directory, entry.name);
+      const path = relative(root, absolute).split(sep).join('/');
+
+      if (entry.isDirectory()) {
+        walk(absolute);
+        continue;
+      }
+      if (!entry.isFile() || !isImageFile(entry.name)) continue;
+
+      // Anything under `attachments/` belongs to the note that folder is named
+      // for, whichever directory it happens to sit in.
+      const uploaded = /^attachments\/(.+)\/[^/]+$/.exec(path);
+      const owner = uploaded ? `${uploaded[1]}.md` : sole ? relative(root, join(directory, sole)).split(sep).join('/') : null;
+      found.push(describe(path, owner));
+    }
+  };
+
+  walk(root);
+  return found
+    .filter((image) => (scope ? image.path === scope || image.path.startsWith(`${scope}/`) : true))
+    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 export function noteExists(path: string): boolean {
@@ -539,7 +714,8 @@ export function addAttachment(
     path,
     href: hrefFor(note, path),
     size: statSync(absolute).size,
-    isImage: IMAGE_EXTENSIONS.has(extname(path).toLowerCase()),
+    isImage: isImageFile(path),
+    uploaded: true,
   };
 
   autoCommit(`notes: attach ${attachment.name} to ${note}`);

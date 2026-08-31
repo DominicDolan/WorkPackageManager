@@ -6,8 +6,10 @@ import type {
   AgentRun,
   AgentRunDetail,
   AgentRunMode,
+  GroupRun,
   BranchCommit,
   CombinedBranchDetail,
+  GroupAdvanceOutcome,
   Investigation,
   InvestigationDetail,
   InvestigationStatus,
@@ -19,10 +21,15 @@ import type {
   NoteSummary,
   NotesGitInfo,
   NotesWorkspaceInfo,
+  ModelTier,
   Priority,
   Status,
   Task,
   TaskDetail,
+  TaskGroup,
+  BaselineReport,
+  TaskGroupDetail,
+  TaskGroupSummary,
   ToolAvailability,
 } from '@shared/types';
 
@@ -88,16 +95,98 @@ export const api = {
   listTasks: (status?: Status) =>
     request<{ tasks: Task[] }>(`/tasks${status ? `?status=${status}` : ''}`).then((r) => r.tasks),
 
+  /* ----------------------------------------------------------- baselines */
+
+  /** The last `aio-vr run`, joined with what has been approved since. */
+  baselines: () => request<{ report: BaselineReport }>('/baselines').then((r) => r.report),
+
+  /** Re-drive the browser. No scenarios means the whole suite, which is slow —
+   *  minutes, not seconds. A non-zero `exitCode` means something drifted, which
+   *  is a result rather than a failure. */
+  runBaselines: (scenarios: string[] = []) =>
+    request<{ report: BaselineReport; exitCode: number; output: string }>('/baselines/run', {
+      method: 'POST',
+      body: JSON.stringify({ scenarios }),
+    }),
+
+  /** Promote one scenario's latest capture to be its baseline. */
+  approveBaseline: (scenario: string) =>
+    request<{ report: BaselineReport }>('/baselines/approve', {
+      method: 'POST',
+      body: JSON.stringify({ scenario }),
+    }).then((r) => r.report),
+
+  /* -------------------------------------------------------------- groups */
+
+  listGroups: () => request<{ groups: TaskGroupSummary[] }>('/groups').then((r) => r.groups),
+
+  /** One group, its tasks, the order they can be worked in, and the live state
+   *  of the branch they all sit on. */
+  getGroup: (ref: string) =>
+    request<{ group: TaskGroupDetail }>(`/groups/${encodeURIComponent(ref)}`).then((r) => r.group),
+
+  createGroup: (input: { name: string; description?: string; color?: string; branchName?: string }) =>
+    request<{ group: TaskGroup; groups: TaskGroupSummary[] }>('/groups', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  updateGroup: (ref: string, input: { name?: string; description?: string; color?: string; branchName?: string }) =>
+    request<{ groups: TaskGroupSummary[]; tasks: Task[] }>(`/groups/${encodeURIComponent(ref)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+
+  /** Deletes the grouping, never the tasks — the response says which ones were
+   *  turned loose so the UI can say so too. */
+  deleteGroup: (ref: string) =>
+    request<{ deleted: string; released: string[]; groups: TaskGroupSummary[]; tasks: Task[] }>(
+      `/groups/${encodeURIComponent(ref)}`,
+      { method: 'DELETE' },
+    ),
+
+  /** Sign a whole group off at once: every Dev Complete task to Verified, or all
+   *  the way to Closed. Unfinished work is left alone and one failure does not
+   *  stop the rest, so the outcomes say what happened task by task. */
+  advanceGroup: (ref: string, status: 'verified' | 'closed') =>
+    request<{
+      group: TaskGroupDetail;
+      outcomes: GroupAdvanceOutcome[];
+      groups: TaskGroupSummary[];
+      tasks: Task[];
+    }>(`/groups/${encodeURIComponent(ref)}/advance`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    }),
+
+  reorderGroups: (refs: string[]) =>
+    request<{ groups: TaskGroupSummary[] }>('/groups/reorder', {
+      method: 'POST',
+      body: JSON.stringify({ refs }),
+    }).then((r) => r.groups),
+
+  /** Move a task into a group, or out of one with `null`.
+   *
+   *  `reposition: false` is what a drag sends: the drop already decided where
+   *  the row goes, and letting the server also move it would fight the reorder
+   *  that follows. Everything else wants the default, which keeps the group's
+   *  tasks together in the queue. */
+  setTaskGroup: (ref: string, groupRef: string | null, reposition = true) =>
+    request<{ task: TaskDetail; tasks: Task[]; groups: TaskGroupSummary[] }>(
+      `/tasks/${ref}/group`,
+      { method: 'POST', body: JSON.stringify({ groupRef, reposition }) },
+    ),
+
   getTask: (ref: string) => request<{ task: TaskDetail }>(`/tasks/${ref}`).then((r) => r.task),
 
-  createTask: (input: { title: string; description?: string; priority?: Priority; tags?: string[]; branchName?: string; investigationRef?: string; dependsOn?: string[]; estimateUnits?: number }) =>
+  createTask: (input: { title: string; description?: string; priority?: Priority; recommendedTier?: ModelTier | null; tags?: string[]; branchName?: string; investigationRef?: string; groupRef?: string | null; dependsOn?: string[]; estimateUnits?: number }) =>
     request<{ task: Task }>('/tasks', { method: 'POST', body: JSON.stringify(input) }).then(
       (r) => r.task,
     ),
 
   updateTask: (
     ref: string,
-    input: { title?: string; description?: string; priority?: Priority; tags?: string[]; branchName?: string; dependsOn?: string[]; estimateUnits?: number },
+    input: { title?: string; description?: string; priority?: Priority; recommendedTier?: ModelTier | null; tags?: string[]; branchName?: string; groupRef?: string | null; dependsOn?: string[]; estimateUnits?: number },
   ) =>
     request<{ task: TaskDetail }>(`/tasks/${ref}`, {
       method: 'PATCH',
@@ -155,10 +244,20 @@ export const api = {
   closeTask: (ref: string) =>
     request<{ task: TaskDetail }>(`/tasks/${ref}/close`, { method: 'POST' }).then((r) => r.task),
 
-  setStatus: (ref: string, status: Status, note?: string) =>
-    request<{ task: TaskDetail }>(`/tasks/${ref}/status`, {
+  /** Moving to Dev Complete also merges the task into its group's branch and
+   *  registers it there. A conflict comes back as `mergeError` rather than as a
+   *  failed request — the status change happened either way. */
+  setStatus: (ref: string, status: Status, note?: string, merge = true) =>
+    request<{ task: TaskDetail; mergeError: string | null }>(`/tasks/${ref}/status`, {
       method: 'POST',
-      body: JSON.stringify({ status, note }),
+      body: JSON.stringify({ status, note, merge }),
+    }),
+
+  /** The group-branch merge on its own — after a skipped merge, or after a
+   *  conflict has been resolved by hand. */
+  mergeIntoGroupBranch: (ref: string) =>
+    request<{ task: TaskDetail; mergeError: string | null }>(`/tasks/${ref}/merge`, {
+      method: 'POST',
     }).then((r) => r.task),
 
   addNote: (ref: string, note: string) =>
@@ -212,7 +311,7 @@ export const api = {
   getBranch: (name: string) =>
     request<{ branch: CombinedBranchDetail }>(`/branches/${branchPath(name)}`).then((r) => r.branch),
 
-  updateBranch: (name: string, input: { branchName?: string; baseBranch?: string; prTitle?: string; prBody?: string }) =>
+  updateBranch: (name: string, input: { branchName?: string; baseBranch?: string; remoteBranch?: string; prTitle?: string; prBody?: string }) =>
     request<{ branch: CombinedBranchDetail }>(`/branches/${branchPath(name)}`, {
       method: 'PATCH',
       body: JSON.stringify(input),
@@ -225,10 +324,18 @@ export const api = {
       body: JSON.stringify({}),
     }).then((r) => r.branch),
 
-  createPr: (name: string, draft: boolean) =>
+  /** Runs the repo's configured typecheck/lint/test commands. Slow — the request
+   *  is held open for as long as they take. */
+  runChecks: (name: string) =>
+    request<{ branch: CombinedBranchDetail }>(`/branches/${branchPath(name)}/checks`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }).then((r) => r.branch),
+
+  createPr: (name: string, draft: boolean, force = false) =>
     request<{ branch: CombinedBranchDetail; pushed: boolean }>(
       `/branches/${branchPath(name)}/pr`,
-      { method: 'POST', body: JSON.stringify({ draft }) },
+      { method: 'POST', body: JSON.stringify({ draft, force }) },
     ),
 
   forgetBranch: (name: string) =>
@@ -333,6 +440,39 @@ export const api = {
 
   stopAgentRun: (id: number) =>
     request<{ run: AgentRun }>(`/agents/runs/${id}/stop`, { method: 'POST' }).then((r) => r.run),
+
+  /** Reopen a run's conversation in a new terminal window. The run itself is
+   *  untouched — this is the same session, opened again, not a new run. */
+  resumeAgentRun: (id: number) =>
+    request<{ run: AgentRun }>(`/agents/runs/${id}/resume`, { method: 'POST' }).then((r) => r.run),
+
+  /* ---------------------------------------------------------- group runs */
+
+  /**
+   * Work a whole group unattended: a fresh headless agent per task, the server
+   * driving the queue between them.
+   *
+   * The settings are chosen once and used for every task in the loop. There is
+   * no run mode to pick — an interactive run cannot be waited on, and one that
+   * can ask questions holds the queue until somebody answers.
+   */
+  startGroupRun: (
+    ref: string,
+    input: { harness: string; model: string; permissionMode: AgentPermissionMode; extra: string },
+  ) =>
+    request<{ groupRun: GroupRun; run: AgentRun; group: TaskGroupDetail }>(
+      `/groups/${encodeURIComponent(ref)}/run`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+
+  /** Kill the agent in flight and stop the loop. What already merged stays. */
+  stopGroupRun: (ref: string) =>
+    request<{ groupRun: GroupRun; group: TaskGroupDetail }>(`/groups/${encodeURIComponent(ref)}/run`, {
+      method: 'DELETE',
+    }),
+
+  listGroupRuns: (ref: string) =>
+    request<{ runs: GroupRun[] }>(`/groups/${encodeURIComponent(ref)}/runs`).then((r) => r.runs),
 
   syncNotes: (push: boolean) =>
     request<{ committed: string | null; pushed: boolean; git: NotesGitInfo }>('/notes/sync', {

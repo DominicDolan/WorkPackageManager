@@ -1,9 +1,23 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { Comparison } from '@shared/types';
+import type { VisualComparison } from '@shared/types';
 import { imageUrl } from '../api';
 
-const props = defineProps<{ comparison: Comparison; open: boolean }>();
+/**
+ * The two references this card draws against are named differently — a task
+ * checkpoint compares Before against After, a baseline compares the approved
+ * Baseline against what the page renders now — so the labels are props. The
+ * comparison itself is the same shape either way.
+ */
+const props = withDefaults(
+  defineProps<{
+    comparison: VisualComparison;
+    open: boolean;
+    beforeLabel?: string;
+    afterLabel?: string;
+  }>(),
+  { beforeLabel: 'Before', afterLabel: 'After' },
+);
 const emit = defineEmits<{ 'update:open': [boolean] }>();
 
 type Mode = 'side-by-side' | 'slider' | 'diff' | 'before' | 'after';
@@ -12,10 +26,28 @@ const before = computed(() => imageUrl(props.comparison.beforePath));
 const after = computed(() => imageUrl(props.comparison.afterPath));
 const diff = computed(() => imageUrl(props.comparison.diffPath));
 
-// A `before`-phase capture has only the reference image, so the comparison
-// modes would all show the same thing. Default to whatever is meaningful.
 const hasPair = computed(() => Boolean(before.value && after.value));
-const mode = ref<Mode>(hasPair.value ? 'side-by-side' : 'before');
+
+/**
+ * What the card opens on.
+ *
+ * The diff, whenever there is one: it is the only view that answers "what
+ * moved?" without the eye having to compare two images itself, and on a page
+ * full of near-identical screenshots that is the difference between reading and
+ * hunting. The rest of the chain is what remains meaningful — a `before`-phase
+ * capture has only the reference image, and a failed scenario may have nothing
+ * but the baseline, so every mode would otherwise show the same thing.
+ */
+const initialMode = (): Mode => {
+  if (diff.value) return 'diff';
+  if (hasPair.value) return 'side-by-side';
+  if (after.value) return 'after';
+  // Nothing at all, which is what a failed scenario looks like — it never got
+  // far enough to render. `before` is the mode that says so below.
+  return 'before';
+};
+
+const mode = ref<Mode>(initialMode());
 
 const sliderPosition = ref(50);
 const sliderElement = ref<HTMLElement | null>(null);
@@ -60,8 +92,8 @@ const availableModes = computed<{ id: Mode; label: string; enabled: boolean }[]>
   { id: 'side-by-side', label: 'Side by side', enabled: hasPair.value },
   { id: 'slider', label: 'Slider', enabled: hasPair.value },
   { id: 'diff', label: 'Diff', enabled: Boolean(diff.value) },
-  { id: 'before', label: 'Before', enabled: Boolean(before.value) },
-  { id: 'after', label: 'After', enabled: Boolean(after.value) },
+  { id: 'before', label: props.beforeLabel, enabled: Boolean(before.value) },
+  { id: 'after', label: props.afterLabel, enabled: Boolean(after.value) },
 ]);
 
 /** A one-line stand-in for the images while the card is collapsed, so a shut
@@ -126,15 +158,24 @@ const collapsedSummary = computed(() => {
         {{ comparison.description }}
       </p>
 
+      <!-- A scenario that failed produced no images at all, so every mode below
+           would be an empty frame. Say what happened instead. -->
+      <p v-if="!before && !after && !diff" class="faint" style="padding: 0 14px; margin: 10px 0">
+        No images were captured
+        {{ comparison.status === 'failed'
+          ? '— the scenario failed before it could render.'
+          : 'for this scenario.' }}
+      </p>
+
       <!-- Side by side -->
       <div v-if="mode === 'side-by-side'" class="shots side-by-side">
         <figure class="shot" style="margin: 0">
-          <figcaption>Before</figcaption>
+          <figcaption>{{ beforeLabel }}</figcaption>
           <img v-if="before" :src="before" :alt="`${comparison.scenario} before`" />
           <p v-else class="missing">No before image</p>
         </figure>
         <figure class="shot" style="margin: 0">
-          <figcaption>After</figcaption>
+          <figcaption>{{ afterLabel }}</figcaption>
           <img v-if="after" :src="after" :alt="`${comparison.scenario} after`" />
           <p v-else class="missing">No after image</p>
         </figure>
@@ -168,7 +209,7 @@ const collapsedSummary = computed(() => {
           type="range"
           min="0"
           max="100"
-          aria-label="Reveal the after image"
+          :aria-label="`Reveal the ${afterLabel.toLowerCase()} image`"
         />
         <p class="faint" style="margin: 0; text-align: center">
           Left of the handle is <strong>after</strong>, right is <strong>before</strong>.

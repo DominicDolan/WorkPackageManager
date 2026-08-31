@@ -7,38 +7,53 @@ import { aioVrAvailable, captureAfter, captureBefore, checkpointExists } from '.
 import {
   addDependency,
   addNote,
+  createGroup,
   createInvestigation,
   createTask,
+  deleteGroup,
   deleteInvestigation,
   deleteTask,
+  findCombinedBranch,
   getInvestigationDetail,
   getTaskDetail,
   isInvestigationStatus,
+  isModelTier,
   isPriority,
   isStatus,
   latestRun,
+  listGroups,
   listInvestigations,
   listTasks,
   moveTask,
   removeDependency,
+  reorderGroups,
+  requireGroup,
   requireInvestigation,
   requireTask,
   setInvestigationStatus,
   setStatus,
+  setTaskGroup,
+  updateGroup,
+  updateCombinedBranch,
   updateInvestigation,
   updateTask,
   validateBranchName,
   type MoveTarget,
 } from '../server/repo';
-import { defaultBaseBranch } from '../server/branches';
+import { defaultBaseBranch, isAncestor } from '../server/branches';
+import { configuredChecks, runChecks } from '../server/checks';
+import { approveBaseline, readBaselines, runBaselines } from '../server/baselines';
+import { ensureGroupBranch, groupBranchOf, mergeTaskIntoGroupBranch } from '../server/groupBranch';
 import { findIssue, issueFacets, listIssues } from '../server/issues';
 import {
   addAttachment,
   commitNotes,
   createNote,
   deleteNote,
+  indexImageFolders,
   initNotes,
   isNotesRepo,
+  listImages,
   listNotes,
   notesDir,
   notesDirExists,
@@ -49,17 +64,24 @@ import {
   updateNote,
 } from '../server/notes';
 import {
+  GROUP_COLORS,
+  groupTasks,
   INVESTIGATION_STATUS_LABELS,
   INVESTIGATION_STATUSES,
+  dependencyOrder,
+  MODEL_TIERS,
   parseEstimateUnits,
   STATUS_LABELS,
   STATUSES,
   unmetDependencies,
+  type BaselineReport,
   type Comparison,
   type InvestigationStatus,
+  type ModelTier,
   type Priority,
   type Status,
   type Task,
+  type TaskGroup,
 } from '../shared/types';
 
 /* --------------------------------------------------------- arg handling */
@@ -224,10 +246,11 @@ function commandList(args: Args): void {
     status: status as Status | undefined,
     tag: flagList(args, 'tag')?.[0],
     investigationRef: flagString(args, 'investigation'),
+    groupRef: flagString(args, 'group'),
   });
 
   if (flagBool(args, 'json')) {
-    emitJson({ tasks });
+    emitJson({ tasks, groups: listGroups() });
     return;
   }
 
@@ -236,8 +259,11 @@ function commandList(args: Args): void {
     return;
   }
 
-  printTaskLines(tasks);
-  print(dim(`  ${tasks.length} task(s), in list order — the top one is next up`));
+  const filtered = Boolean(
+    status || flagList(args, 'tag')?.length || flagString(args, 'investigation') || flagString(args, 'group'),
+  );
+  printTaskLines(tasks, { grouped: !flagBool(args, 'flat'), showEmpty: !filtered });
+  print(dim(`  ${tasks.length} task(s); the number is the place in the queue — the top one is next up`));
   print();
 }
 
@@ -252,24 +278,65 @@ function blockers(task: Task, universe = allTasks()): Task[] {
   return unmetDependencies(task, universe);
 }
 
-/** The shared list rendering. The leading number is the row's place in the
- *  manual order, which is what `tasks move` and the web UI rearrange. */
-function printTaskLines(tasks: Task[]): void {
+/** One task's line. The leading number is the row's place in the manual order,
+ *  which is what `tasks move` and the web UI rearrange — so it is the row's
+ *  place in the *queue*, not in whatever section it is printed under. */
+function taskLine(task: Task, place: number, universe: Task[], indent = ''): string {
+  const tags = task.tags.length ? dim(`  [${task.tags.join(', ')}]`) : '';
+  const priority = task.priority === 'high' ? red('!') : task.priority === 'low' ? dim('.') : ' ';
+  // Marked rather than reordered or hidden: the list is the user's queue, and
+  // it is for them to decide what a blocked task at the top means.
+  const waiting = blockers(task, universe);
+  const blocked = waiting.length
+    ? yellow(`  ⊘ waiting on ${waiting.map((one) => one.ref).join(', ')}`)
+    : '';
+  return `${dim(String(place).padStart(3))}  ${indent}${bold(task.ref.padEnd(6))} ${priority} ${statusBadge(task.status).padEnd(22)} ${task.title}${tags}${blocked}`;
+}
+
+/** The heading above a group's tasks, or above the loose ones. */
+function groupHeading(group: TaskGroup | null, count: number): string {
+  if (!group) return `  ${dim('┌')} ${bold('Ungrouped')} ${dim(`(${count})`)}`;
+  return `  ${dim('┌')} ${bold(group.name)} ${dim(`${group.ref} · ${count} task(s)`)}`;
+}
+
+/**
+ * The shared list rendering.
+ *
+ * Sectioned by group by default, because that is what the groups are for; the
+ * queue numbers stay global so a grouped listing and `tasks move` still talk
+ * about the same list. `--flat` prints the queue as it is, which is the view
+ * that matches what `/work-task` takes from the top of.
+ */
+function printTaskLines(
+  tasks: Task[],
+  options: { grouped?: boolean; showEmpty?: boolean } = {},
+): void {
   const universe = allTasks();
+  const place = new Map(tasks.map((task, index) => [task.ref, index + 1]));
   print();
-  tasks.forEach((task, index) => {
-    const tags = task.tags.length ? dim(`  [${task.tags.join(', ')}]`) : '';
-    const priority = task.priority === 'high' ? red('!') : task.priority === 'low' ? dim('.') : ' ';
-    const place = dim(String(index + 1).padStart(3));
-    // Marked rather than reordered or hidden: the list is the user's queue, and
-    // it is for them to decide what a blocked task at the top means.
-    const waiting = blockers(task, universe);
-    const blocked = waiting.length
-      ? yellow(`  ⊘ waiting on ${waiting.map((one) => one.ref).join(', ')}`)
-      : '';
-    print(`${place}  ${bold(task.ref.padEnd(6))} ${priority} ${statusBadge(task.status).padEnd(22)} ${task.title}${tags}${blocked}`);
-  });
-  print();
+
+  const groups = options.grouped === false ? [] : listGroups();
+  // Nothing is grouped yet: sections would be one heading over the whole list.
+  const sections = groups.length ? groupTasks(tasks, groups, (task) => task) : [];
+
+  if (!sections.length || (sections.length === 1 && !sections[0]!.group)) {
+    for (const task of tasks) print(taskLine(task, place.get(task.ref)!, universe));
+    print();
+    return;
+  }
+
+  for (const section of sections) {
+    // An empty group still prints in the full list: it is somewhere to drop
+    // work, and a group that has silently emptied is worth seeing. Under a
+    // filter it does not — every group the filter excluded would be empty.
+    if (!section.items.length && options.showEmpty === false) continue;
+    print(groupHeading(section.group, section.items.length));
+    if (!section.items.length) print(`     ${dim('(empty)')}`);
+    for (const task of section.items) {
+      print(taskLine(task, place.get(task.ref)!, universe, `${dim('│')} `));
+    }
+    print();
+  }
 }
 
 const MOVE_USAGE =
@@ -301,7 +368,9 @@ function commandMove(args: Args): void {
     return;
   }
 
-  printTaskLines(tasks);
+  // Flat on purpose: a move is about the queue, and sections would hide the
+  // one thing the user is checking — where the row ended up in it.
+  printTaskLines(tasks, { grouped: false });
   print(dim(`  moved ${requireTask(ref).ref}`));
   print();
 }
@@ -321,9 +390,14 @@ function commandShow(args: Args): void {
   print(`  ${bold(detail.ref)}  ${detail.title}`);
   print(
     `  ${statusBadge(detail.status)}   ${dim(`priority: ${detail.priority}`)}   ` +
+      (detail.recommendedTier ? dim(`tier: ${detail.recommendedTier}`) + '   ' : '') +
       dim(`estimate: ${detail.estimateUnits} unit${detail.estimateUnits === 1 ? '' : 's'}`),
   );
   if (detail.tags.length) print(`  ${dim(`tags: ${detail.tags.join(', ')}`)}`);
+  if (detail.groupRef) {
+    const group = requireGroup(detail.groupRef);
+    print(`  ${dim(`group: ${group.name} (${group.ref}) → ${group.branchName}`)}`);
+  }
   if (detail.description) {
     print();
     for (const line of detail.description.split('\n')) print(`  ${line}`);
@@ -373,20 +447,33 @@ function commandShow(args: Args): void {
 
 function commandNew(args: Args): void {
   const title = args.positional.slice(1).join(' ');
-  if (!title) throw new Error('Usage: tasks new "<title>" [--branch <name>] [--desc <text>] [--priority high] [--units <n>]');
+  if (!title) {
+    throw new Error(
+      'Usage: tasks new "<title>" [--branch <name>] [--desc <text>] [--priority high] [--tier <t>] [--units <n>]',
+    );
+  }
 
   const priority = flagString(args, 'priority');
   if (priority && !isPriority(priority)) {
     throw new Error(`Unknown priority '${priority}'. Expected low, medium or high.`);
   }
 
+  const tier = flagString(args, 'tier');
+  if (tier && !isModelTier(tier)) {
+    throw new Error(`Unknown tier '${tier}'. Expected ${MODEL_TIERS.join(', ')}.`);
+  }
+
   const task = createTask({
     title,
     description: flagString(args, 'desc') ?? flagString(args, 'description'),
     priority: priority as Priority | undefined,
+    recommendedTier: tier as ModelTier | undefined,
     tags: flagList(args, 'tag'),
     branchName: flagString(args, 'branch'),
     investigationRef: flagString(args, 'investigation'),
+    // `--no-group` files it loose even when it came from an investigation,
+    // which would otherwise group it automatically.
+    groupRef: args.flags.group === false ? null : flagString(args, 'group'),
     dependsOn: flagList(args, 'depends-on'),
     estimateUnits: flagUnits(args),
   });
@@ -398,6 +485,10 @@ function commandNew(args: Args): void {
 
   print(`${green('created')}  ${bold(task.ref)}  ${task.title}`);
   if (task.investigationRef) print(dim(`from investigation ${task.investigationRef}`));
+  if (task.groupRef) {
+    const group = requireGroup(task.groupRef);
+    print(dim(`group: ${group.name} (${group.ref})`));
+  }
   if (task.dependsOn.length) print(dim(`depends on ${task.dependsOn.join(', ')}`));
   print(dim(`branch: '${task.branchName}'`));
   print(dim(`checkpoint name will be '${task.checkpointName}'`));
@@ -405,11 +496,20 @@ function commandNew(args: Args): void {
 
 function commandEdit(args: Args): void {
   const ref = args.positional[1];
-  if (!ref) throw new Error('Usage: tasks edit <ref> [--title x] [--desc x] [--priority x] [--tag x] [--units <n>]');
+  if (!ref) {
+    throw new Error('Usage: tasks edit <ref> [--title x] [--desc x] [--priority x] [--tier <t>] [--tag x] [--units <n>]');
+  }
 
   const priority = flagString(args, 'priority');
   if (priority && !isPriority(priority)) {
     throw new Error(`Unknown priority '${priority}'. Expected low, medium or high.`);
+  }
+
+  // `--no-tier` parses to false, which is how a recommendation gets cleared.
+  const tierFlag = args.flags.tier;
+  const tier = flagString(args, 'tier');
+  if (tier && !isModelTier(tier)) {
+    throw new Error(`Unknown tier '${tier}'. Expected ${MODEL_TIERS.join(', ')}.`);
   }
 
   const status = flagString(args, 'status');
@@ -430,8 +530,11 @@ function commandEdit(args: Args): void {
     title: flagString(args, 'title'),
     description: flagString(args, 'desc') ?? flagString(args, 'description'),
     priority: priority as Priority | undefined,
+    recommendedTier: tierFlag === false ? null : (tier as ModelTier | undefined),
     tags: flagList(args, 'tag'),
     investigationRef: investigation === false ? null : flagString(args, 'investigation'),
+    // `--no-group` takes it out of whatever group it is in.
+    groupRef: args.flags.group === false ? null : flagString(args, 'group'),
     dependsOn: depends === false ? [] : flagList(args, 'depends-on'),
     estimateUnits: flagUnits(args),
   });
@@ -563,6 +666,289 @@ function commandDependency(args: Args): void {
     default:
       // `tasks dep T-4` is how anyone actually asks about one task.
       return dependencyList({ ...args, positional: ['dep', 'list', args.positional[1]!] });
+  }
+}
+
+/* --------------------------------------------------------------- groups */
+
+const GROUP_USAGE =
+  'Usage: tasks group <list|show|new|edit|rm|add|clear|order|queue> [...]\n' +
+  '       tasks group new "Search rework" [--branch group/search-rework]\n' +
+  '       tasks group queue G-1                      what to work, in order\n' +
+  '       tasks group add "Search rework" T-4 T-5    put tasks in a group\n' +
+  '       tasks group clear T-4                      take a task out of one';
+
+/** Groups are addressed by ref or by name everywhere in the CLI, because the
+ *  name is what a human has to hand — `requireGroup` accepts either. */
+function groupList(args: Args): void {
+  const groups = listGroups();
+
+  if (flagBool(args, 'json')) {
+    emitJson({ groups });
+    return;
+  }
+
+  if (!groups.length) {
+    print(dim('No groups yet. Create one with `tasks group new "<name>"`.'));
+    print(dim('Tasks filed by an investigation are grouped under it automatically.'));
+    return;
+  }
+
+  print();
+  for (const group of groups) {
+    const from = group.investigationRef ? dim(`  from ${group.investigationRef}`) : '';
+    print(
+      `  ${bold(group.ref.padEnd(5))} ${group.name.padEnd(32)} ${dim(
+        `${group.openCount} open / ${group.taskCount} task(s)`,
+      )}${from}`,
+    );
+    if (group.description) print(`        ${dim(group.description)}`);
+    print(`        ${dim(group.branchName)}`);
+  }
+  print();
+  print(dim('  Groups are listed in the order the task list draws them.'));
+  print();
+}
+
+function groupShow(args: Args): void {
+  const name = args.positional[2];
+  if (!name) throw new Error('Usage: tasks group show <ref|name>');
+
+  const group = requireGroup(name);
+  const tasks = listTasks({ groupRef: group.ref, includeClosed: true });
+
+  if (flagBool(args, 'json')) {
+    emitJson({ group, tasks });
+    return;
+  }
+
+  print();
+  print(`  ${bold(group.ref)}  ${group.name}`);
+  if (group.description) print(`  ${dim(group.description)}`);
+  print(`  ${dim(`branch: ${group.branchName}`)}`);
+  if (group.investigationRef) {
+    print(`  ${dim(`from investigation ${group.investigationRef}`)}`);
+  }
+  if (!tasks.length) {
+    print(`  ${dim('nothing in it yet')}`);
+    print();
+    return;
+  }
+
+  const universe = allTasks();
+  print();
+  tasks.forEach((task, index) => print(taskLine(task, index + 1, universe)));
+  print();
+}
+
+/**
+ * `tasks group queue <ref|name>` — the group's unfinished tasks in an order they
+ * can actually be worked.
+ *
+ * This is the order `/work-group` follows, and it lives here rather than in the
+ * command's prose so that the agent is reading a computed answer instead of
+ * doing a topological sort in its head.
+ */
+function groupQueue(args: Args): void {
+  const name = args.positional[2];
+  if (!name) throw new Error('Usage: tasks group queue <ref|name> [--json]');
+
+  const group = requireGroup(name);
+  const members = listTasks({ groupRef: group.ref, includeClosed: true });
+  const queue = dependencyOrder(
+    members.filter((task) => task.status === 'backlog' || task.status === 'in_progress'),
+  );
+  // Blockers are resolved against every task there is, not just the group's:
+  // a dependency on work outside the group is exactly the case worth knowing
+  // about, because working this group will never clear it.
+  const universe = allTasks();
+  const own = new Set(members.map((task) => task.ref.toLowerCase()));
+
+  if (flagBool(args, 'json')) {
+    emitJson({
+      group,
+      queue: queue.map((task) => ({
+        ...task,
+        blockedBy: blockers(task, universe).map((one) => one.ref),
+        // The ones this group cannot clear by itself.
+        blockedByOutside: blockers(task, universe)
+          .filter((one) => !own.has(one.ref.toLowerCase()))
+          .map((one) => one.ref),
+      })),
+    });
+    return;
+  }
+
+  print();
+  print(`  ${bold(group.ref)}  ${group.name}  ${dim(group.branchName)}`);
+  if (!queue.length) {
+    print(`  ${dim('nothing left to work — everything here is dev complete or beyond')}`);
+    print();
+    return;
+  }
+
+  queue.forEach((task, index) => {
+    const waiting = blockers(task, universe);
+    const outside = waiting.filter((one) => !own.has(one.ref.toLowerCase()));
+    const note = waiting.length
+      ? yellow(
+          `  ⊘ waits for ${waiting.map((one) => one.ref).join(', ')}${
+            outside.length ? ` (${outside.map((one) => one.ref).join(', ')} outside this group)` : ''
+          }`,
+        )
+      : '';
+    print(
+      `  ${dim(String(index + 1).padStart(2))}  ${bold(task.ref.padEnd(6))} ${
+        STATUS_LABELS[task.status].padEnd(14)
+      } ${task.title}${note}`,
+    );
+  });
+  print();
+  print(dim('  Work them in this order; nothing comes before what it depends on.'));
+  print();
+}
+
+function groupNew(args: Args): void {
+  const name = args.positional.slice(2).join(' ');
+  if (!name) throw new Error('Usage: tasks group new "<name>" [--desc <text>] [--color #rrggbb]');
+
+  const group = createGroup({
+    name,
+    description: flagString(args, 'desc') ?? flagString(args, 'description'),
+    color: flagString(args, 'color'),
+    branchName: flagString(args, 'branch'),
+    investigationRef: flagString(args, 'investigation'),
+  });
+
+  if (flagBool(args, 'json')) {
+    emitJson({ group });
+    return;
+  }
+  print(`${green('created')}  ${bold(group.ref)}  ${group.name}  ${dim(group.color)}`);
+  print(dim(`branch: ${group.branchName} — created when the first task in it is branched.`));
+  print(dim(`Put tasks in it with \`tasks group add ${group.ref} <ref>...\`.`));
+}
+
+function groupEdit(args: Args): void {
+  const name = args.positional[2];
+  if (!name) throw new Error('Usage: tasks group edit <ref|name> [--name <n>] [--desc <t>] [--color #rrggbb]');
+
+  const group = updateGroup(name, {
+    name: flagString(args, 'name'),
+    description: flagString(args, 'desc') ?? flagString(args, 'description'),
+    color: flagString(args, 'color'),
+    branchName: flagString(args, 'branch'),
+  });
+
+  if (flagBool(args, 'json')) {
+    emitJson({ group });
+    return;
+  }
+  print(`${green('updated')}  ${bold(group.ref)}  ${group.name}  ${dim(group.branchName)}`);
+}
+
+function groupRemove(args: Args): void {
+  const name = args.positional[2];
+  if (!name) throw new Error('Usage: tasks group rm <ref|name>');
+
+  const group = requireGroup(name);
+  const { released } = deleteGroup(group.ref);
+
+  if (flagBool(args, 'json')) {
+    emitJson({ deleted: group.ref, released });
+    return;
+  }
+  print(`${green('deleted')}  ${bold(group.ref)}  ${group.name}`);
+  print(
+    dim(
+      released.length
+        ? `${released.length} task(s) kept, now ungrouped: ${released.join(', ')}`
+        : 'It was empty.',
+    ),
+  );
+}
+
+/** Put tasks into a group, or — with `remove` — take them out of whatever group
+ *  they are in. Applied one at a time so a bad ref in the middle says which. */
+function groupAssign(args: Args, remove: boolean): void {
+  const name = remove ? null : args.positional[2];
+  const refs = args.positional.slice(remove ? 2 : 3);
+  if ((!remove && !name) || !refs.length) throw new Error(GROUP_USAGE);
+
+  const group = name ? requireGroup(name) : null;
+  const moved: Task[] = [];
+  for (const ref of refs) moved.push(setTaskGroup(ref, group?.ref ?? null));
+
+  if (flagBool(args, 'json')) {
+    emitJson({ group, tasks: moved.map((task) => getTaskDetail(task.ref)) });
+    return;
+  }
+
+  const refList = moved.map((task) => task.ref).join(', ');
+  print(
+    group
+      ? `${green('grouped')}  ${refList} → ${bold(group.name)} ${dim(group.ref)}`
+      : `${green('ungrouped')}  ${refList}`,
+  );
+  if (group) {
+    // Said rather than assumed: assigning also moves the rows, and a queue that
+    // rearranged itself without warning is the kind of surprise worth a line.
+    print(dim('Each task was moved to sit with the rest of its group in the queue.'));
+  }
+}
+
+function groupOrder(args: Args): void {
+  const refs = args.positional.slice(2);
+  if (refs.length < 2) throw new Error('Usage: tasks group order <ref|name> <ref|name>...');
+
+  const groups = reorderGroups(refs.map((ref) => requireGroup(ref).ref));
+  if (flagBool(args, 'json')) {
+    emitJson({ groups });
+    return;
+  }
+  print(`${green('reordered')}  ${refs.join(' → ')}`);
+  print(
+    dim(
+      'This settles the order of empty groups and ties. A group holding work is ' +
+        'drawn where its first task sits in the queue — move the tasks to move it.',
+    ),
+  );
+}
+
+function commandGroup(args: Args): void {
+  switch (args.positional[1]) {
+    case 'list':
+    case 'ls':
+    case undefined:
+      return groupList(args);
+    case 'show':
+    case 'get':
+      return groupShow(args);
+    case 'new':
+    case 'create':
+      return groupNew(args);
+    case 'edit':
+    case 'update':
+    case 'rename':
+      return groupEdit(args);
+    case 'rm':
+    case 'delete':
+      return groupRemove(args);
+    case 'add':
+    case 'assign':
+      return groupAssign(args, false);
+    case 'clear':
+    case 'unassign':
+      return groupAssign(args, true);
+    case 'order':
+    case 'move':
+      return groupOrder(args);
+    case 'queue':
+    case 'next':
+      return groupQueue(args);
+    default:
+      // `tasks group "Search rework"` is how anyone actually asks about one.
+      return groupShow({ ...args, positional: ['group', 'show', args.positional[1]!] });
   }
 }
 
@@ -775,7 +1161,7 @@ async function commandInvestigation(args: Args): Promise<void> {
 /* ---------------------------------------------------------------- notes */
 
 const NOTES_USAGE =
-  'Usage: tasks notes <list|show|new|edit|open|attach|rm|sync|status|init> [...]';
+  'Usage: tasks notes <list|show|new|edit|open|attach|images|index|rm|sync|status|init> [...]';
 
 function notesList(args: Args): void {
   const notes = listNotes({
@@ -948,6 +1334,74 @@ function notesAttach(args: Args): void {
   }
 }
 
+/**
+ * Write an index note into every folder of loose images that has none.
+ *
+ * The web UI does this on its own each time the notes list is read; the CLI asks
+ * first, because a command that reads a listing should not write to the folder
+ * behind the user's back.
+ */
+/**
+ * Print where the images are.
+ *
+ * A terminal cannot show a screenshot, and an agent reading this output cannot
+ * see one either — but it can open a file, if something tells it which file. So
+ * the answer to "let me look at the images" on a command line is not a rendering
+ * but an absolute path, one per line, ready to be handed to whatever does the
+ * looking. `--json` for a caller that would rather not parse, `--paths` for one
+ * that wants to pipe.
+ */
+function notesImages(args: Args): void {
+  const target = args.positional[2];
+  const images = listImages(target);
+
+  if (flagBool(args, 'json')) {
+    emitJson({ images, notesDir: notesDir() });
+    return;
+  }
+
+  // Bare paths, so `tasks notes images | xargs -d '\n' ...` works and an agent
+  // can take the output as a list without stripping decoration off it.
+  if (flagBool(args, 'paths')) {
+    for (const image of images) print(image.absolute);
+    return;
+  }
+
+  if (!images.length) {
+    print(dim(target ? `No images under '${target}'.` : `No images in ${notesDir()}.`));
+    return;
+  }
+
+  let note: string | null | undefined;
+  for (const image of images) {
+    if (image.note !== note) {
+      note = image.note;
+      print();
+      print(`  ${bold(note ?? dim('(no note)'))}`);
+    }
+    print(`    ${image.absolute}  ${dim(`${Math.ceil(image.size / 1024)} KB`)}`);
+  }
+  print();
+  print(dim(`  ${images.length} image(s). Open one by path; --paths prints them bare, --json adds sizes.`));
+  print();
+}
+
+function notesIndex(args: Args): void {
+  const created = indexImageFolders();
+
+  if (flagBool(args, 'json')) {
+    emitJson({ created, notesDir: notesDir() });
+    return;
+  }
+
+  if (!created.length) {
+    print(dim('Every folder of images already has a note.'));
+    return;
+  }
+
+  for (const path of created) print(`${green('indexed')}  ${bold(path)}`);
+}
+
 function notesRemove(args: Args): void {
   const path = args.positional[2];
   if (!path) throw new Error('Usage: tasks notes rm <path> [--keep-attachments]');
@@ -1028,6 +1482,10 @@ async function commandNotes(args: Args): Promise<void> {
       return notesOpen(args);
     case 'attach':
       return notesAttach(args);
+    case 'images':
+      return notesImages(args);
+    case 'index':
+      return notesIndex(args);
     case 'rm':
     case 'delete':
       return notesRemove(args);
@@ -1252,6 +1710,125 @@ function checkpointOptions(args: Args) {
   };
 }
 
+/* ------------------------------------------------------------ baselines */
+
+const BASELINES_USAGE =
+  'Usage: tasks baselines [list|run|approve] [...]\n' +
+  '       tasks baselines                      what has drifted from its baseline\n' +
+  '       tasks baselines --all                every scenario, drifted or not\n' +
+  '       tasks baselines run [scenario...]    re-run against the baselines\n' +
+  '       tasks baselines approve <scenario>   accept the current capture';
+
+/** Drifted first, worst first — the same order the Baselines view draws. */
+const BASELINE_RANK: Record<string, number> = {
+  failed: 0,
+  changed: 1,
+  'new-baseline': 2,
+  unchanged: 3,
+};
+
+function printBaselines(report: BaselineReport, all: boolean): void {
+  if (!report.hasRun) {
+    print(dim('aio-vr has not run here yet, so there is nothing to compare against.'));
+    print(dim(`Run \`tasks baselines run\` to record a baseline for every scenario.`));
+    return;
+  }
+
+  const sorted = [...report.scenarios].sort(
+    (left, right) =>
+      (BASELINE_RANK[left.status] ?? 9) - (BASELINE_RANK[right.status] ?? 9) ||
+      (right.percentChanged ?? 0) - (left.percentChanged ?? 0) ||
+      left.scenario.localeCompare(right.scenario),
+  );
+  const shown = all
+    ? sorted
+    : sorted.filter((one) => one.status === 'changed' || one.status === 'failed');
+
+  print();
+  const when = report.generatedAt ? new Date(report.generatedAt).toLocaleString() : 'never';
+  print(`  ${bold('Baselines')}  ${dim(`last run ${when}`)}`);
+  print(
+    `  ${dim(
+      Object.entries(report.totals)
+        .map(([status, count]) => `${count} ${status}`)
+        .join(' · '),
+    )}`,
+  );
+
+  if (!shown.length) {
+    print();
+    print(dim(all ? '  No scenarios in the last run.' : '  Nothing has drifted.'));
+    print();
+    return;
+  }
+
+  print();
+  for (const one of shown) {
+    const colour = one.status === 'failed' ? red : one.status === 'changed' ? yellow : green;
+    const percent = one.percentChanged === null ? '' : `${one.percentChanged.toFixed(2)}%`;
+    // An approved difference is expected drift, not a surprise — worth marking
+    // so it is not looked at twice.
+    const approved = one.approved ? green('  ✓ approved') : '';
+    print(
+      `  ${colour(one.status.padEnd(12))} ${bold(one.scenario.padEnd(34))} ${percent.padStart(8)}${approved}`,
+    );
+  }
+  print();
+  if (!all) print(dim('  --all also lists the scenarios that match their baseline.'));
+  print(dim(`  Images: ${report.resultsPath}`));
+  print();
+}
+
+async function commandBaselines(args: Args): Promise<void> {
+  const sub = args.positional[1];
+  const asJson = flagBool(args, 'json');
+
+  if (!sub || sub === 'list' || sub === 'status') {
+    const report = await readBaselines();
+    if (asJson) emitJson({ report });
+    else printBaselines(report, flagBool(args, 'all'));
+    return;
+  }
+
+  if (sub === 'run') {
+    // Bare `run` is the whole suite, which drives a browser through every
+    // scenario — slow enough that naming one is the usual way to use this.
+    const scenarios = args.positional.slice(2);
+    if (!asJson) {
+      print(dim(scenarios.length ? `Running ${scenarios.join(', ')}...` : 'Running every scenario...'));
+    }
+    const { report, exitCode, output } = await runBaselines(scenarios);
+
+    if (asJson) {
+      emitJson({ report, exitCode, output });
+      return;
+    }
+    printBaselines(report, flagBool(args, 'all'));
+    // Non-zero means something drifted, which is what this command is for —
+    // so it is reported rather than thrown, and the exit code is passed on for
+    // whatever is scripting it.
+    if (exitCode !== 0) {
+      if (output.trim()) print(dim(output.trim()));
+      process.exitCode = exitCode;
+    }
+    return;
+  }
+
+  if (sub === 'approve') {
+    const scenario = args.positional[2];
+    if (!scenario) throw new Error('Usage: tasks baselines approve <scenario>');
+    const report = await approveBaseline(scenario);
+    if (asJson) emitJson({ report });
+    else {
+      print(`${green('approved')}  ${bold(scenario)}`);
+      print(dim('Its current capture is now the baseline later runs are measured against.'));
+    }
+    return;
+  }
+
+  throw new Error(`Unknown baselines subcommand '${sub}'. ${BASELINES_USAGE}`);
+}
+
 async function commandCheckpoint(args: Args): Promise<void> {
   const phase = args.positional[1];
   const ref = args.positional[2];
@@ -1325,10 +1902,16 @@ const localBranchExists = (name: string): boolean =>
 /**
  * Where a task's branch should be cut from.
  *
- * A finished dependency's work is on *its* branch and nowhere else yet, so a
- * task that waits for it has to start from there — branching from the base
- * would mean writing against code that is not present. With no such dependency
- * this is the base branch, never whatever happens to be checked out.
+ * A task in a group starts from that group's branch: the group's finished work
+ * has been merged there, so it is the one branch that has all of it, and
+ * starting anywhere else would mean the eventual merge back carries a diff
+ * against the wrong base. The group branch is created from the base branch the
+ * first time a member needs it.
+ *
+ * Otherwise, a finished dependency's work is on *its* branch and nowhere else
+ * yet, so a task that waits for it has to start from there — branching from the
+ * base would mean writing against code that is not present. With no such
+ * dependency this is the base branch, never whatever happens to be checked out.
  *
  * Several finished dependencies have no single right answer: one branch cannot
  * be cut from two, and picking one silently would hide the other's work. That
@@ -1347,6 +1930,22 @@ function branchStartPoint(task: Task, explicit?: string): { start: string; reaso
     .map((depRef) => universe.find((one) => one.ref === depRef))
     .filter((dep): dep is Task => !!dep && !waiting.has(dep.ref) && !!dep.branchName)
     .filter((dep) => localBranchExists(dep.branchName!));
+
+  const group = groupBranchOf(task);
+  if (group) {
+    const { branch } = ensureGroupBranch(group.group);
+    // A dependency outside the group is not on the group branch, and cutting
+    // from the group branch would quietly leave its work out.
+    const absent = finished.filter((dep) => !isAncestor(dep.branchName!, branch));
+    if (absent.length) {
+      throw new Error(
+        `${task.ref} is in ${group.group.ref} (${group.group.name}), whose branch '${branch}' does not yet ` +
+          `contain the finished work of ${absent.map((one) => one.ref).join(', ')}. ` +
+          `Merge that in first (tasks merge ${absent[0]!.ref}), or pass --from to choose a start point.`,
+      );
+    }
+    return { start: branch, reason: `${group.group.ref} (${group.group.name}) — the group's branch` };
+  }
 
   if (finished.length > 1) {
     throw new Error(
@@ -1411,6 +2010,67 @@ function commandBranch(args: Args): void {
   }
 }
 
+/**
+ * Merge a task into its group's branch and say what happened.
+ *
+ * Shared by `tasks done` (where it runs automatically) and `tasks merge` (where
+ * it is the whole command). Returns the message a `--json` caller reports as
+ * `mergeError`, or null when all was well — a merge conflict is a real outcome
+ * of `done`, not a reason to pretend the status change failed.
+ */
+function mergeIntoGroupBranch(ref: string, asJson: boolean): string | null {
+  let result: ReturnType<typeof mergeTaskIntoGroupBranch>;
+  try {
+    result = mergeTaskIntoGroupBranch(ref);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  if (!result.group) {
+    if (!asJson) print(dim(`${ref} is in no group, so there is no group branch to merge into.`));
+    return null;
+  }
+
+  if (!result.merged) {
+    return (
+      `${ref}'s commits do not replay onto '${result.branch}' — they collide with work already ` +
+      `there. Nothing was changed: the rebase was aborted and both branches are as they were. ` +
+      `To resolve it by hand: 'git rebase ${result.branch} ${result.taskBranch}', fix the ` +
+      `conflicts, 'git rebase --continue', then 'tasks merge ${ref}' to register it.\n${result.conflict}`
+    );
+  }
+
+  if (asJson) return null;
+  if (result.createdBranch) print(dim(`created '${result.branch}' for ${result.group.ref}.`));
+  print(
+    `${green(result.alreadyMerged ? 'already on' : 'merged into')}  ${result.branch}  ${dim(
+      `${result.group.ref} · ${result.group.name}`,
+    )}`,
+  );
+  if (result.returnedTo && result.returnedTo !== result.branch) {
+    print(dim(`back on '${result.returnedTo}'.`));
+  }
+  return null;
+}
+
+/** `tasks merge <ref>` — do the group-branch merge on its own. Useful after
+ *  resolving a conflict by hand, and after a `tasks done --no-merge`. */
+function commandMerge(args: Args): void {
+  const ref = args.positional[1];
+  if (!ref) throw new Error('Usage: tasks merge <ref>');
+
+  const task = requireTask(ref);
+  const asJson = flagBool(args, 'json');
+  const mergeError = mergeIntoGroupBranch(task.ref, asJson);
+
+  if (asJson) {
+    emitJson({ task: getTaskDetail(task.ref), mergeError });
+  } else if (mergeError) {
+    print(red(mergeError));
+  }
+  if (mergeError) process.exitCode = 1;
+}
+
 async function commandTransition(args: Args, status: Status): Promise<void> {
   const ref = args.positional[1];
   if (!ref) throw new Error(`Usage: tasks ${args.positional[0]} <ref>`);
@@ -1441,13 +2101,24 @@ async function commandTransition(args: Args, status: Status): Promise<void> {
 
   const updated = setStatus(task.ref, status, flagString(args, 'note'));
 
-  if (asJson) {
-    emitJson({ task: getTaskDetail(updated.ref), captureError });
-    return;
+  if (!asJson) {
+    print(`${green(STATUS_LABELS[status].toLowerCase())}  ${bold(updated.ref)}  ${updated.title}`);
+    if (captureError) print(red(`  after-checkpoint failed: ${captureError}`));
   }
 
-  print(`${green(STATUS_LABELS[status].toLowerCase())}  ${bold(updated.ref)}  ${updated.title}`);
-  if (captureError) print(red(`  after-checkpoint failed: ${captureError}`));
+  // Dev complete is the point at which the work is ready to join the rest of
+  // its group's, so it is merged into the group's branch and registered there.
+  // `--no-merge` is the escape hatch for reviewing it first.
+  const mergeError =
+    status === 'dev_complete' && flagBool(args, 'merge', true)
+      ? mergeIntoGroupBranch(updated.ref, asJson)
+      : null;
+
+  if (asJson) {
+    emitJson({ task: getTaskDetail(updated.ref), captureError, mergeError });
+    return;
+  }
+  if (mergeError) print(red(mergeError));
 }
 
 /** The dev server and the on-demand build both need the package's own dev
@@ -1544,15 +2215,41 @@ ${bold('Investigations')}   what to look into, before anyone looks
   Run one with the ${bold('/plan-tasks')} slash command; it files tasks against the ref.
 
 ${bold('Tasks')}
-  tasks list [--status <s>] [--tag <t>] [--investigation <ref>] [--json]
+  tasks list [--status <s>] [--tag <t>] [--investigation <ref>] [--group <g>|none]
+             [--flat] [--json]
   tasks show <ref> [--json]
-  tasks new "<title>" [--branch <name>] [--desc <text>] [--priority low|medium|high] [--tag <t>]
-                      [--investigation <ref>] [--depends-on <ref>]
+  tasks new "<title>" [--branch <name>] [--desc <text>] [--priority low|medium|high]
+                      [--tier fast|standard|frontier] [--tag <t>]
+                      [--investigation <ref>] [--group <g> | --no-group] [--depends-on <ref>]
   tasks edit <ref> [--title <t>] [--desc <t>] [--priority <p>] [--status <s>] [--tag <t>]
+                   [--tier fast|standard|frontier | --no-tier]
                    [--investigation <ref> | --no-investigation]
+                   [--group <g> | --no-group]
                    [--depends-on <ref> | --no-depends-on]
   tasks note <ref> <text>
   tasks rm <ref>
+    The list is drawn in sections by group; --flat prints the bare queue.
+
+${bold('Groups')}   a named bundle of tasks — a feature, a release, an investigation
+  tasks group list [--json]
+  tasks group show <ref|name> [--json]      the group and everything in it
+    tasks group "Search rework"             shorthand for show
+  tasks group new "<name>" [--desc <t>] [--color #rrggbb] [--branch <name>]
+  tasks group edit <ref|name> [--name <n>] [--desc <t>] [--color #rrggbb] [--branch <name>]
+  tasks group queue <ref|name> [--json]     what is left, in dependency order
+  tasks group add <ref|name> <task-ref>...  put tasks in it
+  tasks group clear <task-ref>...           take tasks out of whatever group they are in
+  tasks group rm <ref|name>                 the tasks it held are kept, ungrouped
+  tasks group order <ref|name>...           the order of the empty ones
+    A task is in at most one group; tags stay what they are. Adding a task to a
+    group also moves it beside the rest of that group in the queue, so the
+    grouped list reads in the same order as the flat one.
+    Tasks filed with --investigation are grouped under that investigation
+    automatically, so a run of ${bold('/plan-tasks')} arrives as one bundle.
+    Every group has a ${bold('branch')}, defaulted from its name. Its tasks are cut from
+    that branch and merged back into it, so the group ships as one PR. The
+    branch is created the first time a member needs it, not at group new.
+    Colours: ${GROUP_COLORS.join(' ')}
 
 ${bold('Dependencies')}   "this task waits for that one"
   tasks dep add <ref> <blocker-ref>...   the task waits for each blocker
@@ -1572,13 +2269,31 @@ ${bold('List order')}   the list is the queue; ${bold('/work-task')} takes the t
 ${bold('Workflow')}   backlog → in_progress → dev_complete → verified
   tasks branch <ref>             create/switch to the task's assigned branch
     --from <branch>              cut it from this branch instead
-    A new branch is cut from the base branch — or from the branch of the task
-    this one depends on, when that task is finished and its work is only there.
+    A new branch is cut from its group's branch — or, ungrouped, from the base
+    branch, or from the branch of the task this one depends on when that task is
+    finished and its work is only there.
   tasks start <ref>              move to in_progress (requires assigned branch)
-  tasks done <ref>               capture the after-checkpoint, move to dev_complete
-                                 (--no-checkpoint to skip the capture)
+  tasks done <ref>               capture the after-checkpoint, move to dev_complete,
+                                 merge into the group's branch and register it there
+                                 (--no-checkpoint / --no-merge to skip either)
+  tasks merge <ref>              do that merge on its own — after --no-merge, or
+                                 after resolving a conflict by hand
   tasks verify <ref>             sign off after reviewing the screenshots
   tasks reopen <ref>             back to in_progress
+
+${bold('Checks')}   the repo's own typecheck/lint/test commands, from \`checks\` in the config
+  tasks checks [<branch>] [--base <b>] [--json]
+    Runs every configured command whose paths this branch touches, and stores
+    the result — a green run is what unblocks the PR button in ${bold('tasks web')}.
+    Exits non-zero when anything fails. Defaults to the current branch.
+
+${bold('Baselines')} (wraps aio-vr)   how the app looks against the last approved state
+  tasks baselines [--all] [--json]   what has drifted; --all lists everything
+  tasks baselines run [scenario...]  re-run against the baselines; bare = all of them
+  tasks baselines approve <scenario> accept the current capture as the new baseline
+    Baselines outlive tasks: drift accumulates whether or not anyone was working.
+    A checkpoint asks "did my change move anything?"; a baseline asks "does the
+    app still look the way we agreed?". Browse them in ${bold('tasks web')}.
 
 ${bold('Visual checkpoints')} (wraps aio-vr)
   tasks checkpoint before <ref>  capture the current state, before you change anything
@@ -1624,6 +2339,82 @@ ${dim(`aio-vr:    ${ws && aioVrAvailable() ? 'installed' : 'NOT on PATH'}`)}
 `);
 }
 
+
+/* ----------------------------------------------------------------- checks */
+
+/**
+ * Run the repository's configured pre-PR checks.
+ *
+ * The same code the Branches view runs, and the same stored report: running
+ * them here is what unblocks the PR button over there, so an agent finishing a
+ * task can leave the branch verified without anyone opening the UI.
+ */
+async function commandChecks(args: Args): Promise<void> {
+  const definitions = configuredChecks();
+  if (!definitions.length) {
+    throw new Error(
+      'No checks are configured. Add "checks" to .tasks/tasks.config.json — ' +
+        'each entry is a name, a command, and optionally the cwd and paths it applies to.',
+    );
+  }
+
+  const branch = args.positional[1] ?? currentBranch();
+  if (!branch) throw new Error('Usage: tasks checks [<branch>] — no branch is checked out.');
+  const base = flagString(args, 'base') ?? findCombinedBranch(branch)?.baseBranch ?? defaultBaseBranch();
+
+  if (!flagBool(args, 'json')) {
+    print();
+    print(`  ${dim('branch ')}  ${branch}  ${dim(`vs ${base}`)}`);
+    print();
+  }
+
+  const report = await runChecks({
+    branch,
+    base,
+    // The CLI is the one caller that can afford to say what it is doing as it
+    // goes; a long suite with no output looks hung.
+    onProgress: flagBool(args, 'json') ? undefined : (current) => print(`  ${dim('running')}  ${current}`),
+  });
+
+  // Only a registered delivery branch has somewhere to store the result; an
+  // ad-hoc branch still gets checked, it just does not gate anything.
+  if (findCombinedBranch(branch)) updateCombinedBranch(branch, { checks: report });
+
+  if (flagBool(args, 'json')) {
+    emitJson(report);
+    if (!report.passed) process.exitCode = 1;
+    return;
+  }
+
+  for (const check of report.checks) {
+    const label =
+      check.status === 'passed'
+        ? green('passed ')
+        : check.status === 'skipped'
+          ? dim('skipped')
+          : check.status === 'timed_out'
+            ? red('timeout')
+            : check.status === 'error'
+              ? red('error  ')
+              : red('failed ');
+    const seconds = check.durationMs ? dim(` ${(check.durationMs / 1000).toFixed(1)}s`) : '';
+    print(`  ${label}  ${bold(check.name)}${seconds}`);
+    if (check.reason) print(`           ${dim(check.reason)}`);
+    if (check.output.trim() && check.status !== 'passed' && check.status !== 'skipped') {
+      for (const line of check.output.trim().split('\n').slice(-40)) print(`           ${dim(line)}`);
+    }
+  }
+
+  print();
+  if (report.passed) {
+    print(`  ${green('all checks passed')} — the pull request is unblocked.`);
+  } else {
+    print(`  ${red('checks failed')} — fix them, or open the pull request with --force in the UI.`);
+    process.exitCode = 1;
+  }
+  print();
+}
+
 /* ------------------------------------------------------------------ entry */
 
 async function main(): Promise<void> {
@@ -1655,6 +2446,9 @@ async function main(): Promise<void> {
     case 'deps':
     case 'depends':
       return commandDependency(args);
+    case 'group':
+    case 'groups':
+      return commandGroup(args);
     case 'investigation':
     case 'investigations':
     case 'inv':
@@ -1670,6 +2464,8 @@ async function main(): Promise<void> {
       return commandRemove(args);
     case 'branch':
       return commandBranch(args);
+    case 'merge':
+      return commandMerge(args);
     case 'start':
       return commandTransition(args, 'in_progress');
     case 'done':
@@ -1682,6 +2478,12 @@ async function main(): Promise<void> {
     case 'checkpoint':
     case 'cp':
       return commandCheckpoint(args);
+    case 'baselines':
+    case 'baseline':
+      return commandBaselines(args);
+    case 'checks':
+    case 'check':
+      return commandChecks(args);
     case 'web':
     case 'serve':
       return commandWeb(args);
