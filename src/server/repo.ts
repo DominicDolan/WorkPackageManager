@@ -1571,6 +1571,15 @@ export function latestRun(taskId: number, phase: Phase): CheckpointRun | null {
   return runs.length ? runs[runs.length - 1]! : null;
 }
 
+/**
+ * Oldest run of a phase. A `before` may have been captured more than once, and
+ * it is the first one that says which commit the task's starting state was —
+ * a later re-capture was taken from that same point deliberately.
+ */
+export function firstRun(taskId: number, phase: Phase): CheckpointRun | null {
+  return listRuns(taskId).find((run) => run.phase === phase) ?? null;
+}
+
 /* ------------------------------------------------------------ group runs */
 
 /**

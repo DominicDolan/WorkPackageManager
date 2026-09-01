@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { packageRoot, workspace } from '../config/paths';
 import { CONFIG_FILENAME, DEFAULT_CONFIG } from '../config/config';
 import { aioVrAvailable, captureAfter, captureBefore, checkpointExists } from '../server/aiovr';
+import { captureBeforeRetro, resolveRetroTarget } from '../server/retro';
 import {
   addDependency,
   addNote,
@@ -1869,6 +1870,13 @@ async function commandCheckpoint(args: Args): Promise<void> {
   if (phase !== 'before' && phase !== 'after') {
     throw new Error("Checkpoint phase must be 'before', 'after' or 'status'.");
   }
+
+  const at = flagString(args, 'at');
+  if (phase === 'before' && (flagBool(args, 'retro') || at !== undefined)) {
+    await captureRetro(task, args, at, asJson);
+    return;
+  }
+
   requireAssignedBranch(task);
 
   const result =
@@ -1877,6 +1885,64 @@ async function commandCheckpoint(args: Args): Promise<void> {
       : await captureAfter(task, checkpointOptions(args));
 
   reportRun(task, result, asJson);
+}
+
+/**
+ * `tasks checkpoint before <ref> --retro` — capture the starting state after the
+ * change has already been made, by checking the original commit out first.
+ *
+ * The scenarios themselves are not in Git, so the suite that runs against that
+ * old commit is today's: a scenario written after the fact still gets a before
+ * image. What is checked out is the code, and only for as long as the capture
+ * takes.
+ */
+async function captureRetro(task: Task, args: Args, at: string | undefined, asJson: boolean): Promise<void> {
+  const target = resolveRetroTarget(task, at);
+  const settle = flagString(args, 'settle');
+  const settleSeconds = settle === undefined ? undefined : Number(settle);
+  if (settleSeconds !== undefined && !Number.isFinite(settleSeconds)) {
+    throw new Error(`--settle takes a number of seconds, not '${settle}'.`);
+  }
+
+  if (flagBool(args, 'dry-run')) {
+    if (asJson) emitJson({ target, dryRun: true });
+    else {
+      print();
+      print(`  would capture ${bold(task.ref)} at ${cyan(target.commit.shortSha)} — ${target.commit.subject}`);
+      print(`  ${dim(target.reason)}`);
+      print();
+    }
+    return;
+  }
+
+  // Checked only once the plan has been printed: --dry-run is how you ask which
+  // commit this would use, and that answer is useful from anywhere.
+  requireAssignedBranch(task);
+
+  if (!asJson) {
+    print();
+    print(`  Re-capturing the ${bold('before')} state of ${bold(task.ref)} at ${cyan(target.commit.shortSha)}`);
+    print(`  ${dim(`${target.commit.subject} — ${target.reason}`)}`);
+    if (target.wasDirty) {
+      print(`  ${yellow('The original capture was taken over uncommitted changes, so this commit alone may not reproduce it exactly.')}`);
+    }
+    print();
+  }
+
+  const result = await captureBeforeRetro(task, target, {
+    ...checkpointOptions(args),
+    settleSeconds,
+    onStep: asJson ? undefined : (message) => print(`  ${dim(message)}`),
+  });
+
+  if (asJson) {
+    emitJson({ run: result, target: result.target, restoredTo: result.restoredTo, task: getTaskDetail(task.ref) });
+    return;
+  }
+
+  reportRun(task, result, false);
+  print(`  ${dim(`Back on ${result.restoredTo}.`)}`);
+  print();
 }
 
 /** start / done / verify / reopen. `done` also captures the after-checkpoint,
@@ -2303,6 +2369,16 @@ ${bold('Visual checkpoints')} (wraps aio-vr)
     --folder <name>              limit to a folder (repeatable)
     --min-percent <n>            'after': treat diffs at or below n% as unchanged
     --allow-missing              'after': warn instead of failing on scenario drift
+  tasks checkpoint before <ref> --retro
+                                 capture the before state after the fact: check the
+                                 commit the work started from out, run today's
+                                 scenarios against it, then come back
+    --at <commit>                capture at this commit instead of the resolved one
+    --settle <seconds>           wait after checking out, so the app can rebuild
+    --dry-run                    print the commit it would use and stop
+    Scenarios live outside Git, so a scenario written after the change still gets
+    a before image. Needs a clean working tree; the branch you were on is restored
+    even if the capture fails.
 
 ${bold('Notes')}   Markdown files in their own Git repository, not the database
   tasks notes list [--tag <t>] [--folder <f>] [--search <q>] [--json]

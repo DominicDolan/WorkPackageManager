@@ -279,6 +279,57 @@ then `after` reuses that filter automatically. It has to: aio-vr treats a
 scenario present now but absent from the checkpoint as scenario-set drift and
 refuses to compare. Pass your own `--scenario`/`--folder` to override.
 
+### Capturing `before` after the fact
+
+Sometimes the change is already written when someone asks what the page used to
+look like — or the scenario that would have shown it was only written once the
+work exposed the need for it. The starting state was never captured, and the
+code that produced it is now two commits back.
+
+```bash
+tasks checkpoint before T-1 --retro
+```
+
+That checks out the commit the task started from, runs the scenarios against it,
+and puts you back on the branch you were on. The scenarios are **not** taken
+from that old commit: `.aio-vr/` is ignored by Git, so the suite that runs is
+today's, new and edited scenarios included. That is the whole point — a scenario
+written after the change still gets a before image.
+
+Which commit it travels to, in order:
+
+1. `--at <commit>`, when you name one.
+2. The commit the task's first `before` capture was taken at — a re-capture has
+   to stand where the capture it replaces stood, or the comparison changes
+   meaning. This is the case when you are adding a scenario to a checkpoint that
+   already exists.
+3. Failing both, where the task's branch was cut from the base branch.
+
+`--dry-run` prints the commit it would use and stops, which is the quick way to
+check the answer before committing a browser run to it.
+
+Some care is taken because this moves your working tree:
+
+- It refuses to start if any tracked file is modified. Untracked files are
+  ignored — the visual-regression workspace is one.
+- The branch you were on is restored in a `finally`, so a scenario that fails
+  half way through the suite still leaves you where you were.
+- An existing checkpoint is moved aside first and put back if the capture fails.
+  `aio-vr before` deletes the checkpoint it is about to write, and a retroactive
+  capture is usually run precisely because that evidence matters.
+
+What it cannot do is rebuild your app. Whatever serves the pages — a dev server,
+a container — has to notice the old code before the scenarios run against it.
+`--settle <seconds>` waits after the checkout for exactly that:
+
+```bash
+tasks checkpoint before T-1 --retro --settle 10 --scenario constraints.edit-dialog
+```
+
+One caveat on the fork-point case: if the branch has been rebased, its fork point
+is where it *now* starts, not where the work originally began. `--at` is there
+for when that matters.
+
 ## Baselines
 
 Checkpoints and baselines are the same machinery pointed at different questions.
@@ -361,6 +412,7 @@ agents should use.
 | `tasks start\|done\|verify\|reopen <ref>` | Move through the workflow (`start` requires the assigned branch; `done` merges into the group's branch, `--no-merge` to skip) |
 | `tasks merge <ref>` | Merge the task into its group's branch and register it there |
 | `tasks checkpoint before\|after\|status <ref>` | Drive aio-vr for one task |
+| `tasks checkpoint before <ref> --retro [--at <commit>] [--settle <s>] [--dry-run]` | Capture `before` at the commit the task started from |
 | `tasks baselines [--all]` | What has drifted from its approved baseline |
 | `tasks baselines run [scenario...]` | Re-run against the baselines |
 | `tasks baselines approve <scenario>` | Accept the current capture as the new baseline |

@@ -18,7 +18,7 @@ import { checkpointNameFor, type Comparison, type Phase, type Task } from '../sh
 const aioVrBin = (): string => process.env.AIO_VR_BIN ?? workspace().config.aioVrBin;
 
 /** A task's checkpoint name, falling back to the one its ref would generate. */
-const nameFor = (task: Task): string =>
+export const checkpointNameOf = (task: Task): string =>
   task.checkpointName ?? checkpointNameFor(task.ref, workspace().config.checkpointPrefix);
 
 export interface CheckpointOptions {
@@ -69,7 +69,7 @@ interface ResultsFile {
   }[];
 }
 
-function checkpointDir(name: string): string {
+export function checkpointDir(name: string): string {
   return join(workspace().aioVrDir, 'checkpoints', name);
 }
 
@@ -98,7 +98,7 @@ export function checkpointExists(name: string): boolean {
 
 /** Remove screenshots aio-vr no longer needs for one task checkpoint. */
 export async function cleanCheckpoint(task: Task): Promise<void> {
-  const name = nameFor(task);
+  const name = checkpointNameOf(task);
   // A task can reach the end of its life without ever capturing a checkpoint —
   // nothing visual to compare, or the work turned out to need no change at all.
   // There is nothing to clean then, and aio-vr would exit non-zero.
@@ -166,7 +166,7 @@ export async function captureBefore(
   task: Task,
   options: CheckpointOptions = {},
 ): Promise<CheckpointResult> {
-  const name = nameFor(task);
+  const name = checkpointNameOf(task);
   if (!aioVrAvailable()) {
     throw new Error(
       `Could not find the '${aioVrBin()}' executable on PATH. Install aio-visual-regression, or set AIO_VR_BIN.`,
@@ -236,7 +236,7 @@ export async function captureAfter(
   task: Task,
   options: CheckpointOptions = {},
 ): Promise<CheckpointResult> {
-  const name = nameFor(task);
+  const name = checkpointNameOf(task);
   if (!aioVrAvailable()) {
     throw new Error(
       `Could not find the '${aioVrBin()}' executable on PATH. Install aio-visual-regression, or set AIO_VR_BIN.`,

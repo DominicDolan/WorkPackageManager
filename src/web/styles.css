@@ -1002,6 +1002,16 @@ label {
     max-height: 45vh;
   }
 
+  .rail {
+    flex-direction: row;
+    justify-content: center;
+    flex-wrap: wrap;
+    width: 100%;
+    padding: 6px 8px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
   .shots.side-by-side {
     grid-template-columns: 1fr;
   }

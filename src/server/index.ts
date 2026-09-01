@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { packageRoot } from '../config/paths';
 import { resolveArtifact, workspace } from '../config/paths';
 import { aioVrAvailable, captureAfter, captureBefore, cleanCheckpoint } from './aiovr';
+import { captureBeforeRetro, resolveRetroTarget } from './retro';
 import {
   addDependency,
   addNote,
@@ -1460,6 +1461,9 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
       folders?: string[];
       minPercent?: number;
       allowMissing?: boolean;
+      retro?: boolean;
+      at?: string;
+      settleSeconds?: number;
     }>(request).catch(() => ({}) as Record<string, never>);
 
     const task = requireTask(ref!);
@@ -1470,6 +1474,18 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
       allowMissing: input.allowMissing,
       inheritStdio: false,
     };
+
+    // A retroactive before moves the working tree to an older commit and back.
+    // It is only offered for 'before': there is no sense in which 'after' could
+    // be captured anywhere but where the work now stands.
+    if (phase === 'before' && (input.retro || input.at)) {
+      const target = resolveRetroTarget(task, input.at);
+      const retro = await captureBeforeRetro(task, target, {
+        ...options,
+        settleSeconds: input.settleSeconds,
+      });
+      return json({ run: retro, target: retro.target, restoredTo: retro.restoredTo, task: getTaskDetail(ref!) });
+    }
 
     const result = phase === 'before'
       ? await captureBefore(task, options)

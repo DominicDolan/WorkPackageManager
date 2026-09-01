@@ -203,6 +203,62 @@ export function workingTreeClean(): boolean {
   return !git(['status', '--porcelain']).stdout.trim();
 }
 
+/**
+ * Tracked files that differ from HEAD, one `git status` line each.
+ *
+ * Untracked files are deliberately excluded: checking an old commit out to
+ * re-capture a checkpoint leaves them where they are, and the visual-regression
+ * workspace itself is untracked, so refusing to move because of it would block
+ * the very thing that needs it.
+ */
+export function trackedChanges(): string[] {
+  return git(['status', '--porcelain', '--untracked-files=no'])
+    .stdout.split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/** Resolve any revision to a full SHA, or null when it names nothing. */
+export function resolveCommit(rev: string): string | null {
+  const result = git(['rev-parse', '--verify', '--quiet', `${rev}^{commit}`]);
+  return result.code === 0 && result.stdout.trim() ? result.stdout.trim() : null;
+}
+
+/** The newest commit both refs share, or null when they have no common ancestor. */
+export function mergeBase(left: string, right: string): string | null {
+  const result = git(['merge-base', left, right]);
+  return result.code === 0 && result.stdout.trim() ? result.stdout.trim() : null;
+}
+
+export interface CommitSummary {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  authoredAt: string;
+}
+
+/** One commit's headline, for telling the user which one is being checked out. */
+export function describeCommit(rev: string): CommitSummary | null {
+  const result = git(['show', '--no-patch', '--format=%H%x1f%h%x1f%s%x1f%aI', rev]);
+  if (result.code !== 0) return null;
+  const [sha, shortSha, subject, authoredAt] = result.stdout.trim().split('\x1f');
+  if (!sha) return null;
+  return { sha, shortSha: shortSha ?? sha.slice(0, 8), subject: subject ?? '', authoredAt: authoredAt ?? '' };
+}
+
+/** The commit HEAD points at, whether or not a branch is checked out. */
+export function headCommit(): string | null {
+  return resolveCommit('HEAD');
+}
+
+/** Check a commit out without a branch — how a retroactive capture time-travels. */
+export function detachAt(commit: string): void {
+  const switched = git(['switch', '--detach', commit]);
+  if (switched.code !== 0) {
+    throw new Error(switched.stderr.trim() || `Could not check out '${commit}'.`);
+  }
+}
+
 /** True while a merge is stopped on conflicts and waiting to be committed. */
 export function mergeInProgress(): boolean {
   return git(['rev-parse', '--verify', '--quiet', 'MERGE_HEAD']).code === 0;
