@@ -44,7 +44,7 @@ Notes are the exception to "it lives in the database": see [Notes](#notes).
 - `bun` — the runtime, the package manager and the SQLite driver
 - `aio-vr` on PATH — only needed for the checkpoint commands
 - `gh` — only needed for the Branches view
-- an agent CLI — `claude` and/or `pi`, for PR descriptions and for running
+- an agent CLI — `claude`, `codex` and/or `pi`, for PR descriptions and for running
   investigations and tasks from the UI. A terminal emulator too, if you want
   those runs to open a window you can talk to
 
@@ -54,7 +54,7 @@ Notes are the exception to "it lives in the database": see [Notes](#notes).
 git clone <this repo> ~/Source/WorkTaskManager
 cd ~/Source/WorkTaskManager
 bun install
-bun run build          # builds the web UI into dist/web
+bun run build:all      # builds the Vue UI and Solid proof of concept
 npm link               # or: npm install -g .
 tasks help
 ```
@@ -108,6 +108,9 @@ command is fired from a web request, so a tool-enabled agent could block on an
 approval prompt with nobody at the terminal to answer it, and could touch the
 working tree while you are mid-combine.
 
+For Codex, the read-only unattended equivalent is
+`["codex","exec","--sandbox","read-only","--ask-for-approval","never"]`.
+
 `agentTerminal` is how "open a window with the agent running in it" is spelled,
 and every emulator spells it differently — `["kitty","--hold"]`,
 `["gnome-terminal","--"]`, `["wezterm","start","--"]`. The agent's own argv is
@@ -123,6 +126,7 @@ after a model lineup changes. It maps each harness to its three tiers:
 {
   "modelTiers": {
     "claude": { "fast": "haiku", "standard": "sonnet", "frontier": "opus" },
+    "codex": { "fast": "gpt-5.6-luna", "standard": "gpt-5.6-terra", "frontier": "gpt-5.6-sol" },
     "pi": { "fast": "openai/luna", "standard": "openai/terra", "frontier": "openai/sol" }
   }
 }
@@ -225,7 +229,7 @@ tasks investigation new "Why is the plan gantt slow on mobile" \
   --brief "It janks while dragging. Start at GanttChart.vue."
 ```
 
-Then run it with the **`/plan-tasks I-1`** slash command in Claude Code or `pi`.
+Then run it with the **`/plan-tasks I-1`** slash command in Claude Code, Codex or `pi`.
 The agent reads the brief, investigates, files what it finds as tasks carrying
 `--investigation I-1`, writes its findings back, and marks the investigation
 complete. The detail view then shows the question, the findings, and every task
@@ -239,7 +243,8 @@ Deleting an investigation keeps the tasks it filed — the work still needs doin
 and simply unlinks them.
 
 ```bash
-tasks new "Make the plan gantt responsive" --priority high --tag frontend
+tasks group new "Plan improvements"
+tasks new "Make the plan gantt responsive" --group G-1 --priority high --tag frontend
 # Every task receives a branch; create/switch to it before starting.
 tasks branch T-1
 tasks start T-1
@@ -392,7 +397,7 @@ agents should use.
 | `tasks investigation rm <ref>` | Delete it; the tasks it filed are kept, unlinked |
 | `tasks list [--status s] [--tag t]` | All tasks, in list order, in group sections. `--investigation <ref>`, `--group <g>`, `--flat` |
 | `tasks show <ref>` | One task with its history and checkpoint results |
-| `tasks new "<title>"` | Create; assigns a generated branch. `--branch`, `--desc`, `--priority`, `--tag`, `--investigation`, `--group`, `--depends-on`, `--units` |
+| `tasks new "<title>" --group <g>` | Create in a group and assign a generated branch. An `--investigation` may supply the group instead. |
 | `tasks edit <ref>` | Change `--title`, `--desc`, `--priority`, `--status`, `--tag`, `--investigation`, `--group`, `--depends-on`, `--units` |
 | `tasks note <ref> <text>` | Append a note to the history |
 | `tasks group list` | Every group, in the order the list draws them |
@@ -401,8 +406,7 @@ agents should use.
 | `tasks group edit <ref\|name>` | Change `--name`, `--desc`, `--color`, `--branch` |
 | `tasks group queue <ref\|name>` | What is left in it, in dependency order — what `/work-group` follows |
 | `tasks group add <ref\|name> <task-ref>...` | Put tasks in it |
-| `tasks group clear <task-ref>...` | Take tasks out of whatever group they are in |
-| `tasks group rm <ref\|name>` | Delete the group; its tasks are kept, ungrouped |
+| `tasks group rm <ref\|name>` | Delete an empty group |
 | `tasks dep add <ref> <blocker-ref>...` | Make the task wait for each blocker |
 | `tasks dep rm <ref> <blocker-ref>...` | Stop waiting for them |
 | `tasks dep list [<ref>]` | The dependency graph, or one task's corner of it |
@@ -416,7 +420,8 @@ agents should use.
 | `tasks baselines [--all]` | What has drifted from its approved baseline |
 | `tasks baselines run [scenario...]` | Re-run against the baselines |
 | `tasks baselines approve <scenario>` | Accept the current capture as the new baseline |
-| `tasks web [--port n] [--dev]` | Serve the UI |
+| `tasks web [--port n] [--dev]` | Serve the current Vue UI |
+| `tasks web --new [--port n] [--dev]` | Serve the Solid 2.0 proof of concept |
 | `tasks rm <ref>` | Delete a task (the checkpoint on disk is left alone) |
 
 `tasks investigation` shortens to `tasks inv`. Its `--brief` and `--findings`
@@ -555,8 +560,8 @@ the working tree on the group branch — resolve them, commit, then
 `tasks merge T-4` to register the task. Both are idempotent: a task already on
 the branch is registered without a second merge.
 
-Deleting a group **keeps its tasks** — they simply stop being in one. The same
-reasoning as deleting an investigation: the work is the durable thing.
+A group containing tasks cannot be deleted. Move its tasks into another group
+first; this keeps the mandatory membership invariant intact.
 
 #### Tasks from an investigation are grouped automatically
 
@@ -567,11 +572,11 @@ arrives as one bundle you can collapse, filter and read as a unit rather than as
 eight loose rows in the backlog.
 
 The group is keyed on the investigation, not on its name, so renaming the group
-or re-running the same investigation refills the one that exists. `--no-group`
-files a task loose even when it came from an investigation.
+or re-running the same investigation refills the one that exists.
 
-Tasks filed before groups existed stay loose — nothing regroups them behind your
-back. To organise a backlog that predates groups, make the groups and fill them:
+Tasks filed before groups existed stay visible in the read-only **Ungrouped**
+compatibility group — nothing regroups them behind your back, but new tasks
+cannot be added there. To organise a backlog that predates groups, make the groups and fill them:
 `tasks group new "<investigation title>"` then `tasks group add <G-n> <refs...>`,
 which is the same thing you would do by hand anyway and leaves a history saying
 who did it.
@@ -718,7 +723,7 @@ tasks done T-1 --json                  # capture + transition in one step
 Three commands wrap this. Their instructions ship as Markdown in this package's
 `prompts/` folder and are inlined into the agent's first message at launch time
 (see [Running an agent from the UI](#running-an-agent-from-the-ui)) — nothing
-has to be installed globally in Claude Code or `pi` for them to work:
+has to be installed globally in Claude Code, Codex or `pi` for them to work:
 
 - **`/plan-tasks [I-<n>]`** — runs an investigation that was written down in the
   Investigations view: reads the brief, investigates the codebase, files what it
@@ -741,7 +746,12 @@ has to be installed globally in Claude Code or `pi` for them to work:
   the task is waiting on a [dependency](#dependencies) that is not finished. It
   branches from the task's [group branch](#a-group-is-a-branch) when it has one,
   otherwise from a finished dependency's branch, otherwise from the base — and
-  reports which.
+  reports which. It also owns the **scenario coverage** of its own change: if the
+  task moves something a user can see, a scenario has to show it. One is written
+  before the `before` capture when nothing covers the state yet, and when the
+  `after` comes back `unchanged` on work that was meant to be visible, the
+  scenario is added or extended and the before state recaptured with
+  [`--retro`](#capturing-before-after-the-fact).
 - **`/work-group <G-n>`** — the same thing for a whole [group](#groups), one task
   at a time, in the order `tasks group queue` gives. Each task is branched from
   the group's branch and merged back into it, so the run leaves one reviewable
@@ -772,20 +782,21 @@ against whatever is on screen:
 | Tasks → a selected task | **Work with agent** | `/work-task T-12` |
 | A group's page | **Work with Agent** | `/work-group G-1` |
 
-Every run is launched with a **session id this app generates** and records, so
-any run can be reopened later: **Resume** on a run — the one on screen, or any
+Every resumable run records a **session id**, so **Resume** on a run — the one on screen, or any
 in the run history — opens a new terminal window on that same conversation
-(`claude --resume <id>`, `pi --session-id <id>`). It does not start a new run;
+(`claude --resume <id>`, `codex resume <id>`, `pi --session-id <id>`). It does not start a new run;
 it is the same session, opened again, so the history does not claim the agent
-was launched twice. Runs from before this was recorded show Resume disabled,
-because the id was the harness's to pick and was never captured.
+was launched twice. Claude Code and pi accept an id generated at launch. Codex
+generates its own; headless runs capture the id from its startup output, while
+interactive Codex runs cannot expose it to this server and show Resume disabled.
 
-The dialog takes an optional extra prompt, the harness (**Claude Code** or
-**pi**, whichever is on PATH) and the model. Claude Code cannot list its own
-models, so it offers the tier aliases — `opus`, `sonnet`, `fable`, `haiku` —
-which track the current model of each tier. `pi` is asked for its catalogue with
-`pi --list-models` and offers all of it, grouped by provider. Either can be left
-on its own default.
+The dialog takes an optional extra prompt, the harness (**Claude Code**,
+**Codex** or **pi**, whichever is on PATH) and the model. Claude Code cannot
+list its own models, so it offers the tier aliases — `opus`, `sonnet`, `fable`,
+`haiku` — which track the current model of each tier. Codex reads the user-visible
+models from the CLI's local catalogue and includes any additional configured tier
+models. `pi` is asked for its catalogue with `pi --list-models` and offers all of
+it, grouped by provider. Any harness can use its own default.
 
 The extra prompt goes *below* the command, so the command still gets its ref as
 its first argument. Investigate on an issue runs against the issue itself —
@@ -808,16 +819,18 @@ its permission mode defaults the way it does — see below.
 
 ### What it may do without asking
 
-Claude Code's permission mode is a property of the session, not of how it was
-launched, so the dialog offers it for **both** ways of running. `pi` has no
-equivalent and the control is hidden for it.
+Claude Code and Codex both expose permission controls for interactive and
+headless runs. `pi` has no equivalent and the control is hidden for it.
 
-| Choice | Flag | What it means |
+| Choice | Claude Code flag | What it means |
 | --- | --- | --- |
 | Ask every time | *(none passed)* | Claude's own default: it asks before each edit and each command. |
 | **Auto** | `--permission-mode auto` | Edits and safe commands go through unasked; risky ones still stop to ask. The mode Shift+Tab reaches inside the terminal UI — this just starts there. |
 | Plan only | `--permission-mode plan` | Reads and proposes, changes nothing. |
 | Never ask | `--permission-mode bypassPermissions` | Asks about nothing at all. |
+
+For Codex these choices map respectively to no flag, `--approve-for-me`,
+`--sandbox read-only`, and `--dangerously-bypass-approvals-and-sandbox`.
 
 "Ask every time" is the one mode expressed by passing *no* flag rather than by
 naming it, so a `claude` build that spells these modes differently still works.
@@ -1034,9 +1047,16 @@ The view, the filters and the card need no changes.
 ## Web UI
 
 ```bash
-tasks web           # serves the bundled build on the configured apiPort
-tasks web --dev     # Vite dev server on webPort, API on apiPort
+tasks web               # current Vue build on the configured apiPort
+tasks web --new         # Solid 2.0 + Tailwind proof of concept
+tasks web --dev         # Vue Vite dev server on webPort, API on apiPort
+tasks web --new --dev   # Solid Vite dev server on webPort, API on apiPort
 ```
+
+The two frontends have separate source and output directories, but use the same
+API and workspace. The Solid 2.0 prerelease references used by the new UI are
+vendored in [`docs/solid-2.0`](docs/solid-2.0/README.md); agents should begin
+with its migration guide before extending the proof of concept.
 
 The rail on the far left switches between **Investigations**, **Tasks**,
 **Plan**, **Branches**, **Baselines**, **Notes** and **Issues**. Investigations come first because that is

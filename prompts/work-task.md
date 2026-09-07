@@ -186,10 +186,45 @@ tasks start <ref>
 Skip this if it is already `in_progress` — which, per step 0, means you are
 resuming the task the user named.
 
-## 5. Capture the "before" checkpoint
+## 5. Make sure a scenario will show the change, then capture "before"
 
-**This must happen before you edit anything.** `after` diffs against this fixed
-reference; without it there is nothing to compare.
+**Every visible change this task makes must be visible in the checkpoint.** The
+before/after screenshots are how the user reviews the work; a change nothing
+captures is a change nobody can sign off.
+
+So before capturing, decide two things.
+
+**Will this task change what a user sees?** Anything rendered — a new field, a
+different layout, a label, a state that used to be reachable and now is not — is
+a yes. Pure backend work with no rendered consequence, a refactor with no visible
+effect, or a change to tooling is a no; say so explicitly in your report and
+carry on with a normal capture.
+
+**If yes, does an existing scenario show the thing that will move?** Look in the
+scenario directory (`.aio-vr/scenarios/`, one file per scenario) and read
+`.aio-vr/README.md` for how they are written in this repo — how a page is
+reached, how mocks and viewports are set, what makes a capture stable.
+
+- **A scenario already covers it** → scope the capture to that scenario.
+- **Nothing covers it, or the scenario stops short of the state you are about to
+  change** (the dialog it never opens, the tab it never clicks) → **write or
+  extend the scenario now, before capturing.** The scenario set is pinned at
+  capture time, so a scenario added later is not in the checkpoint and `after`
+  reports it as drift rather than comparing it.
+
+Do not run a new scenario through `aio-vr run` to try it out: `run` compares
+against the approved baselines and silently adopts the first capture of an
+unknown scenario as one. The capture below is the check — it reports each
+scenario as `CAPTURED` and writes the image path, so open the PNG and confirm it
+shows the state you are about to change. If it does not, fix the scenario and
+capture again.
+
+Scenarios are not in Git — the visual-regression workspace is ignored — so
+writing one does not dirty the working tree and does not belong in your commit.
+
+Then capture. **This must happen before you edit anything:** `after` diffs
+against this fixed reference, and a reference captured after the fact shows the
+change already made.
 
 ```bash
 tasks checkpoint before <ref>
@@ -202,12 +237,17 @@ tasks checkpoint before <ref> --scenario login.page
 ```
 
 The filter is remembered, so `after` reuses it automatically. Report which
-scenarios were captured.
+scenarios were captured, and which of them you wrote or changed for this task.
 
 ## 6. Make the change
 
 Do the actual work described by the task. Read `tasks show <ref> --json` for the
 description and any notes.
+
+If the task carries `attachments` — screenshots or other files someone attached
+when filing or editing it — each entry's `absolutePath` is a real file on disk.
+Read the images relevant to the change before starting; they often show the bug
+or the intended result more precisely than the description does.
 
 Keep the change scoped to what the task asks for. If you discover something else
 that needs doing, record it instead of widening this task:
@@ -252,9 +292,66 @@ Read the result. For each scenario it reports `unchanged`, `changed` or
 - **`failed`** — the scenario errored. Fix that before continuing.
 - **`changed`** — expected when the task is a visual change. Confirm the diff is
   what the task asked for and nothing else moved.
-- **`unchanged`** on a task that was supposed to change something visually means
-  your change did not take effect. Investigate rather than declaring success —
-  a common cause is the frontend container serving a stale build.
+- **`unchanged`** on a task that was supposed to change something visually.
+  Something is wrong; find out which of two things it is before declaring
+  success:
+  - **the change did not take effect** — a common cause is the frontend
+    container serving a stale build. Check the change is really live, then
+    re-run `after`.
+  - **the change is live but no scenario looks at it** — the scenario stops
+    short of the state you changed, or you decided in step 5 that the task was
+    invisible and it turned out not to be. Fix the coverage, per the next
+    section.
+
+### When nothing captured the change
+
+A visible change with no scenario showing it is not finished. Do not report it
+as "no visual difference" and move on — go back and cover it.
+
+Because the change is already written, the starting state has to be recaptured
+from the commit the task began at, which is what `--retro` is for:
+
+```bash
+# 1. Commit what you have — a retro capture refuses to run on a dirty tree.
+git add -A && git commit -m "<message>"
+
+# 2. Write the missing scenario, or extend the one that stops short.
+#    Scenarios are not in Git, so nothing to commit here.
+
+# 3. Recapture "before" at the commit the task started from, with today's
+#    scenarios. This checks that commit out and puts you back afterwards.
+tasks checkpoint before <ref> --retro --settle 10
+
+# 4. Diff against it again.
+tasks checkpoint after <ref>
+```
+
+`--retro` works out which commit to travel to on its own — the one the first
+`before` capture was taken at, or where the branch was cut. `--dry-run` prints
+that commit without running anything, and `--at <commit>` overrides it.
+`--settle <seconds>` gives the frontend time to rebuild the old code before the
+browser looks at it; without it you are likely to screenshot the new UI and see
+a false `unchanged`. Check both halves of the result: the recaptured before image
+should show the old state, and the scenario you added should now report
+`changed`. A scenario that still reports `unchanged` here means the before image
+was taken against code that had not reloaded — raise `--settle` and capture
+again.
+
+A bare `--retro` recaptures every scenario, which is slower but complete. To keep
+it scoped, name **all** the scenarios the checkpoint should hold — the ones the
+original capture used as well as the new one — since the recapture replaces the
+checkpoint rather than adding to it:
+
+```bash
+tasks checkpoint before <ref> --retro --scenario constraints.edit-dialog \
+  --scenario constraints.detail --settle 10
+```
+
+You committed in step 1 above, so step 8 has nothing left to stage — go straight
+to its straight-line check.
+
+Say in your final report that the before state was recaptured retroactively, and
+which scenarios you added or changed.
 
 ## 8. Commit on the branch
 
@@ -323,6 +420,9 @@ Tell the user:
   branch cannot be merged before the one it sits on
 - whether it was merged into a group branch, and which one
 - the per-scenario checkpoint result (`unchanged` / `changed` + percentage)
+- which scenarios you wrote or extended for this task, and whether the before
+  state had to be recaptured with `--retro`; or, if the task changed nothing
+  visible, say that plainly so the absence of a diff is not read as a miss
 - anything you deliberately left out, and any new tasks you filed — including
   any you filed with `--depends-on`
 - whether the task was blocked and worked anyway, if that is what happened

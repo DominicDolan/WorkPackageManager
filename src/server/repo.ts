@@ -1,5 +1,6 @@
 import { getDb, nextGroupRef, nextInvestigationRef, nextRef, nowIso } from './db';
 import { workspace } from '../config/paths';
+import { deleteTaskAttachments, listTaskAttachments } from './attachments';
 import {
   branchNameFor,
   groupBranchNameFor,
@@ -345,7 +346,12 @@ export function listRuns(taskId: number): CheckpointRun[] {
 
 export function getTaskDetail(ref: string): TaskDetail {
   const task = requireTask(ref);
-  return { ...task, events: listEvents(task.id), runs: listRuns(task.id) };
+  return {
+    ...task,
+    events: listEvents(task.id),
+    runs: listRuns(task.id),
+    attachments: listTaskAttachments(task.ref),
+  };
 }
 
 /* -------------------------------------------------------------- mutations */
@@ -383,9 +389,10 @@ export interface CreateInput {
   /** The investigation this task came out of, if any. Validated here so a typo'd
    *  ref fails loudly rather than producing a task nothing links to. */
   investigationRef?: string;
-  /** The group to file it under, by ref or by name. Left unset, a task filed
-   *  against an investigation lands in that investigation's own group and
-   *  anything else stays loose — see `groupForInvestigation`. */
+  /** The group to file it under, by ref or by name. A task filed against an
+   *  investigation may omit this and lands in that investigation's group.
+   *  Other new tasks must name a group; null remains in the type only so old
+   *  ungrouped records can still be read. */
   groupRef?: string | null;
   /** Refs of tasks this one has to wait for. */
   dependsOn?: string[];
@@ -402,19 +409,15 @@ export function createTask(input: CreateInput): Task {
   const investigation = input.investigationRef
     ? requireInvestigation(input.investigationRef).ref
     : null;
-  // An explicit group wins, including an explicit `null` meaning "loose, even
-  // though this came from an investigation". Otherwise a task filed against an
-  // investigation is grouped with the rest of that investigation's output: the
-  // tasks an agent files in one run are one piece of work, and having to group
-  // them by hand afterwards is exactly the chore this saves.
+  // An explicit group wins. Otherwise an investigation supplies its own group.
+  // Null used to mean "loose"; new work may no longer enter that legacy bucket.
+  if (input.groupRef === null || (input.groupRef === undefined && !investigation)) {
+    throw new Error('A new task must belong to a group. Pass a group or an investigation.');
+  }
   const group =
     input.groupRef === undefined
-      ? investigation
-        ? groupForInvestigation(investigation).ref
-        : null
-      : input.groupRef === null
-        ? null
-        : requireGroup(input.groupRef).ref;
+      ? groupForInvestigation(investigation!).ref
+      : requireGroup(input.groupRef).ref;
   // Same reasoning as the investigation above: a ref that does not resolve must
   // fail before the task exists, not leave one behind with half its blockers.
   const blockers = [...new Set((input.dependsOn ?? []).map((one) => requireTask(one).ref))];
@@ -532,8 +535,11 @@ export function updateTask(ref: string, input: UpdateInput): Task {
     changed.push('investigation');
   }
   if (input.groupRef !== undefined) {
+    if (!input.groupRef) {
+      throw new Error('Tasks must belong to a group. Choose another group instead.');
+    }
     assignments.push('group_ref = $group');
-    params.$group = input.groupRef ? requireGroup(input.groupRef).ref : null;
+    params.$group = requireGroup(input.groupRef).ref;
     changed.push('group');
   }
 
@@ -582,6 +588,7 @@ export function addNote(ref: string, note: string): Task {
 export function deleteTask(ref: string): void {
   const task = requireTask(ref);
   getDb().query('DELETE FROM tasks WHERE id = $id').run({ $id: task.id });
+  deleteTaskAttachments(task.ref);
 }
 
 /* ------------------------------------------------------------ dependencies */
@@ -913,6 +920,46 @@ export function createGroup(input: CreateGroupInput): TaskGroup {
   return requireGroup(ref);
 }
 
+/**
+ * Create the question and the group that will receive its tasks as one write.
+ *
+ * The separate rows remain intentional: the CLI and the legacy web UI still
+ * speak in investigations, while the current UI can present the pair as one
+ * group workflow. A transaction prevents a rejected group name or branch from
+ * leaving an orphan investigation behind.
+ */
+export function createInvestigatedGroup(
+  input: Omit<CreateGroupInput, 'investigationRef'> & { investigationBrief: string },
+): TaskGroup {
+  return getDb().transaction(() => {
+    const investigation = createInvestigation({ title: input.name, brief: input.investigationBrief });
+    return createGroup({
+      name: input.name,
+      description: input.description,
+      color: input.color,
+      branchName: input.branchName,
+      investigationRef: investigation.ref,
+    });
+  })();
+}
+
+/** Attach an investigation to a group made before groups owned their brief. */
+export function ensureGroupInvestigation(refOrName: string, brief?: string): Investigation {
+  const group = requireGroup(refOrName);
+  if (group.investigationRef) return requireInvestigation(group.investigationRef);
+
+  return getDb().transaction(() => {
+    const investigation = createInvestigation({
+      title: group.name,
+      brief: brief ?? group.description,
+    });
+    getDb()
+      .query('UPDATE task_groups SET investigation_ref = $investigation, updated_at = $at WHERE ref = $ref')
+      .run({ $investigation: investigation.ref, $at: nowIso(), $ref: group.ref });
+    return investigation;
+  })();
+}
+
 function validateGroupColor(value: string): string {
   const color = value.trim();
   if (!isGroupColor(color)) {
@@ -972,6 +1019,12 @@ export function deleteGroup(refOrName: string): { ref: string; released: string[
   const group = requireGroup(refOrName);
   const released = listTasks({ groupRef: group.ref, includeClosed: true }).map((task) => task.ref);
 
+  if (released.length) {
+    throw new Error(
+      `${group.ref} still has ${released.length} task(s). Move them to another group before deleting it.`,
+    );
+  }
+
   getDb().transaction(() => {
     getDb()
       .query('UPDATE tasks SET group_ref = NULL, updated_at = $at WHERE group_ref = $ref COLLATE NOCASE')
@@ -1023,6 +1076,9 @@ export function setTaskGroup(
   options: { reposition?: boolean } = {},
 ): Task {
   const task = requireTask(ref);
+  if (!groupRefOrName) {
+    throw new Error('Tasks must belong to a group. Choose another group instead.');
+  }
   const group = groupRefOrName ? requireGroup(groupRefOrName) : null;
   if ((task.groupRef ?? null) === (group?.ref ?? null)) return task;
 
@@ -1205,6 +1261,16 @@ export function updateInvestigation(
   getDb()
     .query(`UPDATE investigations SET ${assignments.join(', ')}, updated_at = $at WHERE ref = $ref`)
     .run(params);
+
+  // A linked group's description is the compatibility projection of the brief:
+  // the current UI calls it Investigation, while older clients still read the
+  // description column. Keeping it mirrored lets both interfaces tell the same
+  // story without a schema-breaking migration.
+  if (input.brief !== undefined) {
+    getDb()
+      .query('UPDATE task_groups SET description = $brief, updated_at = $at WHERE investigation_ref = $ref COLLATE NOCASE')
+      .run({ $brief: input.brief, $at: params.$at, $ref: investigation.ref });
+  }
 
   return requireInvestigation(investigation.ref);
 }
@@ -1601,6 +1667,7 @@ interface GroupRunRow {
   current_run_id: number | null;
   current_ref: string | null;
   worked_json: string;
+  excluded_json: string;
   stop_reason: string;
   created_at: string;
   finished_at: string | null;
@@ -1618,6 +1685,7 @@ function toGroupRun(row: GroupRunRow): GroupRun {
     currentRunId: row.current_run_id,
     currentRef: row.current_ref,
     worked: JSON.parse(row.worked_json) as string[],
+    excluded: JSON.parse(row.excluded_json) as string[],
     stopReason: row.stop_reason,
     createdAt: row.created_at,
     finishedAt: row.finished_at,
@@ -1692,12 +1760,13 @@ export function createGroupRun(input: {
   model: string;
   permissionMode: AgentPermissionMode;
   extra: string;
+  excluded: string[];
 }): GroupRun {
   const row = getDb()
     .query<{ id: number }, Record<string, string>>(
       `INSERT INTO group_runs
-         (group_ref, harness, model, permission_mode, extra, status, worked_json, created_at)
-       VALUES ($ref, $harness, $model, $permission, $extra, 'running', '[]', $at)
+         (group_ref, harness, model, permission_mode, extra, status, worked_json, excluded_json, created_at)
+       VALUES ($ref, $harness, $model, $permission, $extra, 'running', '[]', $excluded, $at)
        RETURNING id`,
     )
     .get({
@@ -1706,6 +1775,7 @@ export function createGroupRun(input: {
       $model: input.model,
       $permission: input.permissionMode,
       $extra: input.extra,
+      $excluded: JSON.stringify(input.excluded),
       $at: nowIso(),
     })!;
 

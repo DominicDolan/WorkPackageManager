@@ -204,7 +204,7 @@ const formatDate = (value: string) => new Date(value).toLocaleString();
       <h3>Run it</h3>
       <div class="panel">
         <p class="dim" style="margin-top: 0">
-          Run this in Claude Code or pi from the repository root. The agent reads the
+          Run this in Claude Code, Codex or pi from the repository root. The agent reads the
           brief, investigates, files what it finds as tasks against
           {{ investigation.ref }}, and writes its findings back here.
         </p>

@@ -330,6 +330,7 @@ const registered = computed(() => new Set(props.group.delivery?.taskRefs ?? []))
       :start-blocked-reason="launch.startBlockedReason ?? null"
       :loop-group-ref="launch.loopGroupRef ?? null"
       :attach-group-run-id="launch.attachGroupRunId ?? null"
+      :group-tasks="group.queue"
       @close="agentDialogClosed"
     />
 
@@ -517,6 +518,9 @@ const registered = computed(() => new Set(props.group.delivery?.taskRefs ?? []))
           <p class="faint" style="margin: 10px 0 0">
             A fresh agent per task, each starting from nothing. Stopping kills the one in
             flight; the tasks it already merged stay merged.
+          </p>
+          <p v-if="activeRun.excluded.length" class="faint" style="margin: 8px 0 0">
+            Excluded: <span class="mono">{{ activeRun.excluded.join(', ') }}</span>
           </p>
         </template>
 

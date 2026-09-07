@@ -14,9 +14,10 @@ import {
   type TaskDetail,
   type TaskGroupSummary,
 } from '@shared/types';
-import { api } from '../api';
+import { api, taskAssetUrl } from '../api';
 import AgentRunDialog from './AgentRunDialog.vue';
 import ComparisonCard from './ComparisonCard.vue';
+import ImageLightbox, { type LightboxImage } from './ImageLightbox.vue';
 import MarkdownBlock from './MarkdownBlock.vue';
 
 const props = defineProps<{
@@ -289,6 +290,116 @@ const nextStatuses = computed<Status[]>(() => {
   }
 });
 
+/* ------------------------------------------------------------ attachments */
+
+const dragging = ref(false);
+
+async function uploadFiles(files: File[]): Promise<{ name: string }[]> {
+  if (!files.length) return [];
+  busy.value = 'upload';
+  error.value = null;
+  try {
+    const result = await api.uploadTaskAttachments(props.task.ref, files);
+    emit('changed', result.task);
+    return result.added;
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+    return [];
+  } finally {
+    busy.value = null;
+  }
+}
+
+/** Drop the markdown image link where the caret is, so a pasted screenshot
+ *  lands in the paragraph being written rather than at the end. */
+function insertAtCursor(text: string): void {
+  const field = descriptionEditor.value;
+  if (!field) {
+    draft.value.description = `${draft.value.description.replace(/\s+$/, '')}\n\n${text}\n`;
+    return;
+  }
+
+  const start = field.selectionStart;
+  const end = field.selectionEnd;
+  const before = draft.value.description.slice(0, start);
+  const after = draft.value.description.slice(end);
+  const padded = `${before}${before && !before.endsWith('\n') ? '\n\n' : ''}${text}\n${after}`;
+  draft.value.description = padded;
+
+  const caret = padded.length - after.length;
+  requestAnimationFrame(() => {
+    field.focus();
+    field.setSelectionRange(caret, caret);
+  });
+}
+
+/** Upload files pasted or dropped into the description, and link them into it
+ *  at the caret — mirroring how a note's editor attaches an image. */
+async function uploadIntoDescription(files: File[]): Promise<void> {
+  if (!files.length) return;
+  const added = await uploadFiles(files);
+  const markdown = added.map((one) => `![${one.name}](${taskAssetUrl(props.task.ref, one.name)})`);
+  if (markdown.length) insertAtCursor(markdown.join('\n'));
+}
+
+const descriptionEditor = ref<HTMLTextAreaElement | null>(null);
+
+function onDescriptionPaste(event: ClipboardEvent): void {
+  const files = [...(event.clipboardData?.files ?? [])];
+  if (!files.length) return;
+  // Only take over the paste when it is actually a file: pasted text must keep
+  // the browser's own behaviour, caret and undo history included.
+  event.preventDefault();
+  void uploadIntoDescription(files);
+}
+
+function onDescriptionDrop(event: DragEvent): void {
+  const files = [...(event.dataTransfer?.files ?? [])];
+  if (!files.length) return;
+  // Stopped so the section-level drop handler below does not also fire for the
+  // same drop — that one attaches the file without linking it into the text.
+  event.preventDefault();
+  event.stopPropagation();
+  void uploadIntoDescription(files);
+}
+
+function onDrop(event: DragEvent): void {
+  dragging.value = false;
+  const files = [...(event.dataTransfer?.files ?? [])];
+  if (!files.length) return;
+  event.preventDefault();
+  void uploadFiles(files);
+}
+
+function onPick(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  void uploadFiles([...(input.files ?? [])]).then(() => (input.value = ''));
+}
+
+async function removeAttachment(name: string): Promise<void> {
+  if (!confirm(`Delete the attachment '${name}'?`)) return;
+  await run(`attachment-${name}`, () => api.deleteTaskAttachment(props.task.ref, name));
+}
+
+/** Every image attached to this task, in the order the list shows them, so the
+ *  viewer can step through the set from whichever one was clicked. */
+const gallery = computed<LightboxImage[]>(() =>
+  props.task.attachments
+    .filter((attachment) => attachment.isImage)
+    .map((attachment) => ({ src: taskAssetUrl(props.task.ref, attachment.name), name: attachment.name })),
+);
+
+const viewing = ref<{ images: LightboxImage[]; index: number } | null>(null);
+watch(() => props.task.ref, () => (viewing.value = null));
+
+function viewAttachment(name: string): void {
+  const index = gallery.value.findIndex((image) => image.name === name);
+  if (index !== -1) viewing.value = { images: gallery.value, index };
+}
+
+const formatSize = (bytes: number) =>
+  bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+
 const formatDate = (value: string) => new Date(value).toLocaleString();
 
 const eventText = (event: TaskDetail['events'][number]): string => {
@@ -303,7 +414,7 @@ const eventText = (event: TaskDetail['events'][number]): string => {
 </script>
 
 <template>
-  <section class="detail">
+  <section class="detail" @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop="onDrop">
     <p v-if="error" class="banner">{{ error }}</p>
     <!-- The status change succeeded and the merge did not, so this is its own
          line rather than the error banner. -->
@@ -416,7 +527,15 @@ const eventText = (event: TaskDetail['events'][number]): string => {
       </div>
       <div class="field">
         <label for="edit-desc">Description</label>
-        <textarea id="edit-desc" v-model="draft.description" />
+        <textarea
+          id="edit-desc"
+          ref="descriptionEditor"
+          v-model="draft.description"
+          placeholder="Markdown. Paste or drop an image to attach it."
+          @paste="onDescriptionPaste"
+          @drop="onDescriptionDrop"
+        />
+        <p v-if="busy === 'upload'" class="faint" style="margin: 4px 0 0">Uploading…</p>
       </div>
       <div class="row">
         <div class="field" style="flex: 1">
@@ -581,6 +700,59 @@ const eventText = (event: TaskDetail['events'][number]): string => {
         Nothing captured yet. Take a "before" checkpoint prior to making your change.
       </p>
     </div>
+
+    <!-- --------------------------------------------------------- attachments -->
+    <div class="section" :class="{ dropping: dragging }">
+      <h3>Attachments{{ task.attachments.length ? ` (${task.attachments.length})` : '' }}</h3>
+
+      <div class="panel">
+        <p class="faint" style="margin: 0 0 10px">
+          Drop a screenshot here, or attach one below. Any agent working this task can read
+          these files directly off disk.
+        </p>
+        <div class="row">
+          <label class="attach-button">
+            <input type="file" multiple hidden accept="image/*" @change="onPick" />
+            <span>{{ busy === 'upload' ? 'Uploading…' : 'Attach files' }}</span>
+          </label>
+        </div>
+
+        <div v-if="task.attachments.length" class="attachment-grid" style="margin-top: 12px">
+          <figure v-for="attachment in task.attachments" :key="attachment.path" class="attachment">
+            <button
+              v-if="attachment.isImage"
+              class="attachment-open"
+              :title="`View ${attachment.name}`"
+              @click="viewAttachment(attachment.name)"
+            >
+              <img :src="taskAssetUrl(task.ref, attachment.name)" :alt="attachment.name" />
+            </button>
+            <a v-else :href="taskAssetUrl(task.ref, attachment.name)" target="_blank" rel="noreferrer noopener">
+              <span class="attachment-file" aria-hidden="true">📎</span>
+            </a>
+            <figcaption>
+              <span class="mono">{{ attachment.name }}</span>
+              <span class="faint">{{ formatSize(attachment.size) }}</span>
+              <button
+                class="danger"
+                :disabled="!!busy"
+                @click="removeAttachment(attachment.name)"
+              >
+                {{ busy === `attachment-${attachment.name}` ? '…' : 'Remove' }}
+              </button>
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+    </div>
+
+    <ImageLightbox
+      v-if="viewing"
+      :images="viewing.images"
+      :index="viewing.index"
+      @update:index="viewing.index = $event"
+      @close="viewing = null"
+    />
 
     <!-- ----------------------------------------------------------- history -->
     <div class="section">

@@ -92,7 +92,12 @@ export function workspace(startDir = process.cwd()): Workspace {
     notesDir: process.env.TASKS_NOTES_DIR
       ? resolve(process.env.TASKS_NOTES_DIR)
       : resolve(tasksDir, config.notesDir),
-    distDir: join(packageRoot, 'dist', 'web'),
+    // The CLI selects the legacy or Solid build before starting the shared API
+    // server. Keeping that choice in the environment also works when this
+    // package is globally installed and the workspace lives elsewhere.
+    distDir: process.env.TASKS_WEB_DIST
+      ? resolve(process.env.TASKS_WEB_DIST)
+      : join(packageRoot, 'dist', 'web'),
     promptsDir: join(packageRoot, 'prompts'),
     config,
   };

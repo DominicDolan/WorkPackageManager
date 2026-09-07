@@ -183,8 +183,8 @@ const SCHEMA = [
      prompt       TEXT    NOT NULL,
      argv_json    TEXT    NOT NULL DEFAULT '[]',
      pid          INTEGER,
-     -- The conversation id handed to the harness at launch, so the session can
-     -- be reopened later. Generated here rather than discovered afterwards.
+     -- The conversation id used by the harness, so the session can be reopened.
+     -- Usually supplied at launch; captured from output when Codex generates it.
      session_id   TEXT,
      status       TEXT    NOT NULL,
      exit_code    INTEGER,
@@ -214,6 +214,7 @@ const SCHEMA = [
      current_run_id  INTEGER,
      current_ref     TEXT,
      worked_json     TEXT    NOT NULL DEFAULT '[]',
+     excluded_json   TEXT    NOT NULL DEFAULT '[]',
      stop_reason     TEXT    NOT NULL DEFAULT '',
      created_at      TEXT    NOT NULL,
      finished_at     TEXT
@@ -260,6 +261,8 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   // Null means push to origin under the same name as the local branch, which
   // is the historical default.
   { table: 'combined_branches', column: 'remote_branch', definition: 'TEXT' },
+  // Older unattended runs included every queued task.
+  { table: 'group_runs', column: 'excluded_json', definition: "TEXT NOT NULL DEFAULT '[]'" },
 ];
 
 /** Indexes over columns that ADDED_COLUMNS may have only just created, so they

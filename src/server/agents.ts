@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { workspace } from '../config/paths';
 import { getDb, nowIso } from './db';
@@ -23,7 +24,7 @@ import {
  * Running a coding agent against an issue or a task, from the UI.
  *
  * Two things make this simpler than it looks. First, the prompt is the same for
- * both harnesses: `plan-tasks` and `work-task`'s instructions live as Markdown
+ * every harness: `plan-tasks` and `work-task`'s instructions live as Markdown
  * in this package's `prompts/` folder (see `buildPrompt`) and are inlined into
  * one message, so the same string drives either. Second, the two run modes are
  * genuinely different products rather than two settings of one:
@@ -35,9 +36,8 @@ import {
  *   log file the UI streams back. Nobody is at a terminal to approve anything,
  *   so a headless run has to be told up front that it may act unattended.
  *
- * Orthogonal to both is Claude Code's permission mode, which is a property of
- * the session rather than of how it was launched: `auto` is as meaningful in a
- * terminal window — where it is what Shift+Tab reaches — as it is headless.
+ * Orthogonal to both is how much the agent may do without asking. Each harness
+ * translates the app's four choices to its own permission and sandbox flags.
  *
  * Adding a harness is one entry in `HARNESSES`: what it is called, how it takes
  * a model, how it spells "run this and exit", and how (or whether) it can list
@@ -92,6 +92,8 @@ interface HarnessDef {
   /** True when `models()` shells out and the UI should fetch it separately. */
   modelsLazy: boolean;
   models(): AgentModel[];
+  /** Whether the app can choose the conversation id before launch. */
+  suppliedSessionId: boolean;
   /**
    * The argv for one run, minus any terminal wrapper. `model` is empty when the
    * harness's own default should stand.
@@ -104,7 +106,7 @@ interface HarnessDef {
     mode: AgentRunMode;
     permissionMode: AgentPermissionMode;
     /** The conversation id to create, so the session can be reopened later. */
-    sessionId: string;
+    sessionId: string | null;
   }): string[];
   /**
    * The argv that reopens a session this harness created, always interactive —
@@ -127,6 +129,53 @@ const CLAUDE_MODELS: AgentModel[] = [
   { id: 'haiku', label: 'Haiku — fastest, cheapest', group: 'Aliases' },
 ];
 
+interface CodexModelCache {
+  models?: Array<{
+    slug?: unknown;
+    display_name?: unknown;
+    visibility?: unknown;
+    priority?: unknown;
+  }>;
+}
+
+/**
+ * Codex has no model-list command, but the CLI maintains the same account-aware
+ * catalogue used by its own model picker in `models_cache.json`. Hidden models
+ * are implementation details and should not appear in this picker. Configured
+ * tier ids are merged in so an explicit repository choice survives a missing or
+ * temporarily stale cache.
+ */
+function codexModels(): AgentModel[] {
+  const models: AgentModel[] = [{ id: '', label: 'Default (Codex’s configured model)', group: null }];
+  const seen = new Set<string>();
+
+  try {
+    const codexHome = process.env.CODEX_HOME || join(homedir(), '.codex');
+    const cache = JSON.parse(readFileSync(join(codexHome, 'models_cache.json'), 'utf8')) as CodexModelCache;
+    const visible = (cache.models ?? [])
+      .filter((entry) => entry.visibility !== 'hide' && typeof entry.slug === 'string' && entry.slug)
+      .sort((a, b) =>
+        (typeof a.priority === 'number' ? a.priority : Number.MAX_SAFE_INTEGER)
+        - (typeof b.priority === 'number' ? b.priority : Number.MAX_SAFE_INTEGER));
+
+    for (const entry of visible) {
+      const id = entry.slug as string;
+      const label = typeof entry.display_name === 'string' && entry.display_name ? entry.display_name : id;
+      models.push({ id, label, group: 'Available models' });
+      seen.add(id);
+    }
+  } catch {
+    // A first install may not have populated the cache yet. The default and any
+    // explicitly configured tiers below still make the harness usable.
+  }
+
+  const configured = Object.values(ws.config.modelTiers.codex ?? {});
+  for (const id of new Set(configured)) {
+    if (id && !seen.has(id)) models.push({ id, label: id, group: 'Configured tiers' });
+  }
+  return models;
+}
+
 const HARNESSES: HarnessDef[] = [
   {
     id: 'claude',
@@ -134,11 +183,12 @@ const HARNESSES: HarnessDef[] = [
     bin: 'claude',
     modelsLazy: false,
     models: () => CLAUDE_MODELS,
+    suppliedSessionId: true,
     argv: ({ prompt, model, effort, mode, permissionMode, sessionId }) => {
       const argv = ['claude'];
       // Naming the conversation up front is what makes Resume possible. The
       // harness creates it under this id, so nothing has to be discovered.
-      argv.push('--session-id', sessionId);
+      argv.push('--session-id', sessionId!);
       if (model) argv.push('--model', model);
       if (effort) argv.push('--effort', effort);
       // `manual` is Claude's own default, and saying so explicitly would break
@@ -155,6 +205,27 @@ const HARNESSES: HarnessDef[] = [
     resumeArgv: (sessionId) => ['claude', '--resume', sessionId],
   },
   {
+    id: 'codex',
+    label: 'Codex',
+    bin: 'codex',
+    modelsLazy: false,
+    models: codexModels,
+    suppliedSessionId: false,
+    argv: ({ prompt, model, mode, permissionMode }) => {
+      const argv = ['codex'];
+      if (mode === 'print') argv.push('exec');
+      if (model) argv.push('--model', model);
+      if (permissionMode === 'auto') argv.push('--approve-for-me');
+      if (permissionMode === 'plan') argv.push('--sandbox', 'read-only');
+      if (permissionMode === 'bypassPermissions') {
+        argv.push('--dangerously-bypass-approvals-and-sandbox');
+      }
+      argv.push(prompt);
+      return argv;
+    },
+    resumeArgv: (sessionId) => ['codex', 'resume', sessionId],
+  },
+  {
     id: 'pi',
     label: 'pi',
     bin: 'pi',
@@ -162,11 +233,12 @@ const HARNESSES: HarnessDef[] = [
     // knows, and takes long enough to be worth fetching only when asked for.
     modelsLazy: true,
     models: listPiModels,
+    suppliedSessionId: true,
     // `pi` has no equivalent of a permission mode — `--approve` is about trusting
     // project files, not about what the agent may do — so it is ignored here
     // rather than approximated.
     argv: ({ prompt, model, mode, sessionId }) => {
-      const argv = ['pi', '--session-id', sessionId];
+      const argv = ['pi', '--session-id', sessionId!];
       if (model) argv.push('--model', model);
       if (mode === 'print') argv.push('--print');
       argv.push(prompt);
@@ -290,7 +362,7 @@ function promptTemplate(command: AgentCommand): string {
  * run depend on the user's global config rather than this repository, so
  * instead the full instructions are inlined here: the harness gets one long
  * message with everything it needs, and nothing has to be installed beyond the
- * `claude` or `pi` binary itself.
+ * `claude`, `codex` or `pi` binary itself.
  *
  * `work-group` is a loop around `work-task`'s procedure, so its template gets
  * that procedure's own Markdown spliced in whole rather than telling the agent
@@ -439,7 +511,7 @@ export interface StartRunInput {
   extra: string;
   subjectKind: string;
   subjectRef: string;
-  /** How much the agent may do without asking. Claude Code only. */
+  /** How much the agent may do without asking, when supported by the harness. */
   permissionMode: AgentPermissionMode;
 }
 
@@ -455,10 +527,10 @@ export function startRun(input: StartRunInput): AgentRun {
   }
 
   const prompt = buildPrompt(input.command, input.target, input.extra);
-  // Chosen here, not read back afterwards. Both harnesses accept a supplied id,
-  // and picking "the newest transcript" would race with any other window the
-  // user happens to have open in this repository.
-  const sessionId = crypto.randomUUID();
+  // Claude and pi accept a supplied id. Codex reports its generated id after a
+  // headless launch; its terminal output belongs to the terminal, so there is
+  // no race-free way for this server to discover that session.
+  const sessionId = definition.suppliedSessionId ? crypto.randomUUID() : null;
   // Task descriptions and notes are the handoff from the investigating agent.
   // Spend less of a task agent's budget rediscovering that work; investigation
   // runs deliberately retain their harness default.
@@ -586,6 +658,9 @@ function spawnHeadless(id: number, argv: string[]): void {
 
   // Read chunk by chunk rather than awaiting the whole stream: a `/work-task`
   // run takes minutes, and the log is worth watching while it does.
+  let needsSessionCapture = readRow(id).session_id === null;
+  let sessionText = '';
+  const decoder = new TextDecoder();
   const pump = async (stream: ReadableStream<Uint8Array> | undefined | null): Promise<void> => {
     if (!stream) return;
     const reader = stream.getReader();
@@ -595,6 +670,17 @@ function spawnHeadless(id: number, argv: string[]): void {
       if (value) {
         sink.write(value);
         sink.flush();
+        // Codex writes a startup header containing `session id: <uuid>`. Keep a
+        // small rolling window so the match also works across stream chunks.
+        if (needsSessionCapture) {
+          sessionText = (sessionText + decoder.decode(value, { stream: true })).slice(-4096);
+          const reported = sessionText.match(/session id:\s*([0-9a-f-]{36})/i)?.[1];
+          if (reported) {
+            getDb().query('UPDATE agent_runs SET session_id = $session WHERE id = $id')
+              .run({ $id: id, $session: reported });
+            needsSessionCapture = false;
+          }
+        }
       }
     }
   };
@@ -651,8 +737,8 @@ export function resumeRun(id: number): AgentRun {
 
   if (!row.session_id) {
     throw new Error(
-      `Run ${id} was launched before sessions were recorded, so there is no conversation to reopen. ` +
-        'Runs started from now on can be resumed.',
+      `Run ${id} has no recorded conversation id, so it cannot be reopened. ` +
+        'Older runs and interactive Codex runs do not have one.',
     );
   }
   if (!onPath(definition.bin)) {

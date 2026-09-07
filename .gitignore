@@ -3,3 +3,4 @@ dist/
 
 # A workspace created by running `tasks init` inside this checkout.
 .tasks/
+/.idea/

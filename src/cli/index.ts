@@ -408,6 +408,14 @@ function commandShow(args: Args): void {
   print(`  ${dim('branch:')} ${detail.branchName ?? '(none — legacy completed task)'}`);
   print(`  ${dim('checkpoint:')} ${detail.checkpointName ?? '(none)'}`);
 
+  if (detail.attachments.length) {
+    print();
+    print(`  ${dim('attachments')}`);
+    for (const attachment of detail.attachments) {
+      print(`    ${attachment.name.padEnd(28)} ${dim(attachment.absolutePath)}`);
+    }
+  }
+
   if (detail.dependsOn.length || detail.blocks.length) {
     const universe = allTasks();
     const byRef = new Map(universe.map((task) => [task.ref, task]));
@@ -450,7 +458,7 @@ function commandNew(args: Args): void {
   const title = args.positional.slice(1).join(' ');
   if (!title) {
     throw new Error(
-      'Usage: tasks new "<title>" [--branch <name>] [--desc <text>] [--priority high] [--tier <t>] [--units <n>]',
+      'Usage: tasks new "<title>" (--group <ref> | --investigation <ref>) [--branch <name>] [--desc <text>] [--priority high] [--tier <t>] [--units <n>]',
     );
   }
 
@@ -472,9 +480,7 @@ function commandNew(args: Args): void {
     tags: flagList(args, 'tag'),
     branchName: flagString(args, 'branch'),
     investigationRef: flagString(args, 'investigation'),
-    // `--no-group` files it loose even when it came from an investigation,
-    // which would otherwise group it automatically.
-    groupRef: args.flags.group === false ? null : flagString(args, 'group'),
+    groupRef: flagString(args, 'group'),
     dependsOn: flagList(args, 'depends-on'),
     estimateUnits: flagUnits(args),
   });
@@ -1669,7 +1675,7 @@ function commandInit(args: Args): void {
   if (excluded === 'added') print(`  ${green('ignored')}  .tasks/ added to .git/info/exclude`);
   if (excluded === 'no-git') print(`  ${dim('note   ')}  not a Git repository, so nothing was excluded`);
   print();
-  print(dim('  Edit the config, then create the first task with: tasks new "<title>"'));
+  print(dim('  Edit the config, then create a group with: tasks group new "<name>"'));
   print();
 }
 
@@ -2200,8 +2206,10 @@ function requireDevDependencies(what: string): void {
 async function commandWeb(args: Args): Promise<void> {
   const ws = workspace();
   const dev = flagBool(args, 'dev');
+  const newUi = flagBool(args, 'new');
   const apiPort =
     flagString(args, 'port') ?? process.env.TASKS_API_PORT ?? String(ws.config.apiPort);
+  const distDir = join(packageRoot, 'dist', newUi ? 'web-new' : 'web');
 
   // Both children run with the PACKAGE as their cwd, because that is where
   // their dependencies live — which means they cannot find the workspace by
@@ -2211,14 +2219,17 @@ async function commandWeb(args: Args): Promise<void> {
     ...process.env,
     TASKS_API_PORT: apiPort,
     TASKS_WEB_PORT: String(ws.config.webPort),
+    TASKS_WEB_DIST: distDir,
     TASKS_DIR: ws.tasksDir,
   };
 
   if (dev) {
     requireDevDependencies('tasks web --dev');
-    print(dim('Starting the API and the Vite dev server...'));
+    print(dim(`Starting the API and the ${newUi ? 'Solid' : 'Vue'} Vite dev server...`));
     const api = Bun.spawn(['bun', 'run', serverPath], { cwd: packageRoot, env, stdout: 'inherit', stderr: 'inherit' });
-    const web = Bun.spawn(['bunx', 'vite'], { cwd: packageRoot, env, stdout: 'inherit', stderr: 'inherit' });
+    const viteArgs = ['bunx', 'vite'];
+    if (newUi) viteArgs.push('--config', 'vite.new.config.ts');
+    const web = Bun.spawn(viteArgs, { cwd: packageRoot, env, stdout: 'inherit', stderr: 'inherit' });
 
     const stop = () => {
       api.kill();
@@ -2232,10 +2243,12 @@ async function commandWeb(args: Args): Promise<void> {
     return;
   }
 
-  if (!existsSync(join(ws.distDir, 'index.html'))) {
+  if (!existsSync(join(distDir, 'index.html'))) {
     requireDevDependencies('Building the web UI');
     print(dim('No build found; building the web UI first...'));
-    const build = Bun.spawn(['bunx', 'vite', 'build'], {
+    const buildArgs = ['bunx', 'vite', 'build'];
+    if (newUi) buildArgs.push('--config', 'vite.new.config.ts');
+    const build = Bun.spawn(buildArgs, {
       cwd: packageRoot,
       stdout: 'inherit',
       stderr: 'inherit',
@@ -2286,11 +2299,11 @@ ${bold('Tasks')}
   tasks show <ref> [--json]
   tasks new "<title>" [--branch <name>] [--desc <text>] [--priority low|medium|high]
                       [--tier fast|standard|frontier] [--tag <t>]
-                      [--investigation <ref>] [--group <g> | --no-group] [--depends-on <ref>]
+                      (--investigation <ref> | --group <g>) [--depends-on <ref>]
   tasks edit <ref> [--title <t>] [--desc <t>] [--priority <p>] [--status <s>] [--tag <t>]
                    [--tier fast|standard|frontier | --no-tier]
                    [--investigation <ref> | --no-investigation]
-                   [--group <g> | --no-group]
+                   [--group <g>]
                    [--depends-on <ref> | --no-depends-on]
   tasks note <ref> <text>
   tasks rm <ref>
@@ -2304,10 +2317,9 @@ ${bold('Groups')}   a named bundle of tasks — a feature, a release, an investi
   tasks group edit <ref|name> [--name <n>] [--desc <t>] [--color #rrggbb] [--branch <name>]
   tasks group queue <ref|name> [--json]     what is left, in dependency order
   tasks group add <ref|name> <task-ref>...  put tasks in it
-  tasks group clear <task-ref>...           take tasks out of whatever group they are in
-  tasks group rm <ref|name>                 the tasks it held are kept, ungrouped
+  tasks group rm <ref|name>                 delete an empty group
   tasks group order <ref|name>...           the order of the empty ones
-    A task is in at most one group; tags stay what they are. Adding a task to a
+    Every task belongs to one group; tags stay what they are. Adding a task to a
     group also moves it beside the rest of that group in the queue, so the
     grouped list reads in the same order as the flat one.
     Tasks filed with --investigation are grouped under that investigation
@@ -2400,8 +2412,9 @@ ${bold('Issues')}   read from the issue JSON files in the notes folder; never fe
     --raw                        the provider's own JSON, unflattened
 
 ${bold('Web UI')}
-  tasks web [--port <n>]         serve the UI (port from the repo's config)
-  tasks web --dev                hot-reloading dev server (needs a checkout)
+  tasks web [--port <n>]         serve the current Vue UI
+  tasks web --new                serve the Solid 2.0 proof of concept
+  tasks web [--new] --dev        hot-reloading dev server (needs a checkout)
 
 ${bold('Global')}
   --json                         machine-readable output (for agents)

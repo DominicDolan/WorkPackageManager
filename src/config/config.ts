@@ -77,7 +77,7 @@ export interface TasksConfig {
   checks: CheckDefinition[];
   /**
    * Each harness's capability tiers, resolved to a real model id — e.g.
-   * `{ claude: { fast: 'haiku', standard: 'sonnet', frontier: 'opus' } }`. This
+   * `{ codex: { fast: 'gpt-5.6-luna', standard: 'gpt-5.6-terra' } }`. This
    * is the one place a concrete model name is allowed to mean "recommended":
    * everywhere else (a task's `recommendedTier`, an investigation's filing)
    * only ever names a tier, so the mapping can be retuned as model lineups

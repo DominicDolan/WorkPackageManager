@@ -13,6 +13,7 @@ import {
   GROUP_RUN_STATUS_LABELS,
   type GroupRun,
   type ModelTier,
+  type Task,
 } from '@shared/types';
 import { api } from '../api';
 
@@ -23,7 +24,7 @@ import { api } from '../api';
  * from a task, `work-group` from a group — because the only thing that differs
  * between them is the command name and its argument, and the server inlines
  * each one's instructions from this package's `prompts/` folder rather than
- * relying on anything installed separately in Claude Code or `pi`.
+ * relying on anything installed separately in Claude Code, Codex or `pi`.
  *
  * Two run modes, and they are not two settings of one thing. A **terminal** run
  * opens a real window with the agent interactive inside it: it can ask, you can
@@ -72,6 +73,8 @@ const props = defineProps<{
    * a form offering to start a second.
    */
   attachGroupRunId?: number | null;
+  /** Unfinished tasks offered for inclusion when configuring a group loop. */
+  groupTasks?: Task[];
 }>();
 
 /** True when Run starts a loop over a group rather than one command. */
@@ -89,6 +92,7 @@ const model = ref('');
 const mode = ref<AgentRunMode>('terminal');
 const permissionMode = ref<AgentPermissionMode>('auto');
 const extra = ref('');
+const excluded = ref<string[]>([]);
 
 const error = ref<string | null>(null);
 const starting = ref(false);
@@ -138,21 +142,27 @@ const groupedModels = computed(() => {
 /** What each mode actually means, in the terms this app's two commands work in.
  *  Both are mostly shell (`tasks …`, `git …`), which is what makes the
  *  difference between `auto` and `never ask` matter here. */
-const PERMISSION_HINTS: Record<AgentPermissionMode, string> = {
-  manual: 'Claude asks before each edit and each command. Its default.',
-  auto: 'Edits and safe commands go through unasked; anything risky still stops to ask. The mode Shift+Tab reaches in the terminal.',
+const permissionHints = computed<Record<AgentPermissionMode, string>>(() => ({
+  manual: `${chosenHarness.value?.label ?? 'The agent'} uses its normal approval behavior.`,
+  auto: 'Routine workspace work proceeds automatically; risky actions can still require approval.',
   plan: 'Reads and proposes a plan, changes nothing.',
-  bypassPermissions: 'Never asks about anything. The only mode a headless run can finish in, since nobody is there to answer.',
-};
+  bypassPermissions: 'Never asks about anything. Intended for an already isolated environment.',
+}));
 
 /** Shown verbatim so the run is never a surprise — and `manual` genuinely passes
  *  no flag, rather than being hidden behind a friendly word. */
-const permissionFlag = computed(() =>
-  permissionMode.value === 'manual' ? 'no --permission-mode flag' : `--permission-mode ${permissionMode.value}`,
-);
+const permissionFlag = computed(() => {
+  if (permissionMode.value === 'manual') return 'no permission flag';
+  if (harness.value === 'codex') {
+    if (permissionMode.value === 'auto') return '--approve-for-me';
+    if (permissionMode.value === 'plan') return '--sandbox read-only';
+    return '--dangerously-bypass-approvals-and-sandbox';
+  }
+  return `--permission-mode ${permissionMode.value}`;
+});
 
-/** Claude is the only harness with permission modes; pi has no equivalent. */
-const supportsPermissions = computed(() => harness.value === 'claude');
+/** pi has no equivalent permission/sandbox controls. */
+const supportsPermissions = computed(() => harness.value !== 'pi');
 
 /** A headless run cannot answer a question, so anything that might ask will
  *  sit there until it is stopped. */
@@ -283,6 +293,7 @@ async function start(): Promise<void> {
         model: model.value,
         permissionMode: permissionMode.value,
         extra: extra.value,
+        excluded: excluded.value,
       });
       groupRun.value = started.groupRun;
       run.value = started.run;
@@ -476,6 +487,21 @@ watch(output, () => {
           </p>
         </div>
 
+        <fieldset v-if="isLoop" class="field group-run-tasks">
+          <legend>Tasks to run</legend>
+          <p class="faint">Clear any task you want this run to leave untouched.</p>
+          <label v-for="task in groupTasks ?? []" :key="task.ref" class="agent-mode">
+            <input
+              type="checkbox"
+              :checked="!excluded.includes(task.ref)"
+              @change="excluded = ($event.target as HTMLInputElement).checked
+                ? excluded.filter((ref) => ref !== task.ref)
+                : [...excluded, task.ref]"
+            />
+            <span><strong class="mono">{{ task.ref }}</strong><span>{{ task.title }}</span></span>
+          </label>
+        </fieldset>
+
         <div v-else class="field">
           <label>How to run it</label>
           <label class="agent-mode">
@@ -511,7 +537,7 @@ watch(output, () => {
             </option>
           </select>
           <p class="faint">
-            {{ PERMISSION_HINTS[permissionMode] }}
+            {{ permissionHints[permissionMode] }}
             <br />
             Passed as <span class="mono">{{ permissionFlag }}</span>.
           </p>
@@ -532,7 +558,8 @@ watch(output, () => {
         <div class="row">
           <button
             class="primary"
-            :disabled="starting || !chosenHarness?.available || !!startBlockedReason"
+            :disabled="starting || !chosenHarness?.available || !!startBlockedReason ||
+              (isLoop && excluded.length === (groupTasks?.length ?? 0))"
             :title="startBlockedReason ?? undefined"
             @click="start"
           >
@@ -543,6 +570,9 @@ watch(output, () => {
 
         <p v-if="startBlockedReason" class="faint" style="margin: 0">
           {{ startBlockedReason }}
+        </p>
+        <p v-else-if="isLoop && excluded.length === (groupTasks?.length ?? 0)" class="faint" style="margin: 0">
+          Select at least one task to run.
         </p>
 
         <!-- ------------------------------------------------- earlier runs -->
@@ -564,7 +594,7 @@ watch(output, () => {
                 :disabled="!entry.sessionId || resuming"
                 :title="entry.sessionId
                   ? `Reopen this ${entry.harness} conversation in a terminal`
-                  : 'This run was launched before session ids were recorded, so there is no conversation to reopen.'"
+                  : 'This run has no recorded conversation id. Older runs and interactive Codex runs cannot be reopened here.'"
                 @click="resume(entry.id)"
               >
                 Resume
@@ -591,6 +621,9 @@ watch(output, () => {
           <p v-if="groupRun.worked.length" class="faint" style="margin: 8px 0 0">
             Merged into the group branch:
             <span class="mono">{{ groupRun.worked.join(', ') }}</span>
+          </p>
+          <p v-if="groupRun.excluded.length" class="faint" style="margin: 8px 0 0">
+            Excluded from this run: <span class="mono">{{ groupRun.excluded.join(', ') }}</span>
           </p>
           <p v-if="groupRun.stopReason" class="banner warn" style="margin: 10px 0 0">
             {{ groupRun.stopReason }}

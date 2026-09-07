@@ -25,6 +25,7 @@ import type {
   Priority,
   Status,
   Task,
+  TaskAttachment,
   TaskDetail,
   TaskGroup,
   BaselineReport,
@@ -125,11 +126,18 @@ export const api = {
   getGroup: (ref: string) =>
     request<{ group: TaskGroupDetail }>(`/groups/${encodeURIComponent(ref)}`).then((r) => r.group),
 
-  createGroup: (input: { name: string; description?: string; color?: string; branchName?: string }) =>
+  createGroup: (input: { name: string; description?: string; investigation?: string; color?: string; branchName?: string; investigationRef?: string }) =>
     request<{ group: TaskGroup; groups: TaskGroupSummary[] }>('/groups', {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+
+  /** Give a legacy group its investigation record without moving or replacing it. */
+  ensureGroupInvestigation: (ref: string, brief?: string) =>
+    request<{ investigation: Investigation; group: TaskGroupDetail; groups: TaskGroupSummary[] }>(
+      `/groups/${encodeURIComponent(ref)}/investigation`,
+      { method: 'POST', body: JSON.stringify({ brief }) },
+    ),
 
   updateGroup: (ref: string, input: { name?: string; description?: string; color?: string; branchName?: string }) =>
     request<{ groups: TaskGroupSummary[]; tasks: Task[] }>(`/groups/${encodeURIComponent(ref)}`, {
@@ -264,6 +272,25 @@ export const api = {
     request<{ task: TaskDetail }>(`/tasks/${ref}/notes`, {
       method: 'POST',
       body: JSON.stringify({ note }),
+    }).then((r) => r.task),
+
+  /** Upload one or more files against a task. Multipart, so no JSON body here —
+   *  `request` would otherwise set a content-type that loses the boundary. */
+  uploadTaskAttachments: async (ref: string, files: File[]) => {
+    const form = new FormData();
+    for (const file of files) form.append('file', file, file.name);
+
+    const response = await fetch(`/api/tasks/${ref}/attachments`, { method: 'POST', body: form });
+    const payload = (await response.json().catch(() => null)) as
+      | { added: TaskAttachment[]; task: TaskDetail; error?: string }
+      | null;
+    if (!response.ok || !payload) throw new Error(payload?.error ?? `Upload failed (${response.status}).`);
+    return payload;
+  },
+
+  deleteTaskAttachment: (ref: string, name: string) =>
+    request<{ task: TaskDetail }>(`/tasks/${ref}/attachments/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
     }).then((r) => r.task),
 
   capture: (ref: string, phase: 'before' | 'after') =>
@@ -404,7 +431,7 @@ export const api = {
   /** Which harnesses are installed, and whether a terminal window can be opened. */
   agentEnvironment: () => request<AgentEnvironment>('/agents'),
 
-  /** Fetched only when a harness is chosen — pi's catalogue is large and slow. */
+  /** Fetched when a harness is chosen — pi's catalogue is large and slow. */
   agentModels: (harness: string) =>
     request<{ models: AgentModel[] }>(`/agents/models?harness=${encodeURIComponent(harness)}`).then(
       (r) => r.models,
@@ -458,7 +485,7 @@ export const api = {
    */
   startGroupRun: (
     ref: string,
-    input: { harness: string; model: string; permissionMode: AgentPermissionMode; extra: string },
+    input: { harness: string; model: string; permissionMode: AgentPermissionMode; extra: string; excluded: string[] },
   ) =>
     request<{ groupRun: GroupRun; run: AgentRun; group: TaskGroupDetail }>(
       `/groups/${encodeURIComponent(ref)}/run`,
@@ -516,4 +543,9 @@ export function noteAssetUrl(notePath_: string, hrefInNote: string): string {
 /** URL for a screenshot the server streams out of the aio-vr workspace. */
 export function imageUrl(path: string | null): string | null {
   return path ? `/api/image?path=${encodeURIComponent(path)}` : null;
+}
+
+/** URL for a file attached to a task. */
+export function taskAssetUrl(ref: string, name: string): string {
+  return `/api/tasks/asset?ref=${encodeURIComponent(ref)}&name=${encodeURIComponent(name)}`;
 }

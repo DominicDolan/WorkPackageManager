@@ -68,6 +68,13 @@ from its step 1a onwards — dependency check, branch, start, before-checkpoint,
 the change, after-checkpoint, commit, `tasks done`. Follow it in full; do not
 improvise a shorter version of it.
 
+That includes its **scenario coverage** rule, per task: if a task changes what a
+user sees, a scenario has to show it — written before the before-capture, or
+added afterwards and the before state recaptured with
+`tasks checkpoint before <ref> --retro`. A long run is exactly where this gets
+quietly dropped, and a group delivered with no evidence for half its tasks is
+the thing this workflow exists to prevent.
+
 Three things are specific to working inside a group:
 
 **The branch comes from the group, not from master.** `tasks branch <ref>` picks
@@ -135,7 +142,8 @@ Tell the user:
 
 - the group, its branch, and how many of its tasks you worked
 - per task: ref, title, what changed, and the checkpoint result
-  (`unchanged` / `changed` + percentage)
+  (`unchanged` / `changed` + percentage), plus any scenario you wrote or
+  extended and any before state you had to recapture with `--retro`
 - anything you left unworked and why — a blocker, a conflict, a question
 - any new tasks you filed along the way, including any filed with
   `--depends-on`

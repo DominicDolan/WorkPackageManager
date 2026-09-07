@@ -83,6 +83,17 @@ export interface StartGroupRunInput {
   permissionMode: AgentPermissionMode;
   /** Extra prompt text appended to every task in the loop, not just the first. */
   extra: string;
+  /** Unfinished tasks the user chose to leave out of this run. */
+  excluded: string[];
+}
+
+function nextIncludedTask(detail: TaskGroupDetail, excluded: readonly string[]) {
+  const omitted = new Set(excluded.map((ref) => ref.toLowerCase()));
+  const eligible = {
+    ...detail,
+    queue: detail.queue.filter((task) => !omitted.has(task.ref.toLowerCase())),
+  };
+  return nextWorkableTask(eligible);
 }
 
 /**
@@ -94,12 +105,18 @@ export interface StartGroupRunInput {
  * agent unless it is that one, which is `/work-task` carrying on rather than
  * starting a second.
  */
-function whyNotWorkable(detail: TaskGroupDetail, allowRef: string | null): string | null {
-  if (!detail.queue.length) return 'There is nothing left in this group for an agent to work.';
+function whyNotWorkable(
+  detail: TaskGroupDetail,
+  allowRef: string | null,
+  excluded: readonly string[] = [],
+): string | null {
+  const omitted = new Set(excluded.map((ref) => ref.toLowerCase()));
+  const included = detail.queue.filter((task) => !omitted.has(task.ref.toLowerCase()));
+  if (!included.length) return 'There are no included tasks left in this group for an agent to work.';
 
-  const next = nextWorkableTask(detail);
+  const next = nextIncludedTask(detail, excluded);
   if (!next) {
-    return 'Everything left in this group is waiting on work outside it, which this run will never do.';
+    return 'Every included task is waiting on unfinished work this run will not do.';
   }
 
   const foreign = detail.inProgress.find(
@@ -140,16 +157,23 @@ export function startGroupRun(input: StartGroupRunInput): { groupRun: GroupRun; 
   }
 
   const detail = getGroupDetail(group.ref);
-  const problem = whyNotWorkable(detail, null);
+  const queued = new Map(detail.queue.map((task) => [task.ref.toLowerCase(), task.ref]));
+  const excluded = [...new Set(input.excluded.map((ref) => ref.toLowerCase()))].map((ref) => {
+    const canonical = queued.get(ref);
+    if (!canonical) throw new Error(`${ref} is not an unfinished task in ${group.ref}.`);
+    return canonical;
+  });
+  const problem = whyNotWorkable(detail, null, excluded);
   if (problem) throw new Error(problem);
 
-  const next = nextWorkableTask(detail)!;
+  const next = nextIncludedTask(detail, excluded)!;
   const groupRun = createGroupRun({
     groupRef: group.ref,
     harness: input.harness as GroupRun['harness'],
     model: input.model,
     permissionMode: input.permissionMode,
     extra: input.extra,
+    excluded,
   });
 
   let run: AgentRun;
@@ -243,18 +267,22 @@ function advance(agentRunId: number, status: AgentRunStatus): void {
   const current = requireGroupRun(groupRun.id);
 
   const detail = getGroupDetail(current.groupRef);
-  if (!detail.queue.length) {
+  if (
+    !detail.queue.some(
+      (task) => !current.excluded.some((ref) => ref.toLowerCase() === task.ref.toLowerCase()),
+    )
+  ) {
     settleGroupRun(current.id, 'finished', '');
     return;
   }
 
-  const problem = whyNotWorkable(detail, null);
+  const problem = whyNotWorkable(detail, null, current.excluded);
   if (problem) {
     settleGroupRun(current.id, 'blocked', problem);
     return;
   }
 
-  const next = nextWorkableTask(detail)!;
+  const next = nextIncludedTask(detail, current.excluded)!;
   if (current.worked.includes(next.ref)) {
     settleGroupRun(
       current.id,

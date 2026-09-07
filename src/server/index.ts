@@ -3,11 +3,13 @@ import { join } from 'node:path';
 import { packageRoot } from '../config/paths';
 import { resolveArtifact, workspace } from '../config/paths';
 import { aioVrAvailable, captureAfter, captureBefore, cleanCheckpoint } from './aiovr';
+import { addTaskAttachment, removeTaskAttachment, resolveTaskAsset } from './attachments';
 import { captureBeforeRetro, resolveRetroTarget } from './retro';
 import {
   addDependency,
   addNote,
   createGroup,
+  createInvestigatedGroup,
   createInvestigation,
   createTask,
   deleteGroup,
@@ -21,6 +23,7 @@ import {
   isModelTier,
   isPriority,
   isStatus,
+  ensureGroupInvestigation,
   listCombinedBranches,
   listGroups,
   listInvestigations,
@@ -873,8 +876,8 @@ async function handleAgents(request: Request, url: URL, rest: string[]): Promise
     return json(agentEnvironment());
   }
 
-  // /api/agents/models?harness=pi — fetched separately: pi's list is hundreds of
-  // models long and asking for it takes a visible moment.
+  // /api/agents/models?harness=pi — fetched separately when a harness's list is
+  // large or slow (currently pi's catalogue).
   if (head === 'models') {
     if (request.method !== 'GET') return fail('Method not allowed.', 405);
     const which = url.searchParams.get('harness');
@@ -923,7 +926,7 @@ async function handleAgents(request: Request, url: URL, rest: string[]): Promise
           subjectKind: input.subjectKind ?? 'other',
           subjectRef: input.subjectRef ?? '',
           // A headless run has nobody to answer a prompt, so it defaults to the
-          // only mode that never asks; an interactive one keeps Claude's default.
+          // only mode that never asks; an interactive one keeps the harness default.
           permissionMode: (input.permissionMode as AgentPermissionMode | undefined)
             ?? (input.mode === 'print' ? 'bypassPermissions' : 'manual'),
         }),
@@ -980,15 +983,23 @@ async function handleGroups(request: Request, rest: string[]): Promise<Response>
     if (request.method === 'GET') return json({ groups: listGroups() });
 
     if (request.method === 'POST') {
-      const input = await body<{ name?: string; description?: string; color?: string; branchName?: string; investigationRef?: string }>(request);
+      const input = await body<{ name?: string; description?: string; investigation?: string; color?: string; branchName?: string; investigationRef?: string }>(request);
       if (!input.name) return fail('A group needs a name.');
-      const group = createGroup({
-        name: input.name,
-        description: input.description,
-        color: input.color,
-        branchName: input.branchName,
-        investigationRef: input.investigationRef,
-      });
+      const group = input.investigation !== undefined && !input.investigationRef
+        ? createInvestigatedGroup({
+            name: input.name,
+            description: input.description ?? input.investigation,
+            investigationBrief: input.investigation,
+            color: input.color,
+            branchName: input.branchName,
+          })
+        : createGroup({
+            name: input.name,
+            description: input.description,
+            color: input.color,
+            branchName: input.branchName,
+            investigationRef: input.investigationRef,
+          });
       return json({ group, groups: listGroups() }, 201);
     }
 
@@ -1029,6 +1040,15 @@ async function handleGroups(request: Request, rest: string[]): Promise<Response>
     return fail('Method not allowed.', 405);
   }
 
+  // /api/groups/:ref/investigation — migration path for groups created before
+  // the current UI made the investigation brief part of every group.
+  if (action === 'investigation') {
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+    const input = await body<{ brief?: string }>(request);
+    const investigation = ensureGroupInvestigation(ref, input.brief);
+    return json({ investigation, group: getGroupDetail(ref), groups: listGroups() });
+  }
+
   // /api/groups/:ref/advance — sign the whole group off in one go.
   if (action === 'advance') {
     if (request.method !== 'POST') return fail('Method not allowed.', 405);
@@ -1054,9 +1074,16 @@ async function handleGroups(request: Request, rest: string[]): Promise<Response>
         model?: string;
         permissionMode?: string;
         extra?: string;
+        excluded?: unknown;
       }>(request);
 
       if (!input.harness) return fail('A harness is required.');
+      if (
+        input.excluded !== undefined &&
+        (!Array.isArray(input.excluded) || input.excluded.some((ref) => typeof ref !== 'string'))
+      ) {
+        return fail('excluded must be an array of task refs.');
+      }
       if (
         input.permissionMode !== undefined &&
         !AGENT_PERMISSION_MODES.includes(input.permissionMode as AgentPermissionMode)
@@ -1072,6 +1099,7 @@ async function handleGroups(request: Request, rest: string[]): Promise<Response>
         // is the one that never asks. Overridable, but not by omission.
         permissionMode: (input.permissionMode as AgentPermissionMode | undefined) ?? 'bypassPermissions',
         extra: input.extra ?? '',
+        excluded: (input.excluded as string[] | undefined) ?? [],
       });
 
       return json({ groupRun: started.groupRun, run: started.run, group: getGroupDetail(ref) }, 201);
@@ -1303,6 +1331,21 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
     return json({ branchName: result.branchName, tasks: result.tasks, conflicted: result.conflicted, base: result.base }, 201);
   }
 
+  // /api/tasks/asset — a screenshot streamed out of a task's attachment folder.
+  // Named rather than pathed, so it cannot collide with a task ref.
+  if (rest[0] === 'asset') {
+    if (request.method !== 'GET') return fail('Method not allowed.', 405);
+    const assetRef = url.searchParams.get('ref');
+    const name = url.searchParams.get('name');
+    if (!assetRef || !name) return fail('A task ref and attachment name are required.');
+
+    const absolute = resolveTaskAsset(assetRef, name);
+    if (!absolute) return fail('No such attachment on that task.', 404);
+    // Attachments are immutable once written — a re-upload gets a new name — so
+    // these are safe to cache.
+    return new Response(Bun.file(absolute), { headers: { 'cache-control': 'private, max-age=300' } });
+  }
+
   const [ref, action, phase] = rest;
 
   // /api/tasks/:ref
@@ -1376,6 +1419,36 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
     }
 
     return fail('Method not allowed.', 405);
+  }
+
+  // /api/tasks/:ref/attachments — handled before the POST-only guard below,
+  // for the same reason as dependencies: removing one is a DELETE.
+  if (action === 'attachments') {
+    const attachmentName = rest[2];
+
+    if (attachmentName !== undefined) {
+      if (request.method !== 'DELETE') return fail('Method not allowed.', 405);
+      removeTaskAttachment(ref!, decodeURIComponent(attachmentName));
+      return json({ task: getTaskDetail(ref!) });
+    }
+
+    if (request.method !== 'POST') return fail('Method not allowed.', 405);
+
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return fail('Attachments must be uploaded as multipart/form-data.');
+    }
+
+    const uploaded = form.getAll('file').filter((entry): entry is File => entry instanceof File);
+    if (!uploaded.length) return fail('No file was uploaded.');
+
+    const added = [];
+    for (const file of uploaded) {
+      added.push(addTaskAttachment(ref!, file.name || 'attachment', await file.arrayBuffer()));
+    }
+    return json({ added, task: getTaskDetail(ref!) }, 201);
   }
 
   if (request.method !== 'POST') return fail('Method not allowed.', 405);

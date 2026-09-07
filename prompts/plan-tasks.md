@@ -206,7 +206,11 @@ not a place to make them rediscover work you already did. Include:
 - what you found, and why it needs changing
 - the suggested approach, and anything you ruled out and why
 - how to tell it worked — including which aio-vr scenario would show it, if the
-  change is visual
+  change is visual. Name an existing scenario when one already reaches the state
+  that will move; when nothing does, say so and say what the new scenario has to
+  reach (the page, and the dialog or tab or filtered state within it). The task
+  agent has to write that scenario before it captures its "before", so telling it
+  what to cover is part of the handoff.
 
 Use task notes for supporting investigation details that do not fit cleanly in
 the description: relevant command output, code excerpts, links, decisions, and
