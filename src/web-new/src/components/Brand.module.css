@@ -1,0 +1,6 @@
+:global(.brand) { display: flex; align-items: center; gap: .65rem; color: white; }
+:global(.brand-mark) { width: 2rem; height: 2rem; flex: none; fill: var(--cobalt); }
+:global(.brand-signal) { fill: var(--signal); }
+:global(.brand-name) { font-size: 1.05rem; font-weight: 650; letter-spacing: -.035em; }
+:global(.brand-compact) :global(.brand-mark) { width: 1.75rem; height: 1.75rem; }
+.scope {}

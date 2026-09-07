@@ -1,0 +1,7 @@
+:global(.model-option) {
+  display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 1rem;
+  border-radius: .25rem; padding: .6rem .75rem; text-align: left; font-size: .8125rem; color: var(--color-slate-700);
+}
+:global(.model-option):hover { background: var(--color-slate-100); }
+:global(.model-option) small { flex: none; font-size: .68rem; color: var(--color-slate-400); }
+.scope {}

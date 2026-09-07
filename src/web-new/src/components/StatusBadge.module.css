@@ -1,0 +1,10 @@
+:global(.status-badge) {
+  display: inline-flex; align-items: center; border: 1px solid currentColor; border-radius: 99px;
+  padding: .16rem .48rem; font-size: .65rem; font-weight: 600; line-height: 1.2; white-space: nowrap;
+}
+:global(.status-backlog) { background: #1f2732; color: #aeb8c7; }
+:global(.status-progress) { background: #1d2c55; color: #92aaff; }
+:global(.status-review) { background: #382d16; color: #f2ca67; }
+:global(.status-verified) { background: #17372f; color: #83d9b8; }
+:global(.status-closed) { background: #1a2029; color: #8190a3; }
+.scope {}
