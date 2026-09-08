@@ -1,4 +1,4 @@
-import { For, Show, createSignal } from 'solid-js';
+import { For, Show, createEffect, createSignal, onSettled } from 'solid-js';
 import {
   AGENT_PERMISSION_MODE_LABELS,
   type AgentEnvironment,
@@ -6,6 +6,7 @@ import {
   type AgentPermissionMode,
   type AgentRunMode,
 } from '@shared/types';
+import { api } from '../../../web/api';
 import styles from './AgentSettings.module.css';
 
 export function AgentSettings(props: {
@@ -14,7 +15,6 @@ export function AgentSettings(props: {
   setHarness: (value: string) => void;
   model: string;
   setModel: (value: string) => void;
-  models: AgentModel[];
   mode: AgentRunMode;
   setMode: (value: AgentRunMode) => void;
   permission: AgentPermissionMode;
@@ -22,15 +22,38 @@ export function AgentSettings(props: {
   unattended: boolean;
 }) {
   const available = () => props.environment.harnesses.filter(item => item.available);
+  const selectedHarness = () => props.environment.harnesses.find(item => item.id === props.harness);
+  const [models, setModels] = createSignal<AgentModel[]>([]);
+  // A model catalogue belongs to one harness. Keeping that request here lets us
+  // clear the previous catalogue immediately and ignore a late response from a
+  // harness the person has since switched away from.
+  createEffect(
+    () => props.harness,
+    harness => {
+      let current = true;
+      setModels([]);
+      if (harness) {
+        api.agentModels(harness)
+          .then(entries => { if (current) setModels(entries); })
+          .catch(() => { if (current) setModels([]); });
+      }
+      return () => { current = false; };
+    },
+  );
   return (
     <div class={`${styles.scope} mt-5 grid gap-4 sm:grid-cols-2`}>
       <label class="field">
         <span>Agent</span>
-        <select value={props.harness} onChange={event => props.setHarness(event.currentTarget.value)}>
+        <select value={props.harness} onChange={event => { props.setHarness(event.currentTarget.value); props.setModel(''); }}>
           <For each={available()}>{item => <option value={item.id}>{item.label}</option>}</For>
         </select>
       </label>
-      <ModelPicker models={props.models} value={props.model} setValue={props.setModel} />
+      <ModelPicker
+        models={models()}
+        value={props.model}
+        setValue={props.setModel}
+        defaultLabel={selectedHarness() ? `Default (${selectedHarness()!.label}'s configured model)` : 'Harness default'}
+      />
       <Show when={!props.unattended}>
         <label class="field">
           <span>Run mode</span>
@@ -52,10 +75,14 @@ export function AgentSettings(props: {
   );
 }
 
-function ModelPicker(props: { models: AgentModel[]; value: string; setValue: (value: string) => void }) {
-  const selected = () => props.models.find(item => item.id === props.value);
+function ModelPicker(props: { models: AgentModel[]; value: string; setValue: (value: string) => void; defaultLabel: string }) {
+  // The empty id means "use this harness's default". Do not borrow the label
+  // from the last model response: while a new harness's models load, that can
+  // briefly (and misleadingly) describe the previously selected harness.
+  const selected = () => props.value ? props.models.find(item => item.id === props.value) : undefined;
   const [query, setQuery] = createSignal('');
   const [open, setOpen] = createSignal(false);
+  let picker: HTMLLabelElement | undefined;
   const filtered = () => {
     const needle = query().trim().toLowerCase();
     const choices = props.models.filter(item => item.id);
@@ -69,13 +96,20 @@ function ModelPicker(props: { models: AgentModel[]; value: string; setValue: (va
     setQuery(entry?.label ?? '');
     setOpen(false);
   };
+  onSettled(() => {
+    const dismiss = (event: PointerEvent) => {
+      if (picker && !picker.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  });
   return (
-    <label class="field relative">
+    <label ref={picker} class="field relative">
       <span>Model</span>
       <input
         role="combobox"
         aria-expanded={open() ? 'true' : 'false'}
-        value={open() ? query() : selected()?.label ?? query()}
+        value={open() ? query() : selected()?.label ?? props.defaultLabel}
         placeholder={props.models.length ? 'Search models…' : 'Harness default'}
         onFocus={() => { setQuery(selected()?.label ?? ''); setOpen(true); }}
         onInput={event => { setQuery(event.currentTarget.value); setOpen(true); if (!event.currentTarget.value) props.setValue(''); }}
@@ -84,7 +118,7 @@ function ModelPicker(props: { models: AgentModel[]; value: string; setValue: (va
       <Show when={open()}>
         <div class="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white p-1 shadow-2xl">
           <button type="button" class="model-option" onMouseDown={event => event.preventDefault()} onClick={() => choose()}>
-            <span>Harness default</span>
+            <span>{props.defaultLabel}</span>
           </button>
           <For each={filtered()} fallback={<p class="px-3 py-5 text-center text-xs text-slate-500">No matching models.</p>}>
             {entry => <button type="button" class="model-option" onMouseDown={event => event.preventDefault()} onClick={() => choose(entry)}><span class="truncate">{entry.label}</span><small>{entry.group ?? entry.id}</small></button>}

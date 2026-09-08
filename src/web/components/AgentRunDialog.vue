@@ -107,6 +107,7 @@ const LABEL: Record<AgentCommand, string> = {
   'plan-tasks': 'Investigate',
   'work-task': 'Work task',
   'work-group': 'Work group',
+  'resolve-checks': 'Resolve checks',
 };
 
 const heading = computed(() =>

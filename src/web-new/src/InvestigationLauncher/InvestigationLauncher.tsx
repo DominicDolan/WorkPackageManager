@@ -1,6 +1,5 @@
 import { Loading, Show, createMemo, createSignal } from 'solid-js';
 import type {
-  AgentModel,
   AgentPermissionMode,
   AgentRunMode,
   Investigation,
@@ -20,7 +19,6 @@ export function InvestigationLauncher(props: { investigation: Investigation; clo
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
   const chosenHarness = () => harness() || environment().harnesses.find(item => item.available)?.id || '';
-  const models = createMemo(async (): Promise<AgentModel[]> => chosenHarness() ? api.agentModels(chosenHarness()) : []);
   const run = async () => {
     setBusy(true); setError('');
     try {
@@ -37,7 +35,7 @@ export function InvestigationLauncher(props: { investigation: Investigation; clo
   };
   return <Modal title="Run investigation" close={props.close}>
     <div class={`${styles.scope} investigation-run-summary`}><span>{props.investigation.ref}</span><strong>{props.investigation.title}</strong><p>The agent will investigate this brief, record its findings, and create tasks in the linked group. It will not change product code.</p></div>
-    <Loading fallback={<p class="mt-5 text-sm text-slate-500">Checking installed agents…</p>}><AgentSettings environment={environment()} harness={chosenHarness()} setHarness={setHarness} model={model()} setModel={setModel} models={models()} mode={mode()} setMode={setMode} permission={permission()} setPermission={setPermission} unattended={false} /></Loading>
+    <Loading fallback={<p class="mt-5 text-sm text-slate-500">Checking installed agents…</p>}><AgentSettings environment={environment()} harness={chosenHarness()} setHarness={setHarness} model={model()} setModel={setModel} mode={mode()} setMode={setMode} permission={permission()} setPermission={setPermission} unattended={false} /></Loading>
     <label class="field mt-4"><span>Extra instructions</span><textarea value={extra()} onInput={event => setExtra(event.currentTarget.value)} placeholder="Optional context for this run" /></label>
     <Show when={error()}><p class="banner mt-4">{error()}</p></Show>
     <div class="mt-5 flex justify-end"><button class="button-primary" disabled={busy()} onClick={run}>{busy() ? 'Starting…' : 'Start investigation'}</button></div>

@@ -1,17 +1,20 @@
-import { For, Loading, Show, createMemo, createSignal, refresh, type Element } from 'solid-js';
+import { For, Loading, Show, createEffect, createMemo, createSignal, onSettled, refresh, type Element } from 'solid-js';
 import {
   GROUP_RUN_STATUS_LABELS,
   INVESTIGATION_STATUS_LABELS,
   groupRunActive,
   nextWorkableTask,
   type CombinedBranchDetail,
+  type CheckRun,
   type Investigation,
   type InvestigationDetail,
   type Task,
   type TaskGroupDetail,
 } from '@shared/types';
 import { api } from '../../../web/api';
+import { renderMarkdown } from '../../../web/markdown';
 import { AgentLauncher } from '../AgentLauncher/AgentLauncher';
+import { BranchCheckLauncher } from './BranchCheckLauncher';
 import { InvestigationLauncher } from '../InvestigationLauncher/InvestigationLauncher';
 import { Brand } from '../components/Brand';
 import { InfoCard } from '../components/InfoCard';
@@ -90,7 +93,7 @@ export function GroupWorkspace(props: {
           <Show when={error()}><p class="banner mb-5">{error()}</p></Show>
           <Show when={tab() === 'overview'}><GroupOverview group={detail} openTask={props.openTask} busy={busy()} mutate={mutate} /></Show>
           <Show when={tab() === 'investigation'}><InvestigationPanel investigation={investigation()} group={detail} changed={() => { props.changed(); refresh(group); }} /></Show>
-          <Show when={tab() === 'branch'}><BranchPanel group={detail} branch={branch()} busy={busy()} mutate={mutate} /></Show>
+          <Show when={tab() === 'branch'}><BranchPanel group={detail} branch={branch()} tools={props.snapshot.tools} changed={props.changed} /></Show>
         </div>
         <Show when={agentOpen()}><AgentLauncher group={detail} close={() => setAgentOpen(false)} finished={() => { refresh(group); props.changed(); }} /></Show>
         <Show when={investigationRunOpen()}><Show when={investigation()} keyed>{item => <InvestigationLauncher investigation={item} close={() => setInvestigationRunOpen(false)} started={() => { refresh(group); props.changed(); }} />}</Show></Show>
@@ -190,20 +193,155 @@ function InvestigationBrief(props: { investigation: InvestigationDetail; saved: 
   return <div class="investigation-brief"><label class="field"><span>Investigation brief</span><textarea value={brief()} onInput={event => { setBrief(event.currentTarget.value); setSaved(false); }} placeholder="Describe what the agent should investigate, where to start, and what a useful answer should cover." /></label><Show when={error()}><p class="banner mt-4">{error()}</p></Show><div><span>{saved() ? 'Saved' : `${brief().length} characters`}</span><button class="button" disabled={busy() || brief() === props.investigation.brief} onClick={save}>{busy() ? 'Saving…' : 'Save brief'}</button></div></div>;
 }
 
-function BranchPanel(props: { group: TaskGroupDetail; branch?: CombinedBranchDetail; busy: string; mutate: (label: string, action: () => Promise<unknown>) => Promise<void> }) {
+function BranchPanel(props: {
+  group: TaskGroupDetail;
+  branch?: CombinedBranchDetail;
+  tools: WorkspaceSnapshot['tools'];
+  changed: () => void;
+}) {
+  const [current, setCurrent] = createSignal<CombinedBranchDetail | undefined>();
+  const [title, setTitle] = createSignal('');
+  const [body, setBody] = createSignal('');
+  const [mode, setMode] = createSignal<'write' | 'preview'>('write');
+  const [busy, setBusy] = createSignal('');
+  const [error, setError] = createSignal('');
+  const [notice, setNotice] = createSignal('');
+  const [checkAgentOpen, setCheckAgentOpen] = createSignal(false);
+
+  const applyBranch = (branch: CombinedBranchDetail) => {
+    setCurrent(branch);
+    setTitle(branch.prTitle ?? '');
+    setBody(branch.prBody ?? '');
+  };
+  createEffect(
+    () => props.branch,
+    branch => {
+      if (branch && branch.updatedAt !== current()?.updatedAt) applyBranch(branch);
+      if (!branch) setCurrent(undefined);
+    },
+  );
+
+  const run = async (label: string, action: () => Promise<CombinedBranchDetail>, message: string) => {
+    setBusy(label); setError(''); setNotice('');
+    try {
+      applyBranch(await action());
+      setNotice(message);
+      props.changed();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy('');
+    }
+  };
+  const generate = () => {
+    const branch = current();
+    if (branch) return run('describe', () => api.describeBranch(branch.branchName), 'Pull request description generated.');
+  };
+  const save = () => {
+    const branch = current();
+    if (branch) return run('save', () => api.updateBranch(branch.branchName, { prTitle: title(), prBody: body() }), 'Pull request description saved.');
+  };
+  const runChecks = () => {
+    const branch = current();
+    if (branch) return run('checks', () => api.runChecks(branch.branchName), 'Checks started. Progress and results will appear below.');
+  };
+  const openPr = async (draft: boolean) => {
+    const branch = current();
+    if (!branch) return;
+    setBusy('pr'); setError(''); setNotice('');
+    try {
+      let latest = branch;
+      if (descriptionDirty()) latest = await api.updateBranch(branch.branchName, { prTitle: title(), prBody: body() });
+      const result = await api.createPr(latest.branchName, draft);
+      applyBranch(result.branch);
+      const opened = draft ? 'Draft pull request opened.' : 'Pull request opened.';
+      setNotice(result.pushed ? `Branch pushed and ${opened.toLowerCase()}` : opened);
+      props.changed();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  // A check run can continue beyond the initiating request. Keep its progress
+  // and eventual report visible without requiring a manual page refresh.
+  onSettled(() => {
+    const poll = setInterval(() => {
+      const branch = current();
+      if (!branch?.checksRunning) return;
+      api.getBranch(branch.branchName).then(setCurrent).catch(() => undefined);
+    }, 2000);
+    return () => clearInterval(poll);
+  });
+
+  const descriptionDirty = () => title() !== (current()?.prTitle ?? '') || body() !== (current()?.prBody ?? '');
+  const report = () => current()?.checks;
+  const checksStale = () => {
+    const head = current()?.git.commits.at(-1)?.sha;
+    return Boolean(report()?.headSha && head && report()!.headSha !== head);
+  };
+  const checksBlocking = () => {
+    if (props.tools.checkCount === 0) return '';
+    if (current()?.checksRunning) return 'Checks are still running.';
+    if (!report()) return 'Run the checks before opening a pull request.';
+    if (!report()!.passed) return 'Resolve the failed checks, then run them again.';
+    if (checksStale()) return 'The checks are stale because the branch has newer commits. Run them again.';
+    return '';
+  };
+  const formatDate = (value: string) => new Date(value).toLocaleString();
+  const seconds = (ms: number) => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+  const checkLabel: Record<CheckRun['status'], string> = { passed: 'Passed', failed: 'Failed', skipped: 'Skipped', timed_out: 'Timed out', error: 'Error' };
+
   return (
-    <section class="mx-auto max-w-4xl">
-      <h2 class="section-title mb-4">Delivery branch</h2>
-      <div class="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-        <div class="flex flex-wrap items-start justify-between gap-4"><div><code class="text-sm font-semibold">{props.group.branchName}</code><p class="mt-1 text-xs text-slate-500">from {props.group.baseBranch}</p></div><span class={`rounded-full px-3 py-1 text-xs font-medium ${props.group.git.exists ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{props.group.git.exists ? 'Local branch ready' : 'Not created yet'}</span></div>
-        <div class="mt-6 grid gap-3 sm:grid-cols-3"><Metric label="Commits" value={props.group.git.commits.length} /><Metric label="Files changed" value={props.group.git.filesChanged} /><Metric label="Ahead of base" value={props.group.git.aheadOfBase ?? '—'} /></div>
-        <Show when={props.group.git.commits.length}><ul class="mt-6 divide-y divide-slate-100 rounded-xl border border-slate-200"><For each={props.group.git.commits}>{commit => <li class="flex gap-3 px-4 py-3 text-sm"><code class="text-slate-400">{commit.shortSha}</code><span>{commit.subject}</span></li>}</For></ul></Show>
-        <Show when={props.branch} fallback={<p class="mt-5 text-sm text-slate-500">Branch delivery controls appear after completed work is merged into the group branch.</p>}>
-          {branch => <div class="mt-6 flex flex-wrap gap-2"><button class="button" disabled={!!props.busy} onClick={() => props.mutate('describe', () => api.describeBranch(branch().branchName))}>Generate description</button><button class="button" disabled={!!props.busy} onClick={() => props.mutate('checks', () => api.runChecks(branch().branchName))}>Run checks</button><button class="button-primary" disabled={!!props.busy || !!branch().prUrl} onClick={() => props.mutate('pr', () => api.createPr(branch().branchName, true))}>{branch().prUrl ? 'Pull request opened' : 'Open draft PR'}</button><Show when={branch().prUrl}><a class="button" href={branch().prUrl!} target="_blank" rel="noreferrer">View PR</a></Show></div>}
-        </Show>
+    <section class="branch-workspace mx-auto max-w-4xl">
+      <div class="branch-heading">
+        <div><h2>Delivery branch</h2><code>{props.group.branchName}</code><span>from <code>{props.group.baseBranch}</code></span></div>
+        <span class={`branch-state ${props.group.git.exists ? 'branch-state-ready' : ''}`}>{props.group.git.exists ? 'Local branch ready' : 'Not created yet'}</span>
       </div>
+
+      <Show when={error()}><p class="banner">{error()}</p></Show>
+      <Show when={notice()}><p class="branch-notice" role="status">{notice()}</p></Show>
+
+      <BranchSection variant="elevated" title="Contents" description="The commits currently unique to this group branch.">
+        <div class="branch-metrics"><Metric label="Commits" value={props.group.git.commits.length} /><Metric label="Files changed" value={props.group.git.filesChanged} /><Metric label="Ahead of base" value={props.group.git.aheadOfBase ?? '—'} /></div>
+        <Show when={props.group.git.commits.length} fallback={<p class="branch-empty">No commits have landed on this branch yet.</p>}><ul class="branch-commits"><For each={props.group.git.commits}>{commit => <li><code>{commit.shortSha}</code><span>{commit.subject}</span></li>}</For></ul></Show>
+      </BranchSection>
+
+      <Show when={current()} fallback={<div class="branch-section branch-unavailable"><h3>Pull request description and checks</h3><p>These controls become available after completed work is merged into the group branch.</p></div>} keyed>{branch => <>
+        <BranchSection variant="elevated" title="Pull request description" description="Generate from the commits, then review or edit before opening a pull request.">
+          <div class="branch-section-actions">
+            <button class="button" disabled={!!busy() || !branch.git.commits.length || !props.tools.prAgentAvailable} onClick={generate}>{busy() === 'describe' ? `Asking ${props.tools.prAgent ?? 'the PR agent'}…` : branch.prTitle ? 'Regenerate description' : 'Generate description'}</button>
+            <Show when={busy() === 'describe'}><span class="branch-working" role="status">The agent is reading {branch.git.commits.length} commit(s). This can take a minute or two.</span></Show>
+          </div>
+          <Show when={!props.tools.prAgentAvailable}><p class="branch-warning">The configured PR-description agent is unavailable. You can still write the description manually.</p></Show>
+          <div class="description-modes" role="group" aria-label="Description view"><button class={mode() === 'write' ? 'active' : ''} onClick={() => setMode('write')}>Write</button><button class={mode() === 'preview' ? 'active' : ''} onClick={() => setMode('preview')}>Preview</button></div>
+          <Show when={mode() === 'write'} fallback={<div class="branch-preview markdown"><Show when={body().trim()} fallback={<p>Nothing written yet.</p>}><div innerHTML={renderMarkdown(body())} /></Show></div>}>
+            <div class="branch-description-fields"><label class="field"><span>Title</span><input value={title()} onInput={event => setTitle(event.currentTarget.value)} placeholder="Pull request title" /></label><label class="field"><span>Body (Markdown)</span><textarea value={body()} onInput={event => setBody(event.currentTarget.value)} rows={12} /></label></div>
+          </Show>
+          <div class="branch-footer"><button class="button" disabled={!!busy() || !descriptionDirty()} onClick={save}>{busy() === 'save' ? 'Saving…' : descriptionDirty() ? 'Save description' : 'Saved'}</button></div>
+        </BranchSection>
+
+        <BranchSection variant="tonal" title="Checks" description={`${props.tools.checkCount} configured command(s) · typecheck, lint and tests.`}>
+          <div class="branch-section-actions"><button class="button" disabled={!!busy() || !!branch.checksRunning || !branch.git.exists || props.tools.checkCount === 0} onClick={runChecks}>{busy() === 'checks' || branch.checksRunning ? 'Running checks…' : report() ? 'Run checks again' : 'Run checks'}</button></div>
+          <Show when={branch.checksRunning}>{progress => <p class="branch-progress" role="status">Running <strong>{progress().current ?? 'the first check'}</strong>{progress().total ? ` · ${progress().done + 1} of ${progress().total}` : ''}. This continues if you leave the page.</p>}</Show>
+          <Show when={props.tools.checkCount === 0}><p class="branch-empty">No pre-PR checks are configured for this repository.</p></Show>
+          <Show when={props.tools.checkCount > 0 && !branch.checksRunning && !report()}><p class="branch-empty">Checks have not been run on this branch yet.</p></Show>
+          <Show when={report()}>{checks => <div class="check-report"><div class="check-summary"><span class={`check-result ${checks().passed ? 'check-passed' : 'check-failed'}`}>{checks().passed ? 'Passed' : 'Failed'}</span><span>Ran {formatDate(checks().ranAt)} against <code>{checks().base}</code></span><Show when={!checks().passed}><button class="button check-agent-button" disabled={!!busy()} onClick={() => setCheckAgentOpen(true)}>Investigate with agent</button></Show></div><Show when={checksStale()}><p class="branch-warning">The branch has new commits since this report was produced, so these results are stale.</p></Show><ul class="branch-checks"><For each={checks().checks}>{check => <li><details open={check.status !== 'passed' && check.status !== 'skipped'}><summary><span class={`check-result check-${check.status}`}>{checkLabel[check.status]}</span><strong>{check.name}</strong><code>{check.command.join(' ')}</code><span>{seconds(check.durationMs)}</span></summary><Show when={check.reason}><p>{check.reason}</p></Show><Show when={check.output}><pre>{check.output}</pre></Show></details></li>}</For></ul></div>}</Show>
+        </BranchSection>
+
+        <BranchSection variant="elevated" title="Pull request" description="Available after the description is ready and the latest checks pass.">
+          <Show when={branch.prUrl} fallback={<div class="pull-request-step"><Show when={checksBlocking()}>{reason => <p class="branch-step-note">{reason()}</p>}</Show><Show when={!title().trim()}><p class="branch-step-note">Add a pull request title before opening it.</p></Show><div class="branch-pr-actions"><button class="button" disabled={!!busy() || !title().trim() || !branch.git.exists || !!checksBlocking()} onClick={() => openPr(true)}>{busy() === 'pr' ? 'Opening…' : 'Open as draft'}</button><button class="button-primary" disabled={!!busy() || !title().trim() || !branch.git.exists || !!checksBlocking()} onClick={() => openPr(false)}>{busy() === 'pr' ? 'Opening…' : 'Open pull request'}</button></div></div>}><div class="pull-request-open"><span>Pull request opened</span><a class="button-primary" href={branch.prUrl!} target="_blank" rel="noreferrer">View pull request</a></div></Show>
+        </BranchSection>
+
+        <Show when={checkAgentOpen()}><Show when={report()} keyed>{checks => <BranchCheckLauncher branch={branch} report={checks} close={() => setCheckAgentOpen(false)} started={() => setNotice('Agent started with the failed check report.')} />}</Show></Show>
+      </>}</Show>
     </section>
   );
+}
+
+function BranchSection(props: { title: string; description: string; variant?: 'elevated' | 'tonal'; children: Element }) {
+  return <section class={`branch-section branch-section-${props.variant ?? 'elevated'}`}><header><div><h3>{props.title}</h3><p>{props.description}</p></div></header><div class="branch-section-body">{props.children}</div></section>;
 }
 
 function Metric(props: { label: string; value: string | number }) {

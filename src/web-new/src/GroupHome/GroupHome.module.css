@@ -25,6 +25,17 @@
 :global(.ledger-heading) h2 { margin: 0; font-size: 1.25rem; font-weight: 600; letter-spacing: -.025em; }
 :global(.ledger-heading) p, :global(.ledger-heading) > span { margin: .2rem 0 0; color: var(--steel); font-size: .75rem; }
 :global(.group-ledger) { max-width: 1500px; margin: 0 auto; border: 1px solid var(--line); border-bottom: 0; background: var(--paper); }
+:global(.closed-groups) { max-width: 1500px; margin: 1.5rem auto 0; }
+:global(.closed-groups) > summary {
+  display: flex; align-items: center; justify-content: space-between; padding: .85rem 1rem;
+  border: 1px solid var(--line); background: var(--paper); color: var(--steel);
+  font-size: .78rem; font-weight: 600; cursor: pointer; list-style: none;
+}
+:global(.closed-groups) > summary::-webkit-details-marker { display: none; }
+:global(.closed-groups) > summary::before { content: '\25B8'; margin-right: .6rem; color: var(--cobalt); }
+:global(.closed-groups)[open] > summary::before { content: '\25BE'; }
+:global(.closed-groups) > summary span { margin-left: auto; font-variant-numeric: tabular-nums; }
+:global(.closed-groups) > .group-ledger { margin-top: .5rem; }
 :global(.group-card) {
   position: relative; display: grid; width: 100%;
   grid-template-columns: 6px minmax(240px, 1.2fr) minmax(220px, 1fr) 150px 38px;

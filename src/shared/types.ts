@@ -307,6 +307,9 @@ export interface TaskGroup {
 /** A group plus how much is in it — what a list of groups actually needs. */
 export interface TaskGroupSummary extends TaskGroup {
   taskCount: number;
+  /** Members whose implementation is finished. This includes tasks that have
+   *  subsequently moved on to verification or closure. */
+  devCompleteCount: number;
   /** Members that are not closed. The count worth showing: a group whose work
    *  is finished should not read as a group with ten open tasks in it. */
   openCount: number;
@@ -856,8 +859,8 @@ export interface ChangeEvent {
 export const AGENT_HARNESSES = ['claude', 'codex', 'pi'] as const;
 export type AgentHarnessId = (typeof AGENT_HARNESSES)[number];
 
-/** Which of the three in-repo prompt files (`prompts/<name>.md`) a run drives. */
-export const AGENT_COMMANDS = ['plan-tasks', 'work-task', 'work-group'] as const;
+/** Which in-repo prompt file (`prompts/<name>.md`) a run drives. */
+export const AGENT_COMMANDS = ['plan-tasks', 'work-task', 'work-group', 'resolve-checks'] as const;
 export type AgentCommand = (typeof AGENT_COMMANDS)[number];
 
 /**

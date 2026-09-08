@@ -1,4 +1,5 @@
 import type { CombinedBranchDetail, Investigation, Task, TaskGroupSummary } from '@shared/types';
+import type { Meta } from '../../../web/api';
 
 export interface WorkspaceSnapshot {
   groups: TaskGroupSummary[];
@@ -6,4 +7,5 @@ export interface WorkspaceSnapshot {
   investigations: Investigation[];
   branches: CombinedBranchDetail[];
   aioVrReady: boolean;
+  tools: Meta['tools'];
 }

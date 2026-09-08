@@ -1,7 +1,6 @@
 import { Loading, Show, createMemo, createSignal } from 'solid-js';
 import {
   nextWorkableTask,
-  type AgentModel,
   type AgentPermissionMode,
   type AgentRunMode,
   type Task,
@@ -30,10 +29,6 @@ export function AgentLauncher(props: {
   const [error, setError] = createSignal('');
 
   const chosenHarness = () => harness() || environment().harnesses.find(item => item.available)?.id || '';
-  const models = createMemo(async (): Promise<AgentModel[]> => {
-    const id = chosenHarness();
-    return id ? api.agentModels(id) : [];
-  });
 
   const next = () => props.task ?? nextWorkableTask(props.group);
   const run = async () => {
@@ -90,7 +85,6 @@ export function AgentLauncher(props: {
           setHarness={setHarness}
           model={model()}
           setModel={setModel}
-          models={models()}
           mode={mode()}
           setMode={setMode}
           permission={permission()}

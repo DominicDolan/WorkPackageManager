@@ -16,5 +16,6 @@ export async function loadWorkspace(): Promise<WorkspaceSnapshot> {
     investigations,
     branches: branchResult.branches,
     aioVrReady: meta.aioVrInstalled && meta.aioVrWorkspaceExists,
+    tools: meta.tools,
   };
 }

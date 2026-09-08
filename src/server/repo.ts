@@ -795,7 +795,7 @@ function toGroup(row: TaskGroupRow): TaskGroup {
  */
 export function listGroups(): TaskGroupSummary[] {
   return getDb()
-    .query<TaskGroupRow & { task_count: number; open_count: number }, []>(
+    .query<TaskGroupRow & { task_count: number; dev_complete_count: number; open_count: number }, []>(
       // The group's columns are named rather than taken as `g.*`. A `*` ahead of
       // aliased aggregates means adding a column later shifts `task_count` and
       // `open_count` along by one — which a long-running process, holding a
@@ -804,6 +804,7 @@ export function listGroups(): TaskGroupSummary[] {
       `SELECT g.id, g.ref, g.name, g.description, g.color, g.branch_name,
               g.position, g.investigation_ref, g.created_at, g.updated_at,
               COUNT(t.id) AS task_count,
+              COUNT(CASE WHEN t.status IN ('dev_complete', 'verified', 'closed') THEN 1 END) AS dev_complete_count,
               COUNT(CASE WHEN t.status != 'closed' THEN 1 END) AS open_count
          FROM task_groups g
          LEFT JOIN tasks t ON t.group_ref = g.ref COLLATE NOCASE
@@ -813,7 +814,12 @@ export function listGroups(): TaskGroupSummary[] {
                  g.id ASC`,
     )
     .all()
-    .map((row) => ({ ...toGroup(row), taskCount: row.task_count, openCount: row.open_count }));
+    .map((row) => ({
+      ...toGroup(row),
+      taskCount: row.task_count,
+      devCompleteCount: row.dev_complete_count,
+      openCount: row.open_count,
+    }));
 }
 
 /**
