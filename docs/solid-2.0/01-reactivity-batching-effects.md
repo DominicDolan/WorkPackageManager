@@ -21,23 +21,23 @@ Writing to a signal inside a reactive scope (effect, memo, component body) **thr
 
 ```js
 // Default: throws if set in effect/component
-const [count, setCount] = createSignal(0);
+const [count, setCount] = createSignal(0)
 
 // Opt-in: allow writes in owned scope (e.g. internal flags)
-const [ref, setRef] = createSignal(null, { ownedWrite: true });
+const [ref, setRef] = createSignal(null, { ownedWrite: true })
 ```
 
 `ownedWrite` is not a general-purpose escape hatch. A common misuse is enabling it to silence errors for application state while still writing from reactive scope:
 
 ```js
 // ❌ BAD: using ownedWrite to suppress the write-under-scope error for app state
-const [count, setCount] = createSignal(0, { ownedWrite: true });
-const [doubled, setDoubled] = createSignal(untrack(count) + 1); // force untracked read to get around other warning
-createMemo(() => setDoubled(count() + 1)); // feedback loop
+const [count, setCount] = createSignal(0, { ownedWrite: true })
+const [doubled, setDoubled] = createSignal(untrack(count) + 1) // force untracked read to get around other warning
+createMemo(() => setDoubled(count() + 1)) // feedback loop
 
 // ✅ GOOD: derive without writing back, or write in an event
-const doubled = createMemo(() => count() * 2);
-button.onclick = () => setCount((c) => c + 1);
+const doubled = createMemo(() => count() * 2)
+button.onclick = () => setCount((c) => c + 1)
 ```
 
 ### Strict top-level access (new in 2.0)
@@ -47,17 +47,17 @@ button.onclick = () => setCount((c) => c + 1);
 ```js
 // New: top-level read in component body warns unless wrapped
 function Title(props) {
-  const t = untrack(() => props.title); // intentional one-time read — no warn
-  return <h1>{t}</h1>;
+  const t = untrack(() => props.title) // intentional one-time read — no warn
+  return <h1>{t}</h1>
 }
 function Bad(props) {
-  const t = props.title; // warns: Untracked reactive read
-  return <h1>{t}</h1>;
+  const t = props.title // warns: Untracked reactive read
+  return <h1>{t}</h1>
 }
 
 // Common pitfall: destructuring reactive props at top level (warns)
 function BadArgs({ title }) {
-  return <h1>{title}</h1>;
+  return <h1>{title}</h1>
 }
 ```
 
@@ -86,9 +86,9 @@ Updates are applied on the next microtask by default. After calling a setter, re
 
 ```js
 function handleSubmit() {
-  setSubmitted(true);
-  flush(); // apply updates now
-  inputRef.focus(); // DOM is up to date
+  setSubmitted(true)
+  flush() // apply updates now
+  inputRef.focus() // DOM is up to date
 }
 ```
 
@@ -98,9 +98,9 @@ function handleSubmit() {
 
 ```js
 flush(() => {
-  setSubmitted(true);
-  setCount(count() + 1);
-}); // callback updates are applied before flush returns
+  setSubmitted(true)
+  setCount(count() + 1)
+}) // callback updates are applied before flush returns
 ```
 
 Use `flush(fn)` at imperative boundaries where the writes themselves should run in a synchronous flush scope. Writes inside the callback do not schedule the normal microtask flush; they are drained before `flush(fn)` returns, so you can update state and immediately read reactive values or DOM without leaving a queued flush behind. The callback's return value is preserved, and nested `flush(fn)` calls drain at each level.
@@ -111,12 +111,15 @@ Effects have two phases: **compute** (reactive reads only; dependencies recorded
 
 ```js
 createEffect(
-  () => count(),           // compute: only reads
-  (value, prev) => {       // effect: runs after flush
-    console.log(value);
-    return () => { /* cleanup */ };
-  }
-);
+  () => count(), // compute: only reads
+  (value, prev) => {
+    // effect: runs after flush
+    console.log(value)
+    return () => {
+      /* cleanup */
+    }
+  },
+)
 ```
 
 The 1.x `initialValue` parameter is removed. The compute function receives `prev` as its argument (`undefined` on first run); use a default parameter if you need an initial value:
@@ -136,14 +139,11 @@ The same applies to `createMemo` — the second argument is now `options`, not a
 `createMemo` accepts a `lazy` option that defers the initial computation until the value is first read. Without `lazy`, memos compute eagerly on creation. With `lazy: true`, the memo is inert until something reads it — useful for expensive derivations that may not be needed immediately (or at all):
 
 ```js
-const expensive = createMemo(
-  () => heavyComputation(source()),
-  { lazy: true }
-);
+const expensive = createMemo(() => heavyComputation(source()), { lazy: true })
 
 // No computation has happened yet.
 // First read triggers the computation:
-expensive(); // now it runs
+expensive() // now it runs
 ```
 
 Lazy memos still track dependencies normally once evaluated. They're particularly useful in components that conditionally render — a lazy memo inside a branch that never renders never pays the computation cost.
@@ -157,16 +157,16 @@ Both `createSignal` and `createMemo` accept an `unobserved` callback that fires 
 ```js
 const data = createMemo(
   () => {
-    const ws = new WebSocket(url());
-    onCleanup(() => ws.close());
-    return new Promise(resolve => {
-      ws.onmessage = (e) => resolve(JSON.parse(e.data));
-    });
+    const ws = new WebSocket(url())
+    onCleanup(() => ws.close())
+    return new Promise((resolve) => {
+      ws.onmessage = (e) => resolve(JSON.parse(e.data))
+    })
   },
   {
-    unobserved: () => console.log("no subscribers, resources cleaned up")
-  }
-);
+    unobserved: () => console.log("no subscribers, resources cleaned up"),
+  },
+)
 ```
 
 Combined with `lazy`, this enables demand-driven computations that spin up only when read and tear down when no longer needed.
@@ -181,14 +181,14 @@ The effect callback (back half) runs in an **untracked scope**. If a store proxy
 // Bad: passes store proxy through, reads in effect trigger warnings
 createEffect(
   () => store.user,
-  (user) => sendAnalytics(user.name, user.age)  // reads in untracked scope
-);
+  (user) => sendAnalytics(user.name, user.age), // reads in untracked scope
+)
 
 // Good: reads happen in compute, effect receives plain values
 createEffect(
   () => ({ name: store.user.name, age: store.user.age }),
-  (value) => sendAnalytics(value.name, value.age)
-);
+  (value) => sendAnalytics(value.name, value.age),
+)
 ```
 
 **Deep tracking with `deep()`** — when you need to react to any nested change, `deep(store)` subscribes to every property and returns a plain (non-proxy) snapshot that is safe to use in the effect:
@@ -196,20 +196,20 @@ createEffect(
 ```js
 createEffect(
   () => deep(store),
-  (snapshot) => saveToLocalStorage(JSON.stringify(snapshot))
-);
+  (snapshot) => saveToLocalStorage(JSON.stringify(snapshot)),
+)
 ```
 
-**Untracked snapshot with `snapshot()`** — when you need the store's current value *without* subscribing to it (e.g. as context alongside other tracked signals), `snapshot()` produces a plain copy without setting up any tracking:
+**Untracked snapshot with `snapshot()`** — when you need the store's current value _without_ subscribing to it (e.g. as context alongside other tracked signals), `snapshot()` produces a plain copy without setting up any tracking:
 
 ```js
 createEffect(
   () => saveFlag(),
   () => {
-    const data = snapshot(store);
-    upload(data);
-  }
-);
+    const data = snapshot(store)
+    upload(data)
+  },
+)
 ```
 
 `deep()` and `snapshot()` both return plain objects, but `deep()` sets up deep tracking while `snapshot()` does not. See [RFC 04 — Stores](04-stores.md) for full details.
@@ -223,14 +223,16 @@ Use `createRenderEffect` for DOM-level work that must happen synchronously durin
 ```js
 // Synchronous render-phase binding
 createRenderEffect(
-  () => props.title,         // compute: track the value
-  (value) => {               // apply: runs synchronously when value changes
-    el.title = value;
-    return () => {           // cleanup
-      el.title = "";
-    };
-  }
-);
+  () => props.title, // compute: track the value
+  (value) => {
+    // apply: runs synchronously when value changes
+    el.title = value
+    return () => {
+      // cleanup
+      el.title = ""
+    }
+  },
+)
 ```
 
 ### `createEffect` error handling
@@ -238,18 +240,15 @@ createRenderEffect(
 `createEffect` accepts an `EffectBundle` as its second argument — an object with `effect` and `error` handlers — instead of a bare function. This lets you handle errors thrown from async computations in the reactive graph:
 
 ```js
-createEffect(
-  () => fetchData(id()),
-  {
-    effect: (data) => {
-      renderData(data);
-    },
-    error: (err, cleanup) => {
-      console.error("Fetch failed:", err);
-      cleanup();
-    }
-  }
-);
+createEffect(() => fetchData(id()), {
+  effect: (data) => {
+    renderData(data)
+  },
+  error: (err, cleanup) => {
+    console.error("Fetch failed:", err)
+    cleanup()
+  },
+})
 ```
 
 ### createTrackedEffect and onSettled
@@ -258,11 +257,12 @@ createEffect(
 
 ```js
 onSettled(() => {
-  const value = count(); // reactive read allowed here
-  doSomething(value);
-  return () => cleanup();
-});
+  const value = count() // reactive read allowed here
+  doSomething(value)
+  return () => cleanup()
+})
 ```
+
 Unlike other tracked scopes these primitives cannot create nested primitives which is a breaking change from Solid 1.x. They also return a cleanup function instead of their previous value.
 
 **`onCleanup`** remains for reactive lifecycle cleanup inside computations. But is not expected to be used inside side effects.
@@ -275,11 +275,11 @@ Unlike other tracked scopes these primitives cannot create nested primitives whi
 
 ## Removals
 
-| Removed | Replacement / notes |
-|--------|----------------------|
-| `batch` | `flush()` when you need immediate application |
+| Removed                  | Replacement / notes                                |
+| ------------------------ | -------------------------------------------------- |
+| `batch`                  | `flush()` when you need immediate application      |
 | `onError` / `catchError` | Effect `error` callback or ErrorBoundary / Errored |
-| `on` helper | No longer necessary with split effects |
+| `on` helper              | No longer necessary with split effects             |
 
 ## Alternatives considered
 

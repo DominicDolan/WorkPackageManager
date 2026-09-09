@@ -32,7 +32,7 @@ src/
 Import the Area through its named entry file:
 
 ```ts
-import { UserPage } from './UserPage/UserPage';
+import { UserPage } from "./UserPage/UserPage"
 ```
 
 Do not add `index.ts` barrel files merely to hide the entry filename. The
@@ -69,10 +69,10 @@ extension. Name it after the component it styles, such as
 that component.
 
 ```tsx
-import styles from './UserPage.module.css';
+import styles from "./UserPage.module.css"
 
 export function UserPage() {
-  return <main class={styles.page}>...</main>;
+  return <main class={styles.page}>...</main>
 }
 ```
 

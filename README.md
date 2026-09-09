@@ -6,8 +6,8 @@ before/after evidence for each task attached to it. Work enters it as an
 agent runs to produce tasks.
 
 It wraps the [`aio-vr`](https://github.com/) checkpoint workflow: capture the
-state of the UI *before* you change anything, make the change, then capture
-*after*. The comparison is stored against the task, so once something is marked
+state of the UI _before_ you change anything, make the change, then capture
+_after_. The comparison is stored against the task, so once something is marked
 **Dev Complete** you can look at exactly what moved.
 
 The `tasks` command is installed **once, globally**, and behaves according to
@@ -85,22 +85,22 @@ command works from anywhere inside the repo.
 Every key has a default, so the file is optional and a partial file is fine. An
 unknown key is an error rather than a silent no-op.
 
-| Key | Default | What it does |
-|---|---|---|
-| `branchPrefix` | `feature/` | Prefix for generated task branch names |
-| `groupBranchPrefix` | `group/` | Prefix for generated group branch names |
-| `checkpointPrefix` | `task-` | Prefix for generated aio-vr checkpoint names |
-| `baseBranch` | `null` | PR base. `null` resolves it live: `gh repo view`, then `main`/`master` |
-| `aioVrDir` | `../.aio-vr` | The aio-vr workspace, resolved relative to `.tasks/` |
-| `aioVrBin` | `aio-vr` | The visual-regression executable to drive |
-| `notesDir` | `../.notes` | Where notes live, resolved relative to `.tasks/`. Usually a sibling of the repo |
-| `notesAutoCommit` | `true` | Commit each notes change as it is made |
-| `apiPort` | `5199` | Port `tasks web` serves on |
-| `webPort` | `5200` | Port `tasks web --dev` serves Vite on |
-| `prAgent` | `["pi","--no-session","-p","--no-tools"]` | Command that writes PR descriptions. `null` disables it |
-| `agentTerminal` | `null` | Command that opens a terminal window, with the agent's argv appended. `null` autodetects |
-| `checks` | `[]` | Commands that must pass before a PR may be opened. Empty leaves PRs ungated |
-| `modelTiers` | `{}` | Each harness's `fast`/`standard`/`frontier` tiers, resolved to a real model id |
+| Key                 | Default                                   | What it does                                                                             |
+| ------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `branchPrefix`      | `feature/`                                | Prefix for generated task branch names                                                   |
+| `groupBranchPrefix` | `group/`                                  | Prefix for generated group branch names                                                  |
+| `checkpointPrefix`  | `task-`                                   | Prefix for generated aio-vr checkpoint names                                             |
+| `baseBranch`        | `null`                                    | PR base. `null` resolves it live: `gh repo view`, then `main`/`master`                   |
+| `aioVrDir`          | `../.aio-vr`                              | The aio-vr workspace, resolved relative to `.tasks/`                                     |
+| `aioVrBin`          | `aio-vr`                                  | The visual-regression executable to drive                                                |
+| `notesDir`          | `../.notes`                               | Where notes live, resolved relative to `.tasks/`. Usually a sibling of the repo          |
+| `notesAutoCommit`   | `true`                                    | Commit each notes change as it is made                                                   |
+| `apiPort`           | `5199`                                    | Port `tasks web` serves on                                                               |
+| `webPort`           | `5200`                                    | Port `tasks web --dev` serves Vite on                                                    |
+| `prAgent`           | `["pi","--no-session","-p","--no-tools"]` | Command that writes PR descriptions. `null` disables it                                  |
+| `agentTerminal`     | `null`                                    | Command that opens a terminal window, with the agent's argv appended. `null` autodetects |
+| `checks`            | `[]`                                      | Commands that must pass before a PR may be opened. Empty leaves PRs ungated              |
+| `modelTiers`        | `{}`                                      | Each harness's `fast`/`standard`/`frontier` tiers, resolved to a real model id           |
 
 `prAgent` is a command plus its flags; the prompt is appended as one final
 argument. Whatever you configure wants the equivalent of `--no-tools`: the
@@ -126,8 +126,16 @@ after a model lineup changes. It maps each harness to its three tiers:
 {
   "modelTiers": {
     "claude": { "fast": "haiku", "standard": "sonnet", "frontier": "opus" },
-    "codex": { "fast": "gpt-5.6-luna", "standard": "gpt-5.6-terra", "frontier": "gpt-5.6-sol" },
-    "pi": { "fast": "openai/luna", "standard": "openai/terra", "frontier": "openai/sol" }
+    "codex": {
+      "fast": "gpt-5.6-luna",
+      "standard": "gpt-5.6-terra",
+      "frontier": "gpt-5.6-sol"
+    },
+    "pi": {
+      "fast": "openai/luna",
+      "standard": "openai/terra",
+      "frontier": "openai/sol"
+    }
   }
 }
 ```
@@ -160,7 +168,13 @@ run it in, and optionally the paths it applies to.
     },
     {
       "name": "backend build",
-      "command": ["dotnet", "build", "Arcadis.Foundry.slnx", "--configuration", "Release"],
+      "command": [
+        "dotnet",
+        "build",
+        "Arcadis.Foundry.slnx",
+        "--configuration",
+        "Release"
+      ],
       "cwd": "backend-modular",
       "paths": ["backend-modular"],
       "timeoutMs": 1500000
@@ -332,18 +346,18 @@ tasks checkpoint before T-1 --retro --settle 10 --scenario constraints.edit-dial
 ```
 
 One caveat on the fork-point case: if the branch has been rebased, its fork point
-is where it *now* starts, not where the work originally began. `--at` is there
+is where it _now_ starts, not where the work originally began. `--at` is there
 for when that matters.
 
 ## Baselines
 
 Checkpoints and baselines are the same machinery pointed at different questions.
 
-A **checkpoint** asks *"did my change move anything?"* It is scoped to one task,
+A **checkpoint** asks _"did my change move anything?"_ It is scoped to one task,
 compares against what the page looked like when that task started, and is
 deleted when the task closes.
 
-A **baseline** asks *"does the app still look the way we agreed?"* It is the
+A **baseline** asks _"does the app still look the way we agreed?"_ It is the
 standing approved reference for every scenario, it belongs to the repository
 rather than to any task, and drift accumulates against it whether or not anyone
 was working — which is exactly the drift nobody notices until a release.
@@ -386,43 +400,43 @@ about baselines touches the task database.
 Run `tasks help` for the full list. Every command takes `--json`, which is what
 agents should use.
 
-| Command | What it does |
-|---|---|
-| `tasks init [--dir <path>] [--track]` | Scaffold `.tasks/` in this repository |
-| `tasks investigation list [--status s]` | All investigations, unrun first |
-| `tasks investigation show <ref>` | The brief, the findings, and the tasks it filed |
-| `tasks investigation new "<title>"` | Create one. `--brief` |
-| `tasks investigation edit <ref>` | Change `--title`, `--brief`, `--findings`, `--status` |
-| `tasks investigation start\|complete <ref>` | Move it along; `complete` takes `--findings` |
-| `tasks investigation rm <ref>` | Delete it; the tasks it filed are kept, unlinked |
-| `tasks list [--status s] [--tag t]` | All tasks, in list order, in group sections. `--investigation <ref>`, `--group <g>`, `--flat` |
-| `tasks show <ref>` | One task with its history and checkpoint results |
-| `tasks new "<title>" --group <g>` | Create in a group and assign a generated branch. An `--investigation` may supply the group instead. |
-| `tasks edit <ref>` | Change `--title`, `--desc`, `--priority`, `--status`, `--tag`, `--investigation`, `--group`, `--depends-on`, `--units` |
-| `tasks note <ref> <text>` | Append a note to the history |
-| `tasks group list` | Every group, in the order the list draws them |
-| `tasks group show <ref\|name>` | One group and everything in it |
-| `tasks group new "<name>"` | Create one. `--desc`, `--color`, `--branch` |
-| `tasks group edit <ref\|name>` | Change `--name`, `--desc`, `--color`, `--branch` |
-| `tasks group queue <ref\|name>` | What is left in it, in dependency order — what `/work-group` follows |
-| `tasks group add <ref\|name> <task-ref>...` | Put tasks in it |
-| `tasks group rm <ref\|name>` | Delete an empty group |
-| `tasks dep add <ref> <blocker-ref>...` | Make the task wait for each blocker |
-| `tasks dep rm <ref> <blocker-ref>...` | Stop waiting for them |
-| `tasks dep list [<ref>]` | The dependency graph, or one task's corner of it |
-| `tasks move <ref> --top\|--bottom\|--up\|--down` | Reorder the list |
-| `tasks move <ref> --before\|--after <ref>` | Reorder relative to another task |
-| `tasks branch <ref> [--from <branch>]` | Create or switch to the task's assigned branch |
-| `tasks start\|done\|verify\|reopen <ref>` | Move through the workflow (`start` requires the assigned branch; `done` merges into the group's branch, `--no-merge` to skip) |
-| `tasks merge <ref>` | Merge the task into its group's branch and register it there |
-| `tasks checkpoint before\|after\|status <ref>` | Drive aio-vr for one task |
-| `tasks checkpoint before <ref> --retro [--at <commit>] [--settle <s>] [--dry-run]` | Capture `before` at the commit the task started from |
-| `tasks baselines [--all]` | What has drifted from its approved baseline |
-| `tasks baselines run [scenario...]` | Re-run against the baselines |
-| `tasks baselines approve <scenario>` | Accept the current capture as the new baseline |
-| `tasks web [--port n] [--dev]` | Serve the current Vue UI |
-| `tasks web --new [--port n] [--dev]` | Serve the Solid 2.0 proof of concept |
-| `tasks rm <ref>` | Delete a task (the checkpoint on disk is left alone) |
+| Command                                                                            | What it does                                                                                                                  |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `tasks init [--dir <path>] [--track]`                                              | Scaffold `.tasks/` in this repository                                                                                         |
+| `tasks investigation list [--status s]`                                            | All investigations, unrun first                                                                                               |
+| `tasks investigation show <ref>`                                                   | The brief, the findings, and the tasks it filed                                                                               |
+| `tasks investigation new "<title>"`                                                | Create one. `--brief`                                                                                                         |
+| `tasks investigation edit <ref>`                                                   | Change `--title`, `--brief`, `--findings`, `--status`                                                                         |
+| `tasks investigation start\|complete <ref>`                                        | Move it along; `complete` takes `--findings`                                                                                  |
+| `tasks investigation rm <ref>`                                                     | Delete it; the tasks it filed are kept, unlinked                                                                              |
+| `tasks list [--status s] [--tag t]`                                                | All tasks, in list order, in group sections. `--investigation <ref>`, `--group <g>`, `--flat`                                 |
+| `tasks show <ref>`                                                                 | One task with its history and checkpoint results                                                                              |
+| `tasks new "<title>" --group <g>`                                                  | Create in a group and assign a generated branch. An `--investigation` may supply the group instead.                           |
+| `tasks edit <ref>`                                                                 | Change `--title`, `--desc`, `--priority`, `--status`, `--tag`, `--investigation`, `--group`, `--depends-on`, `--units`        |
+| `tasks note <ref> <text>`                                                          | Append a note to the history                                                                                                  |
+| `tasks group list`                                                                 | Every group, in the order the list draws them                                                                                 |
+| `tasks group show <ref\|name>`                                                     | One group and everything in it                                                                                                |
+| `tasks group new "<name>"`                                                         | Create one. `--desc`, `--color`, `--branch`                                                                                   |
+| `tasks group edit <ref\|name>`                                                     | Change `--name`, `--desc`, `--color`, `--branch`                                                                              |
+| `tasks group queue <ref\|name>`                                                    | What is left in it, in dependency order — what `/work-group` follows                                                          |
+| `tasks group add <ref\|name> <task-ref>...`                                        | Put tasks in it                                                                                                               |
+| `tasks group rm <ref\|name>`                                                       | Delete an empty group                                                                                                         |
+| `tasks dep add <ref> <blocker-ref>...`                                             | Make the task wait for each blocker                                                                                           |
+| `tasks dep rm <ref> <blocker-ref>...`                                              | Stop waiting for them                                                                                                         |
+| `tasks dep list [<ref>]`                                                           | The dependency graph, or one task's corner of it                                                                              |
+| `tasks move <ref> --top\|--bottom\|--up\|--down`                                   | Reorder the list                                                                                                              |
+| `tasks move <ref> --before\|--after <ref>`                                         | Reorder relative to another task                                                                                              |
+| `tasks branch <ref> [--from <branch>]`                                             | Create or switch to the task's assigned branch                                                                                |
+| `tasks start\|done\|verify\|reopen <ref>`                                          | Move through the workflow (`start` requires the assigned branch; `done` merges into the group's branch, `--no-merge` to skip) |
+| `tasks merge <ref>`                                                                | Merge the task into its group's branch and register it there                                                                  |
+| `tasks checkpoint before\|after\|status <ref>`                                     | Drive aio-vr for one task                                                                                                     |
+| `tasks checkpoint before <ref> --retro [--at <commit>] [--settle <s>] [--dry-run]` | Capture `before` at the commit the task started from                                                                          |
+| `tasks baselines [--all]`                                                          | What has drifted from its approved baseline                                                                                   |
+| `tasks baselines run [scenario...]`                                                | Re-run against the baselines                                                                                                  |
+| `tasks baselines approve <scenario>`                                               | Accept the current capture as the new baseline                                                                                |
+| `tasks web [--port n] [--dev]`                                                     | Serve the current Vue UI                                                                                                      |
+| `tasks web --new [--port n] [--dev]`                                               | Serve the Solid 2.0 proof of concept                                                                                          |
+| `tasks rm <ref>`                                                                   | Delete a task (the checkpoint on disk is left alone)                                                                          |
 
 `tasks investigation` shortens to `tasks inv`. Its `--brief` and `--findings`
 accept `-` to read the text from stdin, which is how an agent gets multi-line
@@ -480,7 +494,7 @@ Sections are ordered by their first task in the queue, so the row at the top of
 a grouped list is still the one `/work-task` picks up. Putting a task in a group
 moves it beside that group's other tasks, which keeps a group contiguous and the
 grouped list reading in queue order; that is the one queue change grouping makes,
-and both the CLI and the UI say so when they do it. Taking a task *out* of a
+and both the CLI and the UI say so when they do it. Taking a task _out_ of a
 group leaves it where it is, so an ungrouped row can sit further down the queue
 than the section above it — `tasks list` numbers every row with its actual place,
 and `tasks list --flat` shows the queue with no sections at all.
@@ -515,7 +529,7 @@ Click **Open** on a group's heading in `tasks web` (or go to `/groups/G-1`, whic
 is a real, linkable route) for the group's own page: its description, its branch
 and that branch's live Git state, the tasks on it, and the **work order** — the
 group's unfinished tasks sorted so nothing comes before what it depends on. A
-task waiting on something *outside* the group is called out, because working the
+task waiting on something _outside_ the group is called out, because working the
 group alone will never clear it.
 
 `tasks group queue G-1` is the same order from the CLI, and `--json` is what an
@@ -531,7 +545,7 @@ The group page names the task to work next: the first in the work order that
 nothing unfinished is holding up. **Start** points an agent at just that one
 (`/work-task T-4`), branched from the group's branch like any other.
 
-It never launches anything by itself. The queue *advances* on its own — the page
+It never launches anything by itself. The queue _advances_ on its own — the page
 re-reads on every change, so finishing a task moves this on to the next — but
 pressing the button is yours. That is deliberate: `tasks done` fires while the
 agent is still reporting back, so auto-launching the next one would put two
@@ -539,7 +553,7 @@ agents in the same working tree, both switching branches.
 
 For the same reason it applies `/work-task`'s own rule and refuses while any
 task is in progress — including a task in **another group**, since the conflict
-is the working tree, not the group. When the in-flight task *is* the next one,
+is the working tree, not the group. When the in-flight task _is_ the next one,
 the button reads **Continue** instead: that is resuming, not starting a second.
 
 #### Working a whole group with an agent
@@ -586,7 +600,7 @@ who did it.
 A task can wait for other tasks: `tasks dep add T-4 T-2` records that T-4 needs
 T-2 first. In the web UI the same thing is done from a task's **Dependencies**
 section — pick a task from the list to wait for, or remove one — and that
-section also shows what is waiting on *this* task.
+section also shows what is waiting on _this_ task.
 
 A blocker counts as met once it reaches **Dev Complete**: by then its work
 exists on its branch, which is what the dependent task actually needs. Waiting
@@ -663,7 +677,7 @@ on when you start. The base is fetched and fast-forwarded to `origin` first, so
 the work lands on top of current `master` rather than on whatever was there the
 last time anyone pulled. If the base cannot be fetched, or has diverged from
 `origin` (commits on each side), the combine stops rather than build on a stale
-or ambiguous base; a base that is merely *ahead* of `origin` is used as-is, with
+or ambiguous base; a base that is merely _ahead_ of `origin` is used as-is, with
 the unpushed commits riding along.
 
 Each selected task branch's commits are then cherry-picked in task-list order —
@@ -775,12 +789,12 @@ happens if the capture fails, so this is how you find out that it did.
 Every command can be fired from the web UI rather than typed into a terminal,
 against whatever is on screen:
 
-| Where | Button | What it runs |
-|---|---|---|
-| Issues → an open issue | **Investigate** | `/plan-tasks #677` |
-| Investigations → **Run it** | **Run it here** | `/plan-tasks I-3` |
-| Tasks → a selected task | **Work with agent** | `/work-task T-12` |
-| A group's page | **Work with Agent** | `/work-group G-1` |
+| Where                       | Button              | What it runs       |
+| --------------------------- | ------------------- | ------------------ |
+| Issues → an open issue      | **Investigate**     | `/plan-tasks #677` |
+| Investigations → **Run it** | **Run it here**     | `/plan-tasks I-3`  |
+| Tasks → a selected task     | **Work with agent** | `/work-task T-12`  |
+| A group's page              | **Work with Agent** | `/work-group G-1`  |
 
 Every resumable run records a **session id**, so **Resume** on a run — the one on screen, or any
 in the run history — opens a new terminal window on that same conversation
@@ -798,7 +812,7 @@ models from the CLI's local catalogue and includes any additional configured tie
 models. `pi` is asked for its catalogue with `pi --list-models` and offers all of
 it, grouped by provider. Any harness can use its own default.
 
-The extra prompt goes *below* the command, so the command still gets its ref as
+The extra prompt goes _below_ the command, so the command still gets its ref as
 its first argument. Investigate on an issue runs against the issue itself —
 `/plan-tasks` looks it up through `tasks issues show`, reads the reporter's own
 words, and files what it finds. Nothing creates an investigation record first;
@@ -822,17 +836,17 @@ its permission mode defaults the way it does — see below.
 Claude Code and Codex both expose permission controls for interactive and
 headless runs. `pi` has no equivalent and the control is hidden for it.
 
-| Choice | Claude Code flag | What it means |
-| --- | --- | --- |
-| Ask every time | *(none passed)* | Claude's own default: it asks before each edit and each command. |
-| **Auto** | `--permission-mode auto` | Edits and safe commands go through unasked; risky ones still stop to ask. The mode Shift+Tab reaches inside the terminal UI — this just starts there. |
-| Plan only | `--permission-mode plan` | Reads and proposes, changes nothing. |
-| Never ask | `--permission-mode bypassPermissions` | Asks about nothing at all. |
+| Choice         | Claude Code flag                      | What it means                                                                                                                                         |
+| -------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ask every time | _(none passed)_                       | Claude's own default: it asks before each edit and each command.                                                                                      |
+| **Auto**       | `--permission-mode auto`              | Edits and safe commands go through unasked; risky ones still stop to ask. The mode Shift+Tab reaches inside the terminal UI — this just starts there. |
+| Plan only      | `--permission-mode plan`              | Reads and proposes, changes nothing.                                                                                                                  |
+| Never ask      | `--permission-mode bypassPermissions` | Asks about nothing at all.                                                                                                                            |
 
 For Codex these choices map respectively to no flag, `--approve-for-me`,
 `--sandbox read-only`, and `--dangerously-bypass-approvals-and-sandbox`.
 
-"Ask every time" is the one mode expressed by passing *no* flag rather than by
+"Ask every time" is the one mode expressed by passing _no_ flag rather than by
 naming it, so a `claude` build that spells these modes differently still works.
 
 A terminal run defaults to **Auto** — it is interactive, so the questions worth
@@ -873,7 +887,7 @@ tasks notes init    # create the folder and `git init` it
 ```
 
 `init` is also what the Notes view offers when the configured folder is not there
-yet. When the folder ends up *inside* the repo (which the `../.notes` default
+yet. When the folder ends up _inside_ the repo (which the `../.notes` default
 does), it is added to that clone's `.git/info/exclude`, the same way `.tasks/` is
 — a nested repository has no business showing up in the host repo's status.
 
@@ -892,7 +906,7 @@ frontmatter (`title`, `tags`, `created`, `updated`); anything else already up
 there is preserved on write, so a note that Obsidian has annotated survives a
 round trip through this tool.
 
-Attachments are stored per note under `attachments/`, and linked *relatively*
+Attachments are stored per note under `attachments/`, and linked _relatively_
 (`../attachments/ideas/gantt-is-slow/screenshot.png`) so the Markdown renders
 anywhere. The web app resolves those links through the API, which refuses any
 path that escapes the notes folder.
@@ -956,7 +970,7 @@ export. Two rules make those visible without moving anything:
   the list, so images copied into the folder show up on the next refresh;
   `tasks notes index` does the same from a terminal.
 
-Indexing only ever *creates*, and only where there is no note to overwrite, so a
+Indexing only ever _creates_, and only where there is no note to overwrite, so a
 note you wrote is never edited or re-linked. Add a fourth image to a folder that
 already has a note and it appears in that note's attachments instead.
 
@@ -967,7 +981,7 @@ backdrop or the ✕; the arrow keys step through the rest of that note's images.
 ### Reading images from a terminal
 
 `tasks notes images` does not draw anything. A terminal cannot show a screenshot,
-and an agent reading the output cannot see one either — but it *can* open a file,
+and an agent reading the output cannot see one either — but it _can_ open a file,
 if something tells it which file. So the command answers with locations:
 
 ```bash
@@ -1099,7 +1113,7 @@ Complete, or a `git pull` in the notes folder all show up in an open page
 without touching it.
 
 The server watches the two stores — the database directory (WAL and all) and
-the notes folder — and streams *which one moved* over
+the notes folder — and streams _which one moved_ over
 `GET /api/events` (Server-Sent Events). No data travels on that stream: the
 client already knows how to load every view it can show, and what it lacked was
 any way to know it should. So a change reloads the two list columns, whatever
@@ -1142,8 +1156,8 @@ the bundled `dist/web` and says so if you ask for `--dev`.
 
 ## How it fits together
 
-- **Two roots, deliberately.** The *package* is where the tool is installed —
-  the server entry point, the built SPA. The *workspace* is the `.tasks/` folder
+- **Two roots, deliberately.** The _package_ is where the tool is installed —
+  the server entry point, the built SPA. The _workspace_ is the `.tasks/` folder
   of whichever repo you are in — the config and the database. One package, as
   many workspaces as you have repositories. The web server runs with the package
   as its working directory (that is where its dependencies are), so the CLI
@@ -1192,13 +1206,13 @@ the bundled `dist/web` and says so if you ask for `--dev`.
   Everything that displays stored prose goes through it (`MarkdownBlock.vue`):
   investigation briefs and findings, task descriptions, issue bodies and PR
   descriptions were all written as Markdown, so all of them are read as
-  Markdown. **Copy** on such a block copies the *source*, because the reason to
+  Markdown. **Copy** on such a block copies the _source_, because the reason to
   copy any of it is to paste it somewhere that wants the Markdown back.
 
 ## Caveats
 
 - `aio-vr` rewrites `results.json` in the checkpoint directory on every run,
-  including `before`. A failed `after` therefore leaves the *previous* file in
+  including `before`. A failed `after` therefore leaves the _previous_ file in
   place; the integration checks `generatedAt` against the time the run started
   and refuses stale results rather than recording a comparison that never
   happened.

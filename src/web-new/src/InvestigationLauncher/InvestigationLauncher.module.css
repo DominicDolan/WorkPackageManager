@@ -1,5 +1,24 @@
-:global(.investigation-run-summary) { padding: 1rem; border: 1px solid var(--line); background: var(--color-slate-50); }
-:global(.investigation-run-summary) span { display: block; color: var(--cobalt); font-size: .7rem; font-weight: 600; }
-:global(.investigation-run-summary) strong { display: block; margin-top: .25rem; font-size: 1rem; }
-:global(.investigation-run-summary) p { margin: .5rem 0 0; color: var(--steel); font-size: .78rem; line-height: 1.55; }
-.scope {}
+:global(.investigation-run-summary) {
+  padding: 1rem;
+  border: 1px solid var(--line);
+  background: var(--color-slate-50);
+}
+:global(.investigation-run-summary) span {
+  display: block;
+  color: var(--cobalt);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+:global(.investigation-run-summary) strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 1rem;
+}
+:global(.investigation-run-summary) p {
+  margin: 0.5rem 0 0;
+  color: var(--steel);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+.scope {
+}

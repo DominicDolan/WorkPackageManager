@@ -121,7 +121,7 @@ description for someone to notice — `--depends-on` when filing, or
 `tasks dep add <ref> <blocker-ref>` afterwards.
 
 It matters beyond the reading order: a `work-task` run stops and asks before
-starting a task whose dependency is unfinished, and when the dependency *is*
+starting a task whose dependency is unfinished, and when the dependency _is_
 finished it cuts the new branch from that task's branch instead of from master,
 so the work is written against code that actually exists.
 
@@ -173,23 +173,23 @@ beats "gantt is slow".
 
 **Priority:**
 
-| | |
-|---|---|
-| `high` | Broken, data-losing, blocking someone, or user-visible and wrong |
-| `medium` | Real problem, no one is blocked right now — the default |
-| `low` | Worth doing, nothing breaks if it waits |
+|          |                                                                  |
+| -------- | ---------------------------------------------------------------- |
+| `high`   | Broken, data-losing, blocking someone, or user-visible and wrong |
+| `medium` | Real problem, no one is blocked right now — the default          |
+| `low`    | Worth doing, nothing breaks if it waits                          |
 
 **Tier** — your judgement of how much model capability whoever picks this up
 will need. This is the whole point of setting it: the person running the task
 later sees your recommendation and can accept or override it. Judge it by the
-*shape* of the work, not by how important it is — a `high`-priority task can
+_shape_ of the work, not by how important it is — a `high`-priority task can
 still be mechanical, and a `low`-priority one can still be genuinely hard.
 
-| | |
-|---|---|
+|            |                                                                                                                                                     |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `frontier` | Ambiguous, architectural, or spans many files with subtle interactions — the kind of task where a weaker model would confidently do the wrong thing |
-| `standard` | A normal, well-scoped change — most tasks land here |
-| `fast` | Mechanical: a rename, a config tweak, a copy-paste with variations, something you could describe in one sentence and trust any model to get right |
+| `standard` | A normal, well-scoped change — most tasks land here                                                                                                 |
+| `fast`     | Mechanical: a rename, a config tweak, a copy-paste with variations, something you could describe in one sentence and trust any model to get right   |
 
 Leave it unset (omit `--tier`) only when you genuinely cannot judge — not as a
 default. Guessing `standard` when unsure is better than omitting it.

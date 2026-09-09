@@ -1,14 +1,16 @@
-import { api } from '../../../web/api';
-import type { WorkspaceSnapshot } from '../types/workspace';
+import { api } from "../../../web/api"
+import type { WorkspaceSnapshot } from "../types/workspace"
 
 export async function loadWorkspace(): Promise<WorkspaceSnapshot> {
-  const [groups, tasks, investigations, branchResult, meta] = await Promise.all([
-    api.listGroups(),
-    api.listTasks(),
-    api.listInvestigations(),
-    api.listBranches(),
-    api.meta(),
-  ]);
+  const [groups, tasks, investigations, branchResult, meta] = await Promise.all(
+    [
+      api.listGroups(),
+      api.listTasks(),
+      api.listInvestigations(),
+      api.listBranches(),
+      api.meta(),
+    ],
+  )
 
   return {
     groups,
@@ -19,5 +21,5 @@ export async function loadWorkspace(): Promise<WorkspaceSnapshot> {
     localBranches: branchResult.localBranches,
     aioVrReady: meta.aioVrInstalled && meta.aioVrWorkspaceExists,
     tools: meta.tools,
-  };
+  }
 }

@@ -42,7 +42,12 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font:
+    14px/1.5 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
 }
 
 button {
@@ -130,7 +135,7 @@ label {
 }
 
 .mono {
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
 /* --------------------------------------------------------------- badges */
@@ -146,11 +151,21 @@ label {
   border: 1px solid currentColor;
 }
 
-.badge.backlog { color: var(--backlog); }
-.badge.in_progress { color: var(--progress); }
-.badge.dev_complete { color: var(--devcomplete); }
-.badge.verified { color: var(--verified); }
-.badge.closed { color: var(--text-faint); }
+.badge.backlog {
+  color: var(--backlog);
+}
+.badge.in_progress {
+  color: var(--progress);
+}
+.badge.dev_complete {
+  color: var(--devcomplete);
+}
+.badge.verified {
+  color: var(--verified);
+}
+.badge.closed {
+  color: var(--text-faint);
+}
 
 .combine-close {
   display: flex;
@@ -161,19 +176,41 @@ label {
   color: var(--text);
 }
 
-.combine-close input { width: auto; margin: 0; }
+.combine-close input {
+  width: auto;
+  margin: 0;
+}
 
-.badge.draft { color: var(--backlog); }
-.badge.investigating { color: var(--progress); }
-.badge.complete { color: var(--verified); }
+.badge.draft {
+  color: var(--backlog);
+}
+.badge.investigating {
+  color: var(--progress);
+}
+.badge.complete {
+  color: var(--verified);
+}
 
-.badge.unchanged { color: var(--verified); }
-.badge.changed { color: var(--devcomplete); }
-.badge.failed { color: var(--danger); }
-.badge.new-baseline { color: var(--text-faint); }
+.badge.unchanged {
+  color: var(--verified);
+}
+.badge.changed {
+  color: var(--devcomplete);
+}
+.badge.failed {
+  color: var(--danger);
+}
+.badge.new-baseline {
+  color: var(--text-faint);
+}
 
-.priority-high { color: var(--danger); font-weight: 700; }
-.priority-low { color: var(--text-faint); }
+.priority-high {
+  color: var(--danger);
+  font-weight: 700;
+}
+.priority-low {
+  color: var(--text-faint);
+}
 
 /* --------------------------------------------------------------- layout */
 
@@ -461,11 +498,15 @@ label {
 }
 
 .task-item.selected.drop-above {
-  box-shadow: inset 3px 0 0 var(--accent), inset 0 2px 0 var(--accent);
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    inset 0 2px 0 var(--accent);
 }
 
 .task-item.selected.drop-below {
-  box-shadow: inset 3px 0 0 var(--accent), inset 0 -2px 0 var(--accent);
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    inset 0 -2px 0 var(--accent);
 }
 
 .reorder-hint {
@@ -760,7 +801,7 @@ label {
 
 /* Monospace so the generated Markdown wraps the way GitHub will render it. */
 .pr-body {
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 13px;
   min-height: 320px;
 }
@@ -830,8 +871,13 @@ label {
   border-right-width: 0;
 }
 
-.modes button:first-child { border-radius: 6px 0 0 6px; }
-.modes button:last-child { border-radius: 0 6px 6px 0; border-right-width: 1px; }
+.modes button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+.modes button:last-child {
+  border-radius: 0 6px 6px 0;
+  border-right-width: 1px;
+}
 .modes button.active {
   background: var(--accent);
   border-color: var(--accent);
@@ -907,7 +953,7 @@ label {
 }
 
 .slider-handle::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 50%;
   left: 50%;
@@ -1016,18 +1062,61 @@ label {
     grid-template-columns: 1fr;
   }
 }
-.combine-row { display: grid; grid-template-columns: auto minmax(140px, 1fr) minmax(220px, 2fr) auto; gap: 8px 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
-.combine-row:last-child { border-bottom: 0; }
-.combine-row select { grid-column: 3 / span 2; }
-@media (max-width: 700px) { .combine-row { grid-template-columns: auto 1fr; } .combine-row code, .combine-row select { grid-column: 1 / -1; } }
+.combine-row {
+  display: grid;
+  grid-template-columns: auto minmax(140px, 1fr) minmax(220px, 2fr) auto;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.combine-row:last-child {
+  border-bottom: 0;
+}
+.combine-row select {
+  grid-column: 3 / span 2;
+}
+@media (max-width: 700px) {
+  .combine-row {
+    grid-template-columns: auto 1fr;
+  }
+  .combine-row code,
+  .combine-row select {
+    grid-column: 1 / -1;
+  }
+}
 
 /* The commits this task contributes, spanning the whole row beneath it. */
 .commit-preview,
-.commit-preview-empty { grid-column: 1 / -1; margin: 2px 0 0; }
-.commit-preview { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.commit-preview li { display: flex; gap: 8px; align-items: baseline; font-size: 12px; line-height: 1.5; }
-.commit-preview code { color: var(--text-faint); flex: none; }
-.commit-preview span { color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commit-preview-empty {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+}
+.commit-preview {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.commit-preview li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.commit-preview code {
+  color: var(--text-faint);
+  flex: none;
+}
+.commit-preview span {
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ---------------------------------------------------------------- notes */
 
@@ -1298,10 +1387,19 @@ label {
   margin: 1.4em 0 0.5em;
 }
 
-.markdown h1 { font-size: 22px; }
-.markdown h2 { font-size: 18px; }
-.markdown h3 { font-size: 15px; }
-.markdown h4 { font-size: 14px; color: var(--text-dim); }
+.markdown h1 {
+  font-size: 22px;
+}
+.markdown h2 {
+  font-size: 18px;
+}
+.markdown h3 {
+  font-size: 15px;
+}
+.markdown h4 {
+  font-size: 14px;
+  color: var(--text-dim);
+}
 
 .markdown p {
   margin: 0 0 0.9em;
@@ -1312,7 +1410,7 @@ label {
 }
 
 .markdown code {
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 12.5px;
   background: var(--bg-raised);
   border-radius: 4px;
@@ -1432,8 +1530,12 @@ label {
 
 /* The provider stripe. A second source gets its own colour here and needs
    nothing else in this file. */
-.issue-card.source-github { border-left-color: var(--progress); }
-.issue-card.source-azure-devops { border-left-color: #0078d4; }
+.issue-card.source-github {
+  border-left-color: var(--progress);
+}
+.issue-card.source-azure-devops {
+  border-left-color: #0078d4;
+}
 
 .issue-card.closed {
   opacity: 0.72;
@@ -1635,19 +1737,39 @@ label {
   line-height: 1.6;
 }
 
-.badge.agent-launched { color: var(--progress); }
-.badge.agent-running { color: var(--progress); }
-.badge.agent-succeeded { color: var(--verified); }
-.badge.agent-failed { color: var(--danger); }
-.badge.agent-stopped { color: var(--text-faint); }
+.badge.agent-launched {
+  color: var(--progress);
+}
+.badge.agent-running {
+  color: var(--progress);
+}
+.badge.agent-succeeded {
+  color: var(--verified);
+}
+.badge.agent-failed {
+  color: var(--danger);
+}
+.badge.agent-stopped {
+  color: var(--text-faint);
+}
 
 /* A group run's own states. `blocked` is the one worth its own colour: it means
    the loop stopped with the group half delivered and something wants reading. */
-.badge.group-run-running { color: var(--progress); }
-.badge.group-run-finished { color: var(--verified); }
-.badge.group-run-blocked { color: var(--devcomplete); }
-.badge.group-run-failed { color: var(--danger); }
-.badge.group-run-stopped { color: var(--text-faint); }
+.badge.group-run-running {
+  color: var(--progress);
+}
+.badge.group-run-finished {
+  color: var(--verified);
+}
+.badge.group-run-blocked {
+  color: var(--devcomplete);
+}
+.badge.group-run-failed {
+  color: var(--danger);
+}
+.badge.group-run-stopped {
+  color: var(--text-faint);
+}
 
 .group-run-progress {
   margin-bottom: 12px;
@@ -1792,8 +1914,13 @@ label {
 }
 
 @keyframes rail-live-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.25; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
 }
 
 /* ------------------------------------------------------------- plan view */
@@ -2038,10 +2165,18 @@ label {
   border-style: dashed;
 }
 
-.schedule-bar.in_progress { color: var(--progress); }
-.schedule-bar.dev_complete { color: var(--devcomplete); }
-.schedule-bar.verified { color: var(--verified); }
-.schedule-bar.closed { color: var(--text-faint); }
+.schedule-bar.in_progress {
+  color: var(--progress);
+}
+.schedule-bar.dev_complete {
+  color: var(--devcomplete);
+}
+.schedule-bar.verified {
+  color: var(--verified);
+}
+.schedule-bar.closed {
+  color: var(--text-faint);
+}
 
 .schedule-bar-text {
   color: var(--text);
@@ -2182,10 +2317,18 @@ label {
   color: var(--backlog);
 }
 
-.schedule-swatch.in_progress { color: var(--progress); }
-.schedule-swatch.dev_complete { color: var(--devcomplete); }
-.schedule-swatch.verified { color: var(--verified); }
-.schedule-swatch.closed { color: var(--text-faint); }
+.schedule-swatch.in_progress {
+  color: var(--progress);
+}
+.schedule-swatch.dev_complete {
+  color: var(--devcomplete);
+}
+.schedule-swatch.verified {
+  color: var(--verified);
+}
+.schedule-swatch.closed {
+  color: var(--text-faint);
+}
 
 /* ------------------------------------------------------- plan: group bands */
 

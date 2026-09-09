@@ -1,10 +1,10 @@
-import { Database } from 'bun:sqlite';
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { workspace } from '../config/paths';
-import { branchNameFor, groupBranchNameFor } from '../shared/types';
+import { Database } from "bun:sqlite"
+import { mkdirSync } from "node:fs"
+import { dirname } from "node:path"
+import { workspace } from "../config/paths"
+import { branchNameFor, groupBranchNameFor } from "../shared/types"
 
-let db: Database | undefined;
+let db: Database | undefined
 
 /** Schema statements, applied in order. Each is idempotent, so opening an
  *  existing database is the same code path as creating a new one. */
@@ -221,66 +221,94 @@ const SCHEMA = [
    )`,
 
   `CREATE INDEX IF NOT EXISTS idx_group_runs_group ON group_runs(group_ref, id)`,
-];
+]
 
 /**
  * Columns added after a database may already exist. `CREATE TABLE IF NOT EXISTS`
  * silently skips them on an older file, so add them explicitly.
  */
 const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
-  { table: 'checkpoint_runs', column: 'selection_json', definition: 'TEXT' },
+  { table: "checkpoint_runs", column: "selection_json", definition: "TEXT" },
   // Completed legacy tasks deliberately remain unassigned. Backlog and active
   // legacy tasks are deterministically backfilled after this column is added.
-  { table: 'tasks', column: 'branch_name', definition: 'TEXT' },
-  { table: 'tasks', column: 'closed_at', definition: 'TEXT' },
+  { table: "tasks", column: "branch_name", definition: "TEXT" },
+  { table: "tasks", column: "closed_at", definition: "TEXT" },
   // Tasks filed before Investigations existed simply have none.
-  { table: 'tasks', column: 'investigation_ref', definition: 'TEXT' },
+  { table: "tasks", column: "investigation_ref", definition: "TEXT" },
   // Tasks filed before groups existed are loose, which is exactly right: a
   // group is something a human or an investigation puts them into.
-  { table: 'tasks', column: 'group_ref', definition: 'TEXT' },
+  { table: "tasks", column: "group_ref", definition: "TEXT" },
   // Manual list order. Existing rows all land on 0 and are backfilled below.
-  { table: 'tasks', column: 'position', definition: 'INTEGER NOT NULL DEFAULT 0' },
+  {
+    table: "tasks",
+    column: "position",
+    definition: "INTEGER NOT NULL DEFAULT 0",
+  },
   // Plan duration. Existing rows land on one unit, which is what they would
   // have been estimated at anyway.
-  { table: 'tasks', column: 'estimate_units', definition: 'INTEGER NOT NULL DEFAULT 1' },
+  {
+    table: "tasks",
+    column: "estimate_units",
+    definition: "INTEGER NOT NULL DEFAULT 1",
+  },
   // Groups created before they had branches are backfilled below, because a
   // group without a branch has nothing for its tasks to be cut from.
-  { table: 'task_groups', column: 'branch_name', definition: "TEXT NOT NULL DEFAULT ''" },
+  {
+    table: "task_groups",
+    column: "branch_name",
+    definition: "TEXT NOT NULL DEFAULT ''",
+  },
   // Runs launched before sessions were tracked have none, and cannot be
   // resumed — the id was the harness's to pick and it was never recorded.
-  { table: 'agent_runs', column: 'session_id', definition: 'TEXT' },
-  { table: 'combined_branches', column: 'combine_state', definition: "TEXT NOT NULL DEFAULT 'complete'" },
-  { table: 'combined_branches', column: 'combine_pending_commits', definition: "TEXT NOT NULL DEFAULT '[]'" },
-  { table: 'combined_branches', column: 'combine_close_tasks', definition: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: "agent_runs", column: "session_id", definition: "TEXT" },
+  {
+    table: "combined_branches",
+    column: "combine_state",
+    definition: "TEXT NOT NULL DEFAULT 'complete'",
+  },
+  {
+    table: "combined_branches",
+    column: "combine_pending_commits",
+    definition: "TEXT NOT NULL DEFAULT '[]'",
+  },
+  {
+    table: "combined_branches",
+    column: "combine_close_tasks",
+    definition: "INTEGER NOT NULL DEFAULT 0",
+  },
   // The last pre-PR check run, as a ChecksReport JSON blob. One row, one report:
   // only the latest matters, because an older one describes code that has moved.
-  { table: 'combined_branches', column: 'checks_json', definition: 'TEXT' },
+  { table: "combined_branches", column: "checks_json", definition: "TEXT" },
   // Set by an investigation when it files a task; null on everything filed
   // before this existed, and on any task nobody has judged.
-  { table: 'tasks', column: 'recommended_tier', definition: 'TEXT' },
+  { table: "tasks", column: "recommended_tier", definition: "TEXT" },
   // Null means push to origin under the same name as the local branch, which
   // is the historical default.
-  { table: 'combined_branches', column: 'remote_branch', definition: 'TEXT' },
+  { table: "combined_branches", column: "remote_branch", definition: "TEXT" },
   // Older unattended runs included every queued task.
-  { table: 'group_runs', column: 'excluded_json', definition: "TEXT NOT NULL DEFAULT '[]'" },
-];
+  {
+    table: "group_runs",
+    column: "excluded_json",
+    definition: "TEXT NOT NULL DEFAULT '[]'",
+  },
+]
 
 /** Indexes over columns that ADDED_COLUMNS may have only just created, so they
  *  cannot live in SCHEMA — that runs before the migrations. */
 const POST_MIGRATION_INDEXES = [
-  'CREATE INDEX IF NOT EXISTS idx_tasks_investigation ON tasks(investigation_ref)',
-  'CREATE INDEX IF NOT EXISTS idx_tasks_group ON tasks(group_ref)',
-];
+  "CREATE INDEX IF NOT EXISTS idx_tasks_investigation ON tasks(investigation_ref)",
+  "CREATE INDEX IF NOT EXISTS idx_tasks_group ON tasks(group_ref)",
+]
 
 function applyColumnMigrations(database: Database): void {
   for (const { table, column, definition } of ADDED_COLUMNS) {
     const existing = database
       .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
       .all()
-      .map((row) => row.name);
+      .map((row) => row.name)
 
     if (existing.length && !existing.includes(column)) {
-      database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+      database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
     }
   }
 
@@ -290,17 +318,23 @@ function applyColumnMigrations(database: Database): void {
     .query<{ ref: string; title: string }, []>(
       "SELECT ref, title FROM tasks WHERE branch_name IS NULL AND status IN ('backlog', 'in_progress')",
     )
-    .all();
-  const backfill = database.query('UPDATE tasks SET branch_name = $branch WHERE ref = $ref');
+    .all()
+  const backfill = database.query(
+    "UPDATE tasks SET branch_name = $branch WHERE ref = $ref",
+  )
   for (const task of unassigned) {
     backfill.run({
       $ref: task.ref,
-      $branch: branchNameFor(task.ref, task.title, workspace().config.branchPrefix),
-    });
+      $branch: branchNameFor(
+        task.ref,
+        task.title,
+        workspace().config.branchPrefix,
+      ),
+    })
   }
 
-  backfillGroupBranches(database);
-  backfillPositions(database);
+  backfillGroupBranches(database)
+  backfillPositions(database)
 }
 
 /**
@@ -310,17 +344,24 @@ function applyColumnMigrations(database: Database): void {
  */
 function backfillGroupBranches(database: Database): void {
   const rows = database
-    .query<{ ref: string; name: string }, []>("SELECT ref, name FROM task_groups WHERE branch_name = ''")
-    .all();
-  if (!rows.length) return;
+    .query<{ ref: string; name: string }, []>(
+      "SELECT ref, name FROM task_groups WHERE branch_name = ''",
+    )
+    .all()
+  if (!rows.length) return
 
-  const prefix = workspace().config.groupBranchPrefix;
-  const assign = database.query('UPDATE task_groups SET branch_name = $branch WHERE ref = $ref');
+  const prefix = workspace().config.groupBranchPrefix
+  const assign = database.query(
+    "UPDATE task_groups SET branch_name = $branch WHERE ref = $ref",
+  )
   database.transaction(() => {
     for (const group of rows) {
-      assign.run({ $ref: group.ref, $branch: groupBranchNameFor(group.ref, group.name, prefix) });
+      assign.run({
+        $ref: group.ref,
+        $branch: groupBranchNameFor(group.ref, group.name, prefix),
+      })
     }
-  })();
+  })()
 }
 
 /**
@@ -348,19 +389,24 @@ function backfillPositions(database: Database): void {
                  CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
                  id DESC`,
     )
-    .all();
-  if (!pending.length) return;
+    .all()
+  if (!pending.length) return
 
   const highest =
-    database.query<{ top: number | null }, []>('SELECT MAX(position) AS top FROM tasks').get()
-      ?.top ?? 0;
+    database
+      .query<{ top: number | null }, []>(
+        "SELECT MAX(position) AS top FROM tasks",
+      )
+      .get()?.top ?? 0
 
-  const assign = database.query('UPDATE tasks SET position = $position WHERE id = $id');
+  const assign = database.query(
+    "UPDATE tasks SET position = $position WHERE id = $id",
+  )
   database.transaction(() => {
     pending.forEach((task, index) => {
-      assign.run({ $id: task.id, $position: highest + index + 1 });
-    });
-  })();
+      assign.run({ $id: task.id, $position: highest + index + 1 })
+    })
+  })()
 }
 
 /**
@@ -379,43 +425,47 @@ function backfillCombinedBranches(database: Database): void {
         WHERE e.type = 'note' AND e.note LIKE 'Included in combined branch %'
         ORDER BY e.id`,
     )
-    .all();
+    .all()
 
-  const byBranch = new Map<string, { refs: string[]; at: string }>();
+  const byBranch = new Map<string, { refs: string[]; at: string }>()
   for (const row of rows) {
-    const name = /^Included in combined branch '(.+)'\.$/.exec(row.note)?.[1];
-    if (!name) continue;
+    const name = /^Included in combined branch '(.+)'\.$/.exec(row.note)?.[1]
+    if (!name) continue
 
-    const entry = byBranch.get(name) ?? { refs: [], at: row.created_at };
-    if (!entry.refs.includes(row.ref)) entry.refs.push(row.ref);
-    byBranch.set(name, entry);
+    const entry = byBranch.get(name) ?? { refs: [], at: row.created_at }
+    if (!entry.refs.includes(row.ref)) entry.refs.push(row.ref)
+    byBranch.set(name, entry)
   }
 
   const insert = database.query(
     `INSERT INTO combined_branches (branch_name, base_branch, task_refs, created_at, updated_at)
      VALUES ($name, NULL, $refs, $at, $at)
      ON CONFLICT(branch_name) DO NOTHING`,
-  );
+  )
   for (const [name, entry] of byBranch) {
-    insert.run({ $name: name, $refs: JSON.stringify(entry.refs), $at: entry.at });
+    insert.run({
+      $name: name,
+      $refs: JSON.stringify(entry.refs),
+      $at: entry.at,
+    })
   }
 }
 
 export function getDb(): Database {
-  if (db) return db;
+  if (db) return db
 
-  const { dbPath } = workspace();
-  mkdirSync(dirname(dbPath), { recursive: true });
+  const { dbPath } = workspace()
+  mkdirSync(dirname(dbPath), { recursive: true })
 
-  db = new Database(dbPath, { create: true });
-  db.exec('PRAGMA journal_mode = WAL');
-  db.exec('PRAGMA foreign_keys = ON');
-  for (const statement of SCHEMA) db.exec(statement);
-  applyColumnMigrations(db);
-  for (const statement of POST_MIGRATION_INDEXES) db.exec(statement);
-  backfillCombinedBranches(db);
+  db = new Database(dbPath, { create: true })
+  db.exec("PRAGMA journal_mode = WAL")
+  db.exec("PRAGMA foreign_keys = ON")
+  for (const statement of SCHEMA) db.exec(statement)
+  applyColumnMigrations(db)
+  for (const statement of POST_MIGRATION_INDEXES) db.exec(statement)
+  backfillCombinedBranches(db)
 
-  return db;
+  return db
 }
 
 /** Bump one of the monotonic counters and return its new value. */
@@ -426,27 +476,27 @@ function nextCounter(name: string): number {
        ON CONFLICT(name) DO UPDATE SET value = value + 1
        RETURNING value`,
     )
-    .get({ $name: name });
+    .get({ $name: name })
 
-  return row!.value;
+  return row!.value
 }
 
 /** Next task ref, e.g. `T-7`. */
 export function nextRef(): string {
-  return `T-${nextCounter('task')}`;
+  return `T-${nextCounter("task")}`
 }
 
 /** Next investigation ref, e.g. `I-3`. Counted separately from tasks so the two
  *  sequences never interleave. */
 export function nextInvestigationRef(): string {
-  return `I-${nextCounter('investigation')}`;
+  return `I-${nextCounter("investigation")}`
 }
 
 /** Next group ref, e.g. `G-2`. Its own counter for the same reason. */
 export function nextGroupRef(): string {
-  return `G-${nextCounter('group')}`;
+  return `G-${nextCounter("group")}`
 }
 
 export function nowIso(): string {
-  return new Date().toISOString();
+  return new Date().toISOString()
 }

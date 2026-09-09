@@ -1,26 +1,86 @@
-:global(.eyebrow) { margin: 0; font-size: .78rem; font-weight: 600; color: var(--cobalt); }
+:global(.eyebrow) {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--cobalt);
+}
 
-:global(.app-shell) { display: grid; grid-template-columns: 220px minmax(0, 1fr); background: var(--workbench); }
+:global(.app-shell) {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  background: var(--workbench);
+}
 :global(.product-rail) {
-  position: sticky; top: 0; display: flex; height: 100vh; flex-direction: column;
-  padding: 1.75rem 1.5rem; overflow: hidden; background: var(--rail); color: white;
+  position: sticky;
+  top: 0;
+  display: flex;
+  height: 100vh;
+  flex-direction: column;
+  padding: 1.75rem 1.5rem;
+  overflow: hidden;
+  background: var(--rail);
+  color: white;
 }
 :global(.product-rail)::after {
-  position: absolute; right: -5rem; bottom: 5rem; width: 11rem; height: 11rem;
-  border: 1px solid rgb(255 255 255 / .09); border-radius: 50%;
-  box-shadow: 0 0 0 2.2rem rgb(255 255 255 / .025), 0 0 0 4.4rem rgb(255 255 255 / .02); content: "";
+  position: absolute;
+  right: -5rem;
+  bottom: 5rem;
+  width: 11rem;
+  height: 11rem;
+  border: 1px solid rgb(255 255 255 / 0.09);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 2.2rem rgb(255 255 255 / 0.025),
+    0 0 0 4.4rem rgb(255 255 255 / 0.02);
+  content: "";
 }
-:global(.rail-nav) { margin: 4.5rem -1.5rem 0; }
+:global(.rail-nav) {
+  margin: 4.5rem -1.5rem 0;
+}
 :global(.rail-link) {
-  position: relative; display: flex; min-height: 2.8rem; align-items: center;
-  gap: .75rem; padding: 0 1.5rem; font-size: .84rem; color: #b6bdc9;
+  position: relative;
+  display: flex;
+  min-height: 2.8rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 1.5rem;
+  font-size: 0.84rem;
+  color: #b6bdc9;
 }
-:global(.rail-link-active) { background: rgb(255 255 255 / .055); color: white; }
-:global(.rail-indicator) { position: absolute; inset-block: 0; left: 0; width: 3px; background: var(--signal); }
-:global(.rail-note) { position: relative; z-index: 1; margin-top: auto; padding-top: 1rem; border-top: 1px solid rgb(255 255 255 / .14); }
-:global(.rail-note) span, :global(.rail-version) { font-size: .7rem; color: #929aa7; }
-:global(.rail-note) p { margin: .55rem 0 0; font-size: .9rem; line-height: 1.55; letter-spacing: -.01em; }
-:global(.rail-version) { position: relative; z-index: 1; margin: 1.5rem 0 0; }
+:global(.rail-link-active) {
+  background: rgb(255 255 255 / 0.055);
+  color: white;
+}
+:global(.rail-indicator) {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 3px;
+  background: var(--signal);
+}
+:global(.rail-note) {
+  position: relative;
+  z-index: 1;
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid rgb(255 255 255 / 0.14);
+}
+:global(.rail-note) span,
+:global(.rail-version) {
+  font-size: 0.7rem;
+  color: #929aa7;
+}
+:global(.rail-note) p {
+  margin: 0.55rem 0 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  letter-spacing: -0.01em;
+}
+:global(.rail-version) {
+  position: relative;
+  z-index: 1;
+  margin: 1.5rem 0 0;
+}
 
 :global(.rail-link) {
   width: 100%;
@@ -30,13 +90,31 @@
 }
 
 @media (max-width: 820px) {
-  :global(.app-shell) { display: block; }
-    :global(.product-rail) {
-      position: relative; width: auto; height: auto; min-height: 4rem; flex-direction: row;
-      align-items: center; justify-content: space-between; padding: 1rem 1.25rem;
-    }
-    :global(.product-rail)::after, :global(.rail-note), :global(.rail-version) { display: none; }
-    :global(.rail-nav) { margin: 0; }
-    :global(.rail-link) { min-height: 2rem; padding: 0 0 0 1rem; }
+  :global(.app-shell) {
+    display: block;
+  }
+  :global(.product-rail) {
+    position: relative;
+    width: auto;
+    height: auto;
+    min-height: 4rem;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+  }
+  :global(.product-rail)::after,
+  :global(.rail-note),
+  :global(.rail-version) {
+    display: none;
+  }
+  :global(.rail-nav) {
+    margin: 0;
+  }
+  :global(.rail-link) {
+    min-height: 2rem;
+    padding: 0 0 0 1rem;
+  }
 }
-.scope {}
+.scope {
+}

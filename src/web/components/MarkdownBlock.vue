@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { renderMarkdown } from '../markdown';
+import { computed, ref } from "vue"
+import { renderMarkdown } from "../markdown"
 
 /**
  * A block of stored prose, rendered.
@@ -16,24 +16,24 @@ import { renderMarkdown } from '../markdown';
  * and all three want the Markdown back.
  */
 const props = defineProps<{
-  source: string;
+  source: string
   /** Hidden where the surrounding view already offers its own copy control. */
-  copyable?: boolean;
-}>();
+  copyable?: boolean
+}>()
 
-const rendered = computed(() => renderMarkdown(props.source));
+const rendered = computed(() => renderMarkdown(props.source))
 
-const state = ref<'idle' | 'copied' | 'failed'>('idle');
+const state = ref<"idle" | "copied" | "failed">("idle")
 
 async function copy(): Promise<void> {
   try {
-    await navigator.clipboard.writeText(props.source);
-    state.value = 'copied';
+    await navigator.clipboard.writeText(props.source)
+    state.value = "copied"
   } catch {
     // Clipboard access can be refused; the source is on screen to select.
-    state.value = 'failed';
+    state.value = "failed"
   }
-  setTimeout(() => (state.value = 'idle'), 1600);
+  setTimeout(() => (state.value = "idle"), 1600)
 }
 </script>
 
@@ -45,7 +45,13 @@ async function copy(): Promise<void> {
       title="Copy as Markdown"
       @click="copy"
     >
-      {{ state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy' }}
+      {{
+        state === "copied"
+          ? "Copied"
+          : state === "failed"
+            ? "Copy failed"
+            : "Copy"
+      }}
     </button>
     <!-- Rendered by this app's own renderer, which escapes the source before any
          rule runs — safe for prose an agent or another clone wrote. -->

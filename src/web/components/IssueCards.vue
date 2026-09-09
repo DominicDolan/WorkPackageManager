@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ISSUE_SOURCE_LABELS, type IssueSummary } from '@shared/types';
+import { ISSUE_SOURCE_LABELS, type IssueSummary } from "@shared/types"
 
 /**
  * The issue board: one card per issue, whatever provider it came from.
@@ -9,32 +9,37 @@ import { ISSUE_SOURCE_LABELS, type IssueSummary } from '@shared/types';
  * the same grid without either looking like a special case. The `source` badge
  * is the only thing that distinguishes them at this level.
  */
-defineProps<{ issues: IssueSummary[]; loading: boolean; filtered: boolean; notesDir: string | null }>();
-const emit = defineEmits<{ open: [string] }>();
+defineProps<{
+  issues: IssueSummary[]
+  loading: boolean
+  filtered: boolean
+  notesDir: string | null
+}>()
+const emit = defineEmits<{ open: [string] }>()
 
-const sourceLabel = (source: string) => ISSUE_SOURCE_LABELS[source] ?? source;
+const sourceLabel = (source: string) => ISSUE_SOURCE_LABELS[source] ?? source
 
 /** Dates on a card are relative — "how stale is this" is the question a board
  *  answers, and an exact timestamp is on the detail view. */
 function ago(value: string | null): string {
-  if (!value) return '';
-  const days = Math.floor((Date.now() - new Date(value).getTime()) / 86_400_000);
-  if (Number.isNaN(days)) return '';
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 30) return `${days}d ago`;
-  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
-  return `${Math.floor(days / 365)}y ago`;
+  if (!value) return ""
+  const days = Math.floor((Date.now() - new Date(value).getTime()) / 86_400_000)
+  if (Number.isNaN(days)) return ""
+  if (days <= 0) return "today"
+  if (days === 1) return "yesterday"
+  if (days < 30) return `${days}d ago`
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`
+  return `${Math.floor(days / 365)}y ago`
 }
 
 const initials = (name: string) =>
   name
-    .replace(/[^a-z0-9 -]/gi, '')
+    .replace(/[^a-z0-9 -]/gi, "")
     .split(/[\s-]+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]!.toUpperCase())
-    .join('');
+    .join("")
 </script>
 
 <template>
@@ -50,7 +55,10 @@ const initials = (name: string) =>
         <div class="row">
           <span class="source-badge">{{ sourceLabel(issue.source) }}</span>
           <span class="mono faint">{{ issue.key }}</span>
-          <span class="badge" :class="issue.state === 'open' ? 'in_progress' : 'verified'">
+          <span
+            class="badge"
+            :class="issue.state === 'open' ? 'in_progress' : 'verified'"
+          >
             {{ issue.stateLabel }}
           </span>
           <span class="spacer" />
@@ -64,7 +72,9 @@ const initials = (name: string) =>
           <span v-if="issue.container">{{ issue.container }}</span>
         </p>
 
-        <p v-if="issue.excerpt" class="issue-card-excerpt dim">{{ issue.excerpt }}</p>
+        <p v-if="issue.excerpt" class="issue-card-excerpt dim">
+          {{ issue.excerpt }}
+        </p>
 
         <div v-if="issue.labels.length" class="issue-labels">
           <span
@@ -86,13 +96,19 @@ const initials = (name: string) =>
               class="avatar"
               :title="person.name"
             >
-              <img v-if="person.avatarUrl" :src="person.avatarUrl" :alt="person.name" />
+              <img
+                v-if="person.avatarUrl"
+                :src="person.avatarUrl"
+                :alt="person.name"
+              />
               <template v-else>{{ initials(person.name) }}</template>
             </span>
           </div>
           <span v-else class="faint">Unassigned</span>
           <span class="spacer" />
-          <span v-if="issue.commentCount" class="faint">{{ issue.commentCount }} comment(s)</span>
+          <span v-if="issue.commentCount" class="faint"
+            >{{ issue.commentCount }} comment(s)</span
+          >
         </div>
       </button>
     </div>
@@ -102,7 +118,8 @@ const initials = (name: string) =>
       <template v-else>
         No issue files found.
         <span v-if="notesDir">
-          Drop a provider's JSON into <span class="mono">{{ notesDir }}</span> and it appears here.
+          Drop a provider's JSON into
+          <span class="mono">{{ notesDir }}</span> and it appears here.
         </span>
       </template>
     </p>

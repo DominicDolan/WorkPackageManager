@@ -131,7 +131,7 @@ report.**
   the first time a task in the group needs it.
 - no group, no finished dependencies → the base branch
 - no group, one finished dependency → that task's branch. A finished
-  dependency's work is on *its* branch and has not been merged anywhere yet, so
+  dependency's work is on _its_ branch and has not been merged anywhere yet, so
   a task that depends on it is cut from that branch — otherwise you would be
   writing against code that is not there.
 - no group, several finished dependencies → `tasks branch` refuses, because one
@@ -144,14 +144,14 @@ report.**
 
 When you are branching off a group branch or a dependency, the baseline you
 capture in step 5 includes that other work's changes. That is correct — the diff
-you are about to produce should show *your* change and not the one you built on
+you are about to produce should show _your_ change and not the one you built on
 top of.
 
 Never work directly on `master`, and never force-push or merge.
 
 ### Keep the branch a straight line
 
-A branch is not finished when it merges cleanly — it has to *replay* cleanly.
+A branch is not finished when it merges cleanly — it has to _replay_ cleanly.
 Downstream tooling copies a branch by cherry-picking its commits onto another
 repository's base one at a time, and that is a weaker operation than the merge
 you would do here. Two things break it:
@@ -159,7 +159,7 @@ you would do here. Two things break it:
 - **A merge commit.** `git cherry-pick` refuses one outright. It does not matter
   that the merge was trivial, or that it resolved nothing.
 - **A resolution that exists only inside a merge commit.** Replaying the
-  *pre-merge* commits against a base that has moved reintroduces whatever the
+  _pre-merge_ commits against a base that has moved reintroduces whatever the
   merge settled — a commit that edits a file the base has since deleted
   conflicts, even though merging the same branch is clean.
 
@@ -172,7 +172,7 @@ git rebase <that-branch> <your-branch>
 
 `tasks done` already does exactly this for the task → group step (it rebases,
 then fast-forwards). The gap is everything it does not do for you, and the one
-that comes up is a task whose *job* is to bring the base branch in. Rebase there
+that comes up is a task whose _job_ is to bring the base branch in. Rebase there
 too; do not `git merge master`, however natural it looks. If the branch has
 already been pushed, rebasing needs a force-push — **stop and ask the user**
 rather than deciding that yourself, because other branches may be cut from it.

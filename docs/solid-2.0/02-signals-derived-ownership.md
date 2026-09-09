@@ -21,11 +21,11 @@ In 2.0, a root created inside an existing owned scope is itself owned by that pa
 ```js
 function Widget() {
   createRoot((dispose) => {
-    const [count, setCount] = createSignal(0);
-    const id = setInterval(() => setCount((c) => c + 1), 1000);
-    onCleanup(() => clearInterval(id));
-  });
-  return null;
+    const [count, setCount] = createSignal(0)
+    const id = setInterval(() => setCount((c) => c + 1), 1000)
+    onCleanup(() => clearInterval(id))
+  })
+  return null
 }
 // When Widget is disposed, the nested root is disposed too.
 ```
@@ -37,9 +37,9 @@ If you really want “no owner” (module singletons, external integrations), de
 ```js
 // A truly detached singleton
 export const singleton = runWithOwner(null, () => {
-  const [value, setValue] = createSignal(0);
-  return { value, setValue };
-});
+  const [value, setValue] = createSignal(0)
+  return { value, setValue }
+})
 ```
 
 This makes “global lifetime” an explicit opt-in rather than the accidental default.
@@ -50,19 +50,19 @@ Context creation still looks the same, but usage becomes simpler: the context it
 
 ```js
 // 2.0
-const ThemeContext = createContext("light");
+const ThemeContext = createContext("light")
 
 function App() {
   return (
     <ThemeContext value="dark">
       <Page />
     </ThemeContext>
-  );
+  )
 }
 
 function Page() {
-  const theme = useContext(ThemeContext);
-  return <div class={theme}>...</div>;
+  const theme = useContext(ThemeContext)
+  return <div class={theme}>...</div>
 }
 ```
 
@@ -72,21 +72,21 @@ In 2.0, `createContext<T>()` (no default) is typed `Context<T>` — `useContext`
 
 ```ts
 // 1.x boilerplate — the wrapper exists only to narrow the type
-const TodosContext = createContext<TodosCtx>();
+const TodosContext = createContext<TodosCtx>()
 const useTodos = () => {
-  const ctx = useContext(TodosContext);
-  if (!ctx) throw new Error("missing TodosContext.Provider");
-  return ctx;
-};
+  const ctx = useContext(TodosContext)
+  if (!ctx) throw new Error("missing TodosContext.Provider")
+  return ctx
+}
 
 // 2.0 — direct call, no wrapper. Throws if no Provider; type is TodosCtx, not TodosCtx | undefined.
-const TodosContext = createContext<TodosCtx>();
-const [todos, { addTodo }] = useContext(TodosContext);
+const TodosContext = createContext<TodosCtx>()
+const [todos, { addTodo }] = useContext(TodosContext)
 ```
 
 The default form `createContext<T>(defaultValue)` is unchanged: `useContext` falls back to `defaultValue` outside any Provider. Reserved for primitive fallbacks (theme, locale, frozen config). For any context carrying reactive state, prefer the default-less form.
 
-> If you want truly app-wide state, **don't use Context** — a module-scope signal/store *is* a global. Context is for scoping state to a subtree, which is why a Provider is mandatory in the default-less form.
+> If you want truly app-wide state, **don't use Context** — a module-scope signal/store _is_ a global. Context is for scoping state to a subtree, which is why a Provider is mandatory in the default-less form.
 
 **Migration:** drop `useX`-with-throw wrappers and call `useContext` directly. If you actively relied on `useContext(ctx)` returning `undefined` for a default-less context, either pass an explicit default to `createContext` or wrap the call in a try/catch.
 
@@ -100,9 +100,9 @@ The default form `createContext<T>(defaultValue)` is unchanged: `useContext` fal
 
 ```js
 // Example: derived signal
-const [value, setValue] = createSignal(() => props.something);
+const [value, setValue] = createSignal(() => props.something)
 // If you want a first-run default for prev, use a default parameter:
-const [cached, setCached] = createSignal((prev = props.something) => prev);
+const [cached, setCached] = createSignal((prev = props.something) => prev)
 // setValue(...) writes like a normal signal; the compute receives prev on recompute.
 ```
 
@@ -115,11 +115,11 @@ Unlike memo/effect `prev`, the second argument here is a real backing host objec
 ```js
 // Example: derived store that only flips the active key
 const [selected, setSelected] = createStore((draft) => {
-  const id = selectedId();
-  draft[id] = true;
-  if (draft._prev != null) delete draft[draft._prev];
-  draft._prev = id;
-}, {});
+  const id = selectedId()
+  draft[id] = true
+  if (draft._prev != null) delete draft[draft._prev]
+  draft._prev = id
+}, {})
 ```
 
 ## Migration / replacement
@@ -153,10 +153,10 @@ If you used `createComputed` to “write back”:
 
 ## Removals
 
-| Removed | Replacement |
-|--------|-------------|
-| `createComputed` | `createEffect` (split), function-form `createSignal`/`createStore`, or `createMemo` |
-| `Context.Provider` | Use the context directly as the provider component (`<Context value={...}>`) |
+| Removed            | Replacement                                                                         |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| `createComputed`   | `createEffect` (split), function-form `createSignal`/`createStore`, or `createMemo` |
+| `Context.Provider` | Use the context directly as the provider component (`<Context value={...}>`)        |
 
 ## Alternatives considered
 

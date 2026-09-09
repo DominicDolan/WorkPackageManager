@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 
 /**
  * A full-screen look at one image, with the rest of the set a key away.
@@ -14,41 +14,44 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
  * the one thing a viewer like this must never do is trap somebody in it.
  */
 export interface LightboxImage {
-  src: string;
-  name: string;
+  src: string
+  name: string
 }
 
-const props = defineProps<{ images: LightboxImage[]; index: number }>();
-const emit = defineEmits<{ close: []; 'update:index': [number] }>();
+const props = defineProps<{ images: LightboxImage[]; index: number }>()
+const emit = defineEmits<{ close: []; "update:index": [number] }>()
 
-const current = computed(() => props.images[props.index] ?? null);
+const current = computed(() => props.images[props.index] ?? null)
 
 /** Reset per image, so a slow one shows its name rather than the last picture. */
-const loaded = ref(false);
-watch(() => props.index, () => (loaded.value = false));
+const loaded = ref(false)
+watch(
+  () => props.index,
+  () => (loaded.value = false),
+)
 
 function step(by: number): void {
-  if (props.images.length < 2) return;
-  const next = (props.index + by + props.images.length) % props.images.length;
-  emit('update:index', next);
+  if (props.images.length < 2) return
+  const next = (props.index + by + props.images.length) % props.images.length
+  emit("update:index", next)
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') {
+  if (event.key === "Escape") {
     // Stopped so a parent that also listens for Escape does not act on the same
     // press — closing the viewer is the whole meaning of it while this is open.
-    event.stopPropagation();
-    emit('close');
-    return;
+    event.stopPropagation()
+    emit("close")
+    return
   }
-  if (event.key === 'ArrowRight') step(1);
-  if (event.key === 'ArrowLeft') step(-1);
+  if (event.key === "ArrowRight") step(1)
+  if (event.key === "ArrowLeft") step(-1)
 }
 
 // On `window`, in the capture phase: the note's textarea and the document both
 // handle keys, and this has to win while it is on screen.
-onMounted(() => window.addEventListener('keydown', onKeydown, true));
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true));
+onMounted(() => window.addEventListener("keydown", onKeydown, true))
+onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true))
 </script>
 
 <template>
@@ -57,12 +60,26 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true));
   <div v-if="current" class="overlay lightbox" @click.self="emit('close')">
     <div class="lightbox-bar" @click.stop>
       <span class="mono lightbox-name">{{ current.name }}</span>
-      <span v-if="images.length > 1" class="faint">{{ index + 1 }} of {{ images.length }}</span>
+      <span v-if="images.length > 1" class="faint"
+        >{{ index + 1 }} of {{ images.length }}</span
+      >
       <span class="spacer" />
-      <a :href="current.src" target="_blank" rel="noreferrer noopener" title="Open the file in a new tab">
+      <a
+        :href="current.src"
+        target="_blank"
+        rel="noreferrer noopener"
+        title="Open the file in a new tab"
+      >
         Open
       </a>
-      <button class="lightbox-close" title="Close (Esc)" aria-label="Close" @click="emit('close')">✕</button>
+      <button
+        class="lightbox-close"
+        title="Close (Esc)"
+        aria-label="Close"
+        @click="emit('close')"
+      >
+        ✕
+      </button>
     </div>
 
     <button

@@ -1,6 +1,12 @@
-import { getDb, nextGroupRef, nextInvestigationRef, nextRef, nowIso } from './db';
-import { workspace } from '../config/paths';
-import { deleteTaskAttachments, listTaskAttachments } from './attachments';
+import {
+  getDb,
+  nextGroupRef,
+  nextInvestigationRef,
+  nextRef,
+  nowIso,
+} from "./db"
+import { workspace } from "../config/paths"
+import { deleteTaskAttachments, listTaskAttachments } from "./attachments"
 import {
   branchNameFor,
   groupBranchNameFor,
@@ -33,31 +39,31 @@ import {
   type TaskEvent,
   type TaskGroup,
   type TaskGroupSummary,
-} from '../shared/types';
+} from "../shared/types"
 
 /* ------------------------------------------------------------------ rows */
 
 interface TaskRow {
-  id: number;
-  ref: string;
-  title: string;
-  description: string;
-  status: string;
-  priority: string;
-  position: number;
-  tags: string;
-  estimate_units: number;
-  recommended_tier: string | null;
-  investigation_ref: string | null;
-  group_ref: string | null;
-  branch_name: string | null;
-  checkpoint_name: string | null;
-  created_at: string;
-  updated_at: string;
-  started_at: string | null;
-  dev_completed_at: string | null;
-  verified_at: string | null;
-  closed_at: string | null;
+  id: number
+  ref: string
+  title: string
+  description: string
+  status: string
+  priority: string
+  position: number
+  tags: string
+  estimate_units: number
+  recommended_tier: string | null
+  investigation_ref: string | null
+  group_ref: string | null
+  branch_name: string | null
+  checkpoint_name: string | null
+  created_at: string
+  updated_at: string
+  started_at: string | null
+  dev_completed_at: string | null
+  verified_at: string | null
+  closed_at: string | null
 }
 
 /**
@@ -69,8 +75,8 @@ interface TaskRow {
  * task's list position so a task's blockers read in queue order.
  */
 interface DependencyIndex {
-  dependsOn: Map<string, string[]>;
-  blocks: Map<string, string[]>;
+  dependsOn: Map<string, string[]>
+  blocks: Map<string, string[]>
 }
 
 function dependencyIndex(): DependencyIndex {
@@ -82,22 +88,25 @@ function dependencyIndex(): DependencyIndex {
          JOIN tasks b ON b.id = d.depends_on_id
         ORDER BY b.position ASC, b.id DESC`,
     )
-    .all();
+    .all()
 
-  const index: DependencyIndex = { dependsOn: new Map(), blocks: new Map() };
+  const index: DependencyIndex = { dependsOn: new Map(), blocks: new Map() }
   for (const row of rows) {
-    const forward = index.dependsOn.get(row.task_ref);
-    if (forward) forward.push(row.blocker_ref);
-    else index.dependsOn.set(row.task_ref, [row.blocker_ref]);
+    const forward = index.dependsOn.get(row.task_ref)
+    if (forward) forward.push(row.blocker_ref)
+    else index.dependsOn.set(row.task_ref, [row.blocker_ref])
 
-    const reverse = index.blocks.get(row.blocker_ref);
-    if (reverse) reverse.push(row.task_ref);
-    else index.blocks.set(row.blocker_ref, [row.task_ref]);
+    const reverse = index.blocks.get(row.blocker_ref)
+    if (reverse) reverse.push(row.task_ref)
+    else index.blocks.set(row.blocker_ref, [row.task_ref])
   }
-  return index;
+  return index
 }
 
-function toTask(row: TaskRow, edges: DependencyIndex = dependencyIndex()): Task {
+function toTask(
+  row: TaskRow,
+  edges: DependencyIndex = dependencyIndex(),
+): Task {
   return {
     id: row.id,
     ref: row.ref,
@@ -121,91 +130,101 @@ function toTask(row: TaskRow, edges: DependencyIndex = dependencyIndex()): Task 
     devCompletedAt: row.dev_completed_at,
     verifiedAt: row.verified_at,
     closedAt: row.closed_at,
-  };
+  }
 }
 
 /* ------------------------------------------------------------- validation */
 
 export function isStatus(value: string): value is Status {
-  return (STATUSES as readonly string[]).includes(value);
+  return (STATUSES as readonly string[]).includes(value)
 }
 
 export function isPriority(value: string): value is Priority {
-  return (PRIORITIES as readonly string[]).includes(value);
+  return (PRIORITIES as readonly string[]).includes(value)
 }
 
 export function isModelTier(value: string): value is ModelTier {
-  return (MODEL_TIERS as readonly string[]).includes(value);
+  return (MODEL_TIERS as readonly string[]).includes(value)
 }
 
-export function isInvestigationStatus(value: string): value is InvestigationStatus {
-  return (INVESTIGATION_STATUSES as readonly string[]).includes(value);
+export function isInvestigationStatus(
+  value: string,
+): value is InvestigationStatus {
+  return (INVESTIGATION_STATUSES as readonly string[]).includes(value)
 }
 
 /** Conservative Git branch validation, shared by CLI and HTTP callers. */
 export function validateBranchName(value: string): string {
-  const branch = value.trim();
-  if (!branch || branch.startsWith('/') || branch.endsWith('/') || branch.endsWith('.') ||
-      branch.includes('//') || branch.includes('..') || branch.includes('@{') ||
-      /[\s~^:?*\\[\\]/.test(branch) || branch.split('/').some((part) => part === '.' || part.endsWith('.lock'))) {
-    throw new Error(`Invalid Git branch name '${value}'.`);
+  const branch = value.trim()
+  if (
+    !branch ||
+    branch.startsWith("/") ||
+    branch.endsWith("/") ||
+    branch.endsWith(".") ||
+    branch.includes("//") ||
+    branch.includes("..") ||
+    branch.includes("@{") ||
+    /[\s~^:?*\\[\\]/.test(branch) ||
+    branch.split("/").some((part) => part === "." || part.endsWith(".lock"))
+  ) {
+    throw new Error(`Invalid Git branch name '${value}'.`)
   }
-  return branch;
+  return branch
 }
 
 /** Timestamp column that a given status stamps on entry. */
 const STATUS_TIMESTAMP: Partial<Record<Status, string>> = {
-  in_progress: 'started_at',
-  dev_complete: 'dev_completed_at',
-  verified: 'verified_at',
-  closed: 'closed_at',
-};
+  in_progress: "started_at",
+  dev_complete: "dev_completed_at",
+  verified: "verified_at",
+  closed: "closed_at",
+}
 
 /* -------------------------------------------------------------- queries */
 
 export function listTasks(filter?: {
-  status?: Status;
-  tag?: string;
-  investigationRef?: string;
+  status?: Status
+  tag?: string
+  investigationRef?: string
   /** A group's ref, or `'none'` for the tasks that are in no group at all —
    *  the one filter that cannot be expressed as a ref. */
-  groupRef?: string;
+  groupRef?: string
   /** Keep closed tasks in the result. An investigation's own list uses this: a
    *  task it filed and saw through to closed is the outcome, not clutter. */
-  includeClosed?: boolean;
+  includeClosed?: boolean
 }): Task[] {
-  const clauses: string[] = [];
-  const params: Record<string, string> = {};
+  const clauses: string[] = []
+  const params: Record<string, string> = {}
 
   if (filter?.investigationRef) {
-    clauses.push('investigation_ref = $investigation COLLATE NOCASE');
-    params.$investigation = filter.investigationRef;
+    clauses.push("investigation_ref = $investigation COLLATE NOCASE")
+    params.$investigation = filter.investigationRef
   }
   if (filter?.groupRef) {
-    if (filter.groupRef.toLowerCase() === 'none') {
-      clauses.push('group_ref IS NULL');
+    if (filter.groupRef.toLowerCase() === "none") {
+      clauses.push("group_ref IS NULL")
     } else {
       // Resolved rather than matched, so a group named by its name filters the
       // same way one named by its ref does.
-      clauses.push('group_ref = $group COLLATE NOCASE');
-      params.$group = requireGroup(filter.groupRef).ref;
+      clauses.push("group_ref = $group COLLATE NOCASE")
+      params.$group = requireGroup(filter.groupRef).ref
     }
   }
   if (filter?.status) {
-    clauses.push('status = $status');
-    params.$status = filter.status;
+    clauses.push("status = $status")
+    params.$status = filter.status
   } else if (!filter?.includeClosed) {
     // Closed tasks remain auditable by explicit status query but no longer
     // clutter the normal task list.
-    clauses.push("status != 'closed'");
+    clauses.push("status != 'closed'")
   }
   if (filter?.tag) {
     // tags is a JSON array; match the quoted element to avoid substring hits.
-    clauses.push('tags LIKE $tag');
-    params.$tag = `%"${filter.tag}"%`;
+    clauses.push("tags LIKE $tag")
+    params.$tag = `%"${filter.tag}"%`
   }
 
-  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""
   const rows = getDb()
     .query<TaskRow, typeof params>(
       // Manual order is the only order. Status and priority used to sort the
@@ -213,90 +232,92 @@ export function listTasks(filter?: {
       // user arranges and `/work-task` takes from the top of.
       `SELECT * FROM tasks ${where} ORDER BY position ASC, id DESC`,
     )
-    .all(params);
+    .all(params)
 
   // One index for the whole page rather than one per row.
-  const edges = dependencyIndex();
-  return rows.map((row) => toTask(row, edges));
+  const edges = dependencyIndex()
+  return rows.map((row) => toTask(row, edges))
 }
 
 export function findTask(ref: string): Task | null {
   const row = getDb()
-    .query<TaskRow, { $ref: string }>('SELECT * FROM tasks WHERE ref = $ref COLLATE NOCASE')
-    .get({ $ref: ref });
-  return row ? toTask(row) : null;
+    .query<TaskRow, { $ref: string }>(
+      "SELECT * FROM tasks WHERE ref = $ref COLLATE NOCASE",
+    )
+    .get({ $ref: ref })
+  return row ? toTask(row) : null
 }
 
 /** Same as findTask but throws the message the CLI and API both want to show. */
 export function requireTask(ref: string): Task {
-  const task = findTask(ref);
-  if (!task) throw new Error(`No task with ref '${ref}'.`);
-  return task;
+  const task = findTask(ref)
+  if (!task) throw new Error(`No task with ref '${ref}'.`)
+  return task
 }
 
 export function listEvents(taskId: number): TaskEvent[] {
   return getDb()
     .query<
       {
-        id: number;
-        task_id: number;
-        type: string;
-        from_status: string | null;
-        to_status: string | null;
-        note: string | null;
-        created_at: string;
+        id: number
+        task_id: number
+        type: string
+        from_status: string | null
+        to_status: string | null
+        note: string | null
+        created_at: string
       },
       { $id: number }
-    >('SELECT * FROM task_events WHERE task_id = $id ORDER BY id ASC')
+    >("SELECT * FROM task_events WHERE task_id = $id ORDER BY id ASC")
     .all({ $id: taskId })
     .map((row) => ({
       id: row.id,
       taskId: row.task_id,
-      type: row.type as TaskEvent['type'],
+      type: row.type as TaskEvent["type"],
       fromStatus: row.from_status as Status | null,
       toStatus: row.to_status as Status | null,
       note: row.note,
       createdAt: row.created_at,
-    }));
+    }))
 }
 
 export function listRuns(taskId: number): CheckpointRun[] {
-  const db = getDb();
+  const db = getDb()
 
   const runRows = db
     .query<
       {
-        id: number;
-        task_id: number;
-        checkpoint_name: string;
-        phase: string;
-        exit_code: number;
-        git_head: string | null;
-        git_dirty: number | null;
-        scenario_count: number;
-        selection_json: string | null;
-        created_at: string;
+        id: number
+        task_id: number
+        checkpoint_name: string
+        phase: string
+        exit_code: number
+        git_head: string | null
+        git_dirty: number | null
+        scenario_count: number
+        selection_json: string | null
+        created_at: string
       },
       { $id: number }
-    >('SELECT * FROM checkpoint_runs WHERE task_id = $id ORDER BY id ASC')
-    .all({ $id: taskId });
+    >("SELECT * FROM checkpoint_runs WHERE task_id = $id ORDER BY id ASC")
+    .all({ $id: taskId })
 
   const comparisonRows = db
     .query<
       {
-        id: number;
-        run_id: number;
-        scenario: string;
-        description: string | null;
-        status: string;
-        percent_changed: number | null;
-        pixel_diff_count: number | null;
-        total_pixels: number | null;
-        before_path: string | null;
-        after_path: string | null;
-        diff_path: string | null;
-        browser_log_status: string | null;
-        browser_log_change_count: number | null;
+        id: number
+        run_id: number
+        scenario: string
+        description: string | null
+        status: string
+        percent_changed: number | null
+        pixel_diff_count: number | null
+        total_pixels: number | null
+        before_path: string | null
+        after_path: string | null
+        diff_path: string | null
+        browser_log_status: string | null
+        browser_log_change_count: number | null
       },
       { $id: number }
     >(
@@ -305,16 +326,16 @@ export function listRuns(taskId: number): CheckpointRun[] {
        WHERE r.task_id = $id
        ORDER BY c.id ASC`,
     )
-    .all({ $id: taskId });
+    .all({ $id: taskId })
 
-  const byRun = new Map<number, Comparison[]>();
+  const byRun = new Map<number, Comparison[]>()
   for (const row of comparisonRows) {
     const comparison: Comparison = {
       id: row.id,
       runId: row.run_id,
       scenario: row.scenario,
       description: row.description,
-      status: row.status as Comparison['status'],
+      status: row.status as Comparison["status"],
       percentChanged: row.percent_changed,
       pixelDiffCount: row.pixel_diff_count,
       totalPixels: row.total_pixels,
@@ -323,10 +344,10 @@ export function listRuns(taskId: number): CheckpointRun[] {
       diffPath: row.diff_path,
       browserLogStatus: row.browser_log_status,
       browserLogChangeCount: row.browser_log_change_count,
-    };
-    const bucket = byRun.get(row.run_id);
-    if (bucket) bucket.push(comparison);
-    else byRun.set(row.run_id, [comparison]);
+    }
+    const bucket = byRun.get(row.run_id)
+    if (bucket) bucket.push(comparison)
+    else byRun.set(row.run_id, [comparison])
   }
 
   return runRows.map((row) => ({
@@ -341,25 +362,29 @@ export function listRuns(taskId: number): CheckpointRun[] {
     selection: row.selection_json ? JSON.parse(row.selection_json) : null,
     createdAt: row.created_at,
     comparisons: byRun.get(row.id) ?? [],
-  }));
+  }))
 }
 
 export function getTaskDetail(ref: string): TaskDetail {
-  const task = requireTask(ref);
+  const task = requireTask(ref)
   return {
     ...task,
     events: listEvents(task.id),
     runs: listRuns(task.id),
     attachments: listTaskAttachments(task.ref),
-  };
+  }
 }
 
 /* -------------------------------------------------------------- mutations */
 
 function addEvent(
   taskId: number,
-  type: TaskEvent['type'],
-  fields: { fromStatus?: Status | null; toStatus?: Status | null; note?: string | null } = {},
+  type: TaskEvent["type"],
+  fields: {
+    fromStatus?: Status | null
+    toStatus?: Status | null
+    note?: string | null
+  } = {},
 ): void {
   getDb()
     .query(
@@ -373,62 +398,72 @@ function addEvent(
       $to: fields.toStatus ?? null,
       $note: fields.note ?? null,
       $at: nowIso(),
-    });
+    })
 }
 
 export interface CreateInput {
-  title: string;
-  description?: string;
-  priority?: Priority;
+  title: string
+  description?: string
+  priority?: Priority
   /** The capability tier an investigation thinks this task needs. Left unset
    *  (rather than defaulted) when nobody has judged it — unlike `priority`,
    *  which always has one. */
-  recommendedTier?: ModelTier | null;
-  tags?: string[];
-  branchName?: string;
+  recommendedTier?: ModelTier | null
+  tags?: string[]
+  branchName?: string
   /** The investigation this task came out of, if any. Validated here so a typo'd
    *  ref fails loudly rather than producing a task nothing links to. */
-  investigationRef?: string;
+  investigationRef?: string
   /** The group to file it under, by ref or by name. A task filed against an
    *  investigation may omit this and lands in that investigation's group.
    *  Other new tasks must name a group; null remains in the type only so old
    *  ungrouped records can still be read. */
-  groupRef?: string | null;
+  groupRef?: string | null
   /** Refs of tasks this one has to wait for. */
-  dependsOn?: string[];
+  dependsOn?: string[]
   /** Plan duration in units. Defaults to one. */
-  estimateUnits?: number;
+  estimateUnits?: number
 }
 
 export function createTask(input: CreateInput): Task {
-  const title = input.title.trim();
-  if (!title) throw new Error('A task needs a title.');
+  const title = input.title.trim()
+  if (!title) throw new Error("A task needs a title.")
 
   // Resolved before the ref counter is bumped, so a typo'd investigation does
   // not silently burn a task number.
   const investigation = input.investigationRef
     ? requireInvestigation(input.investigationRef).ref
-    : null;
+    : null
   // An explicit group wins. Otherwise an investigation supplies its own group.
   // Null used to mean "loose"; new work may no longer enter that legacy bucket.
-  if (input.groupRef === null || (input.groupRef === undefined && !investigation)) {
-    throw new Error('A new task must belong to a group. Pass a group or an investigation.');
+  if (
+    input.groupRef === null ||
+    (input.groupRef === undefined && !investigation)
+  ) {
+    throw new Error(
+      "A new task must belong to a group. Pass a group or an investigation.",
+    )
   }
   const group =
     input.groupRef === undefined
       ? groupForInvestigation(investigation!).ref
-      : requireGroup(input.groupRef).ref;
+      : requireGroup(input.groupRef).ref
   // Same reasoning as the investigation above: a ref that does not resolve must
   // fail before the task exists, not leave one behind with half its blockers.
-  const blockers = [...new Set((input.dependsOn ?? []).map((one) => requireTask(one).ref))];
+  const blockers = [
+    ...new Set((input.dependsOn ?? []).map((one) => requireTask(one).ref)),
+  ]
   const estimateUnits =
-    input.estimateUnits === undefined ? DEFAULT_ESTIMATE_UNITS : parseEstimateUnits(input.estimateUnits);
+    input.estimateUnits === undefined
+      ? DEFAULT_ESTIMATE_UNITS
+      : parseEstimateUnits(input.estimateUnits)
 
-  const at = nowIso();
-  const ref = nextRef();
-  const branchName = input.branchName === undefined
-    ? branchNameFor(ref, title, workspace().config.branchPrefix)
-    : validateBranchName(input.branchName);
+  const at = nowIso()
+  const ref = nextRef()
+  const branchName =
+    input.branchName === undefined
+      ? branchNameFor(ref, title, workspace().config.branchPrefix)
+      : validateBranchName(input.branchName)
 
   getDb()
     .query(
@@ -445,8 +480,8 @@ export function createTask(input: CreateInput): Task {
       // task filed mid-session must not silently become the next one worked.
       // Batch filing (an investigation's tasks) therefore keeps its filing order.
       $position: bottomPosition(),
-      $description: input.description?.trim() ?? '',
-      $priority: input.priority ?? 'medium',
+      $description: input.description?.trim() ?? "",
+      $priority: input.priority ?? "medium",
       $tier: input.recommendedTier ?? null,
       $tags: JSON.stringify(input.tags ?? []),
       $units: estimateUnits,
@@ -455,140 +490,153 @@ export function createTask(input: CreateInput): Task {
       $group: group,
       $checkpoint: checkpointNameFor(ref, workspace().config.checkpointPrefix),
       $at: at,
-    });
+    })
 
-  const task = requireTask(ref);
-  addEvent(task.id, 'created', {
-    toStatus: 'backlog',
+  const task = requireTask(ref)
+  addEvent(task.id, "created", {
+    toStatus: "backlog",
     note: investigation ? `${title} (from ${investigation})` : title,
-  });
+  })
   // A brand-new task cannot be part of a cycle, so this only ever inserts.
-  for (const blockerRef of blockers) addDependency(task.ref, blockerRef);
-  return requireTask(ref);
+  for (const blockerRef of blockers) addDependency(task.ref, blockerRef)
+  return requireTask(ref)
 }
 
 export interface UpdateInput {
-  title?: string;
-  description?: string;
-  priority?: Priority;
+  title?: string
+  description?: string
+  priority?: Priority
   /** Pass null to clear a previous recommendation. */
-  recommendedTier?: ModelTier | null;
-  tags?: string[];
+  recommendedTier?: ModelTier | null
+  tags?: string[]
   /** Link the task to an investigation, or pass null to unlink it. */
-  investigationRef?: string | null;
+  investigationRef?: string | null
   /** Move it into a group by ref or name, or pass null to take it out of one. */
-  groupRef?: string | null;
+  groupRef?: string | null
   /** Replaces the task's blockers outright; an empty array clears them. */
-  dependsOn?: string[];
+  dependsOn?: string[]
   /** Plan duration in units. */
-  estimateUnits?: number;
+  estimateUnits?: number
 }
 
 export function updateTask(ref: string, input: UpdateInput): Task {
-  const task = requireTask(ref);
+  const task = requireTask(ref)
 
   // Dependencies live in their own table and write their own history, so they
   // are applied around the column update rather than folded into it.
-  if (input.dependsOn !== undefined) setDependencies(task.ref, input.dependsOn);
+  if (input.dependsOn !== undefined) setDependencies(task.ref, input.dependsOn)
 
-  const assignments: string[] = [];
-  const params: Record<string, string | number | null> = { $ref: task.ref, $at: nowIso() };
-  const changed: string[] = [];
+  const assignments: string[] = []
+  const params: Record<string, string | number | null> = {
+    $ref: task.ref,
+    $at: nowIso(),
+  }
+  const changed: string[] = []
 
   if (input.title !== undefined) {
-    const title = input.title.trim();
-    if (!title) throw new Error('A task needs a title.');
-    assignments.push('title = $title');
-    params.$title = title;
-    changed.push('title');
+    const title = input.title.trim()
+    if (!title) throw new Error("A task needs a title.")
+    assignments.push("title = $title")
+    params.$title = title
+    changed.push("title")
   }
   if (input.description !== undefined) {
-    assignments.push('description = $description');
-    params.$description = input.description;
-    changed.push('description');
+    assignments.push("description = $description")
+    params.$description = input.description
+    changed.push("description")
   }
   if (input.priority !== undefined) {
-    assignments.push('priority = $priority');
-    params.$priority = input.priority;
-    changed.push('priority');
+    assignments.push("priority = $priority")
+    params.$priority = input.priority
+    changed.push("priority")
   }
   if (input.recommendedTier !== undefined) {
-    assignments.push('recommended_tier = $tier');
-    params.$tier = input.recommendedTier;
-    changed.push('recommended tier');
+    assignments.push("recommended_tier = $tier")
+    params.$tier = input.recommendedTier
+    changed.push("recommended tier")
   }
   if (input.tags !== undefined) {
-    assignments.push('tags = $tags');
-    params.$tags = JSON.stringify(input.tags);
-    changed.push('tags');
+    assignments.push("tags = $tags")
+    params.$tags = JSON.stringify(input.tags)
+    changed.push("tags")
   }
   if (input.estimateUnits !== undefined) {
-    assignments.push('estimate_units = $units');
-    params.$units = parseEstimateUnits(input.estimateUnits);
-    changed.push('estimate');
+    assignments.push("estimate_units = $units")
+    params.$units = parseEstimateUnits(input.estimateUnits)
+    changed.push("estimate")
   }
   if (input.investigationRef !== undefined) {
-    assignments.push('investigation_ref = $investigation');
+    assignments.push("investigation_ref = $investigation")
     params.$investigation = input.investigationRef
       ? requireInvestigation(input.investigationRef).ref
-      : null;
-    changed.push('investigation');
+      : null
+    changed.push("investigation")
   }
   if (input.groupRef !== undefined) {
     if (!input.groupRef) {
-      throw new Error('Tasks must belong to a group. Choose another group instead.');
+      throw new Error(
+        "Tasks must belong to a group. Choose another group instead.",
+      )
     }
-    assignments.push('group_ref = $group');
-    params.$group = requireGroup(input.groupRef).ref;
-    changed.push('group');
+    assignments.push("group_ref = $group")
+    params.$group = requireGroup(input.groupRef).ref
+    changed.push("group")
   }
 
   // Re-read: a dependency change above is a change even when no column moved.
-  if (!assignments.length) return requireTask(task.ref);
+  if (!assignments.length) return requireTask(task.ref)
 
   getDb()
-    .query(`UPDATE tasks SET ${assignments.join(', ')}, updated_at = $at WHERE ref = $ref`)
-    .run(params);
+    .query(
+      `UPDATE tasks SET ${assignments.join(", ")}, updated_at = $at WHERE ref = $ref`,
+    )
+    .run(params)
 
-  addEvent(task.id, 'edited', { note: `changed ${changed.join(', ')}` });
-  return requireTask(task.ref);
+  addEvent(task.id, "edited", { note: `changed ${changed.join(", ")}` })
+  return requireTask(task.ref)
 }
 
 export function setStatus(ref: string, status: Status, note?: string): Task {
-  const task = requireTask(ref);
-  if (task.status === status) return task;
+  const task = requireTask(ref)
+  if (task.status === status) return task
 
-  const at = nowIso();
-  const stamp = STATUS_TIMESTAMP[status];
+  const at = nowIso()
+  const stamp = STATUS_TIMESTAMP[status]
   // Re-entering a state refreshes its timestamp, so a reopened task reports
   // when it most recently reached dev_complete rather than the first time.
-  const stampClause = stamp ? `, ${stamp} = $at` : '';
+  const stampClause = stamp ? `, ${stamp} = $at` : ""
 
   getDb()
-    .query(`UPDATE tasks SET status = $status, updated_at = $at${stampClause} WHERE ref = $ref`)
-    .run({ $status: status, $at: at, $ref: task.ref });
+    .query(
+      `UPDATE tasks SET status = $status, updated_at = $at${stampClause} WHERE ref = $ref`,
+    )
+    .run({ $status: status, $at: at, $ref: task.ref })
 
-  addEvent(task.id, 'status', { fromStatus: task.status, toStatus: status, note: note ?? null });
-  return requireTask(task.ref);
+  addEvent(task.id, "status", {
+    fromStatus: task.status,
+    toStatus: status,
+    note: note ?? null,
+  })
+  return requireTask(task.ref)
 }
 
 export function addNote(ref: string, note: string): Task {
-  const task = requireTask(ref);
-  const text = note.trim();
-  if (!text) throw new Error('An empty note is not worth recording.');
+  const task = requireTask(ref)
+  const text = note.trim()
+  if (!text) throw new Error("An empty note is not worth recording.")
 
-  addEvent(task.id, 'note', { note: text });
+  addEvent(task.id, "note", { note: text })
   getDb()
-    .query('UPDATE tasks SET updated_at = $at WHERE ref = $ref')
-    .run({ $at: nowIso(), $ref: task.ref });
+    .query("UPDATE tasks SET updated_at = $at WHERE ref = $ref")
+    .run({ $at: nowIso(), $ref: task.ref })
 
-  return requireTask(task.ref);
+  return requireTask(task.ref)
 }
 
 export function deleteTask(ref: string): void {
-  const task = requireTask(ref);
-  getDb().query('DELETE FROM tasks WHERE id = $id').run({ $id: task.id });
-  deleteTaskAttachments(task.ref);
+  const task = requireTask(ref)
+  getDb().query("DELETE FROM tasks WHERE id = $id").run({ $id: task.id })
+  deleteTaskAttachments(task.ref)
 }
 
 /* ------------------------------------------------------------ dependencies */
@@ -602,31 +650,32 @@ export function deleteTask(ref: string): void {
  * anybody meant to record.
  */
 function dependsOnTransitively(fromRef: string, targetRef: string): boolean {
-  const { dependsOn } = dependencyIndex();
-  const seen = new Set<string>();
-  const queue = [fromRef];
+  const { dependsOn } = dependencyIndex()
+  const seen = new Set<string>()
+  const queue = [fromRef]
 
   while (queue.length) {
-    const current = queue.shift()!;
-    if (current === targetRef) return true;
-    if (seen.has(current)) continue;
-    seen.add(current);
-    queue.push(...(dependsOn.get(current) ?? []));
+    const current = queue.shift()!
+    if (current === targetRef) return true
+    if (seen.has(current)) continue
+    seen.add(current)
+    queue.push(...(dependsOn.get(current) ?? []))
   }
-  return false;
+  return false
 }
 
 /** Record that `ref` waits for `blockerRef`. Idempotent. */
 export function addDependency(ref: string, blockerRef: string): Task {
-  const task = requireTask(ref);
-  const blocker = requireTask(blockerRef);
+  const task = requireTask(ref)
+  const blocker = requireTask(blockerRef)
 
-  if (task.ref === blocker.ref) throw new Error(`${task.ref} cannot depend on itself.`);
-  if (task.dependsOn.includes(blocker.ref)) return task;
+  if (task.ref === blocker.ref)
+    throw new Error(`${task.ref} cannot depend on itself.`)
+  if (task.dependsOn.includes(blocker.ref)) return task
   if (dependsOnTransitively(blocker.ref, task.ref)) {
     throw new Error(
       `${blocker.ref} already depends on ${task.ref}, so this would make a circular dependency.`,
-    );
+    )
   }
 
   getDb()
@@ -635,46 +684,52 @@ export function addDependency(ref: string, blockerRef: string): Task {
        VALUES ($task, $blocker, $at)
        ON CONFLICT DO NOTHING`,
     )
-    .run({ $task: task.id, $blocker: blocker.id, $at: nowIso() });
+    .run({ $task: task.id, $blocker: blocker.id, $at: nowIso() })
 
-  touch(task.ref);
-  addEvent(task.id, 'edited', { note: `now depends on ${blocker.ref} (${blocker.title})` });
-  return requireTask(task.ref);
+  touch(task.ref)
+  addEvent(task.id, "edited", {
+    note: `now depends on ${blocker.ref} (${blocker.title})`,
+  })
+  return requireTask(task.ref)
 }
 
 export function removeDependency(ref: string, blockerRef: string): Task {
-  const task = requireTask(ref);
-  const blocker = requireTask(blockerRef);
-  if (!task.dependsOn.includes(blocker.ref)) return task;
+  const task = requireTask(ref)
+  const blocker = requireTask(blockerRef)
+  if (!task.dependsOn.includes(blocker.ref)) return task
 
   getDb()
-    .query('DELETE FROM task_dependencies WHERE task_id = $task AND depends_on_id = $blocker')
-    .run({ $task: task.id, $blocker: blocker.id });
+    .query(
+      "DELETE FROM task_dependencies WHERE task_id = $task AND depends_on_id = $blocker",
+    )
+    .run({ $task: task.id, $blocker: blocker.id })
 
-  touch(task.ref);
-  addEvent(task.id, 'edited', { note: `no longer depends on ${blocker.ref}` });
-  return requireTask(task.ref);
+  touch(task.ref)
+  addEvent(task.id, "edited", { note: `no longer depends on ${blocker.ref}` })
+  return requireTask(task.ref)
 }
 
 /** Replace a task's blockers wholesale — what the UI's editor and the CLI's
  *  `--depends-on` both want. Expressed as a diff so the history says what
  *  actually changed rather than "dependencies edited". */
 export function setDependencies(ref: string, blockerRefs: string[]): Task {
-  const task = requireTask(ref);
+  const task = requireTask(ref)
   // Resolved first so a typo in the middle of a list cannot half-apply.
-  const wanted = [...new Set(blockerRefs.map((one) => requireTask(one).ref))];
+  const wanted = [...new Set(blockerRefs.map((one) => requireTask(one).ref))]
 
   for (const blockerRef of task.dependsOn) {
-    if (!wanted.includes(blockerRef)) removeDependency(task.ref, blockerRef);
+    if (!wanted.includes(blockerRef)) removeDependency(task.ref, blockerRef)
   }
-  for (const blockerRef of wanted) addDependency(task.ref, blockerRef);
+  for (const blockerRef of wanted) addDependency(task.ref, blockerRef)
 
-  return requireTask(task.ref);
+  return requireTask(task.ref)
 }
 
 /** Bump `updated_at` for a change that lives in another table. */
 function touch(ref: string): void {
-  getDb().query('UPDATE tasks SET updated_at = $at WHERE ref = $ref').run({ $at: nowIso(), $ref: ref });
+  getDb()
+    .query("UPDATE tasks SET updated_at = $at WHERE ref = $ref")
+    .run({ $at: nowIso(), $ref: ref })
 }
 
 /* ------------------------------------------------------------- list order */
@@ -682,9 +737,9 @@ function touch(ref: string): void {
 /** One past the last position in use — where a newly filed task goes. */
 function bottomPosition(): number {
   const row = getDb()
-    .query<{ top: number | null }, []>('SELECT MAX(position) AS top FROM tasks')
-    .get();
-  return (row?.top ?? 0) + 1;
+    .query<{ top: number | null }, []>("SELECT MAX(position) AS top FROM tasks")
+    .get()
+  return (row?.top ?? 0) + 1
 }
 
 /**
@@ -697,28 +752,35 @@ function bottomPosition(): number {
  * where they were.
  */
 export function reorderTasks(refs: string[]): Task[] {
-  const tasks = refs.map((ref) => requireTask(ref));
+  const tasks = refs.map((ref) => requireTask(ref))
 
-  const seen = new Set<string>();
+  const seen = new Set<string>()
   for (const task of tasks) {
-    if (seen.has(task.ref)) throw new Error(`Task '${task.ref}' listed twice in the new order.`);
-    seen.add(task.ref);
+    if (seen.has(task.ref))
+      throw new Error(`Task '${task.ref}' listed twice in the new order.`)
+    seen.add(task.ref)
   }
-  if (tasks.length < 2) return tasks;
+  if (tasks.length < 2) return tasks
 
-  const slots = tasks.map((task) => task.position).sort((left, right) => left - right);
-  const assign = getDb().query('UPDATE tasks SET position = $position WHERE id = $id');
+  const slots = tasks
+    .map((task) => task.position)
+    .sort((left, right) => left - right)
+  const assign = getDb().query(
+    "UPDATE tasks SET position = $position WHERE id = $id",
+  )
 
   getDb().transaction(() => {
-    tasks.forEach((task, index) => assign.run({ $id: task.id, $position: slots[index]! }));
-  })();
+    tasks.forEach((task, index) =>
+      assign.run({ $id: task.id, $position: slots[index]! }),
+    )
+  })()
 
-  return tasks.map((task) => requireTask(task.ref));
+  return tasks.map((task) => requireTask(task.ref))
 }
 
 export type MoveTarget =
-  | { to: 'top' | 'bottom' | 'up' | 'down' }
-  | { to: 'before' | 'after'; ref: string };
+  | { to: "top" | "bottom" | "up" | "down" }
+  | { to: "before" | "after"; ref: string }
 
 /**
  * Move one task within the full (non-closed) list. Expressed against that list
@@ -726,48 +788,54 @@ export type MoveTarget =
  * on screen" even when positions are sparse.
  */
 export function moveTask(ref: string, target: MoveTarget): Task[] {
-  const task = requireTask(ref);
-  const order = listTasks().map((one) => one.ref);
-  const from = order.indexOf(task.ref);
+  const task = requireTask(ref)
+  const order = listTasks().map((one) => one.ref)
+  const from = order.indexOf(task.ref)
   if (from === -1) {
-    throw new Error(`Task '${task.ref}' is closed and is not in the ordered list.`);
+    throw new Error(
+      `Task '${task.ref}' is closed and is not in the ordered list.`,
+    )
   }
 
-  let to: number;
-  if (target.to === 'before' || target.to === 'after') {
-    const anchor = requireTask(target.ref);
-    if (anchor.ref === task.ref) throw new Error('A task cannot be moved relative to itself.');
-    const at = order.indexOf(anchor.ref);
-    if (at === -1) throw new Error(`Task '${anchor.ref}' is closed and is not in the ordered list.`);
+  let to: number
+  if (target.to === "before" || target.to === "after") {
+    const anchor = requireTask(target.ref)
+    if (anchor.ref === task.ref)
+      throw new Error("A task cannot be moved relative to itself.")
+    const at = order.indexOf(anchor.ref)
+    if (at === -1)
+      throw new Error(
+        `Task '${anchor.ref}' is closed and is not in the ordered list.`,
+      )
     // Removing the task first shifts everything after it up by one, so an
     // anchor below the task needs no further adjustment for 'before'.
-    to = at + (target.to === 'after' ? 1 : 0) - (at > from ? 1 : 0);
-  } else if (target.to === 'top') to = 0;
-  else if (target.to === 'bottom') to = order.length - 1;
-  else if (target.to === 'up') to = from - 1;
-  else to = from + 1;
+    to = at + (target.to === "after" ? 1 : 0) - (at > from ? 1 : 0)
+  } else if (target.to === "top") to = 0
+  else if (target.to === "bottom") to = order.length - 1
+  else if (target.to === "up") to = from - 1
+  else to = from + 1
 
-  to = Math.max(0, Math.min(order.length - 1, to));
-  if (to === from) return listTasks();
+  to = Math.max(0, Math.min(order.length - 1, to))
+  if (to === from) return listTasks()
 
-  order.splice(to, 0, ...order.splice(from, 1));
-  reorderTasks(order);
-  return listTasks();
+  order.splice(to, 0, ...order.splice(from, 1))
+  reorderTasks(order)
+  return listTasks()
 }
 
 /* ---------------------------------------------------------------- groups */
 
 interface TaskGroupRow {
-  id: number;
-  ref: string;
-  name: string;
-  description: string;
-  color: string;
-  branch_name: string;
-  position: number;
-  investigation_ref: string | null;
-  created_at: string;
-  updated_at: string;
+  id: number
+  ref: string
+  name: string
+  description: string
+  color: string
+  branch_name: string
+  position: number
+  investigation_ref: string | null
+  created_at: string
+  updated_at: string
 }
 
 function toGroup(row: TaskGroupRow): TaskGroup {
@@ -782,7 +850,7 @@ function toGroup(row: TaskGroupRow): TaskGroup {
     investigationRef: row.investigation_ref,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-  };
+  }
 }
 
 /**
@@ -795,7 +863,14 @@ function toGroup(row: TaskGroupRow): TaskGroup {
  */
 export function listGroups(): TaskGroupSummary[] {
   return getDb()
-    .query<TaskGroupRow & { task_count: number; dev_complete_count: number; open_count: number }, []>(
+    .query<
+      TaskGroupRow & {
+        task_count: number
+        dev_complete_count: number
+        open_count: number
+      },
+      []
+    >(
       // The group's columns are named rather than taken as `g.*`. A `*` ahead of
       // aliased aggregates means adding a column later shifts `task_count` and
       // `open_count` along by one — which a long-running process, holding a
@@ -819,7 +894,7 @@ export function listGroups(): TaskGroupSummary[] {
       taskCount: row.task_count,
       devCompleteCount: row.dev_complete_count,
       openCount: row.open_count,
-    }));
+    }))
 }
 
 /**
@@ -831,8 +906,8 @@ export function listGroups(): TaskGroupSummary[] {
  * group actually called that.
  */
 export function findGroup(refOrName: string): TaskGroup | null {
-  const value = refOrName.trim();
-  if (!value) return null;
+  const value = refOrName.trim()
+  if (!value) return null
 
   const row = getDb()
     .query<TaskGroupRow, { $value: string }>(
@@ -840,34 +915,36 @@ export function findGroup(refOrName: string): TaskGroup | null {
         WHERE ref = $value COLLATE NOCASE OR name = $value COLLATE NOCASE
         ORDER BY CASE WHEN ref = $value COLLATE NOCASE THEN 0 ELSE 1 END, id ASC`,
     )
-    .get({ $value: value });
-  return row ? toGroup(row) : null;
+    .get({ $value: value })
+  return row ? toGroup(row) : null
 }
 
 export function requireGroup(refOrName: string): TaskGroup {
-  const group = findGroup(refOrName);
-  if (!group) throw new Error(`No group with ref or name '${refOrName}'.`);
-  return group;
+  const group = findGroup(refOrName)
+  if (!group) throw new Error(`No group with ref or name '${refOrName}'.`)
+  return group
 }
 
 /** One past the last group position in use — where a new group goes. */
 function bottomGroupPosition(): number {
   const row = getDb()
-    .query<{ top: number | null }, []>('SELECT MAX(position) AS top FROM task_groups')
-    .get();
-  return (row?.top ?? 0) + 1;
+    .query<{ top: number | null }, []>(
+      "SELECT MAX(position) AS top FROM task_groups",
+    )
+    .get()
+  return (row?.top ?? 0) + 1
 }
 
 export interface CreateGroupInput {
-  name: string;
-  description?: string;
+  name: string
+  description?: string
   /** `#rrggbb`. Left out, the next unused colour in `GROUP_COLORS` is taken. */
-  color?: string;
+  color?: string
   /** The branch the group's work is built on. Left out, one is derived from the
    *  ref and name — a group always has a branch, so this only chooses which. */
-  branchName?: string;
+  branchName?: string
   /** Set when the group exists to hold one investigation's output. */
-  investigationRef?: string;
+  investigationRef?: string
 }
 
 /** No two groups may share a branch, or merging a task into "its" group branch
@@ -875,37 +952,43 @@ export interface CreateGroupInput {
 function assertGroupBranchFree(branch: string, exceptRef?: string): void {
   const clash = getDb()
     .query<{ ref: string; name: string }, { $branch: string }>(
-      'SELECT ref, name FROM task_groups WHERE branch_name = $branch COLLATE NOCASE',
+      "SELECT ref, name FROM task_groups WHERE branch_name = $branch COLLATE NOCASE",
     )
-    .get({ $branch: branch });
+    .get({ $branch: branch })
   if (clash && clash.ref !== exceptRef) {
-    throw new Error(`Branch '${branch}' is already the branch of ${clash.ref} (${clash.name}).`);
+    throw new Error(
+      `Branch '${branch}' is already the branch of ${clash.ref} (${clash.name}).`,
+    )
   }
 }
 
 export function createGroup(input: CreateGroupInput): TaskGroup {
-  const name = input.name.trim();
-  if (!name) throw new Error('A group needs a name.');
+  const name = input.name.trim()
+  if (!name) throw new Error("A group needs a name.")
   // Two groups with the same name would make `findGroup` a coin toss, and the
   // name is how the CLI addresses one.
-  if (findGroup(name)) throw new Error(`A group called '${name}' already exists.`);
+  if (findGroup(name))
+    throw new Error(`A group called '${name}' already exists.`)
 
   const color = input.color?.trim()
     ? validateGroupColor(input.color)
     : nextGroupColor(
-        getDb().query<{ color: string }, []>('SELECT color FROM task_groups').all().map((row) => row.color),
-      );
+        getDb()
+          .query<{ color: string }, []>("SELECT color FROM task_groups")
+          .all()
+          .map((row) => row.color),
+      )
   const investigation = input.investigationRef
     ? requireInvestigation(input.investigationRef).ref
-    : null;
+    : null
 
-  const at = nowIso();
-  const ref = nextGroupRef();
+  const at = nowIso()
+  const ref = nextGroupRef()
   // The ref is only known now, and it is what makes the default name unique.
   const branch = input.branchName?.trim()
     ? validateBranchName(input.branchName)
-    : groupBranchNameFor(ref, name, workspace().config.groupBranchPrefix);
-  assertGroupBranchFree(branch);
+    : groupBranchNameFor(ref, name, workspace().config.groupBranchPrefix)
+  assertGroupBranchFree(branch)
 
   getDb()
     .query(
@@ -915,15 +998,15 @@ export function createGroup(input: CreateGroupInput): TaskGroup {
     .run({
       $ref: ref,
       $name: name,
-      $description: input.description?.trim() ?? '',
+      $description: input.description?.trim() ?? "",
       $color: color,
       $branch: branch,
       $position: bottomGroupPosition(),
       $investigation: investigation,
       $at: at,
-    });
+    })
 
-  return requireGroup(ref);
+  return requireGroup(ref)
 }
 
 /**
@@ -935,85 +1018,113 @@ export function createGroup(input: CreateGroupInput): TaskGroup {
  * leaving an orphan investigation behind.
  */
 export function createInvestigatedGroup(
-  input: Omit<CreateGroupInput, 'investigationRef'> & { investigationBrief: string },
+  input: Omit<CreateGroupInput, "investigationRef"> & {
+    investigationBrief: string
+  },
 ): TaskGroup {
   return getDb().transaction(() => {
-    const investigation = createInvestigation({ title: input.name, brief: input.investigationBrief });
+    const investigation = createInvestigation({
+      title: input.name,
+      brief: input.investigationBrief,
+    })
     return createGroup({
       name: input.name,
       description: input.description,
       color: input.color,
       branchName: input.branchName,
       investigationRef: investigation.ref,
-    });
-  })();
+    })
+  })()
 }
 
 /** Attach an investigation to a group made before groups owned their brief. */
-export function ensureGroupInvestigation(refOrName: string, brief?: string): Investigation {
-  const group = requireGroup(refOrName);
-  if (group.investigationRef) return requireInvestigation(group.investigationRef);
+export function ensureGroupInvestigation(
+  refOrName: string,
+  brief?: string,
+): Investigation {
+  const group = requireGroup(refOrName)
+  if (group.investigationRef)
+    return requireInvestigation(group.investigationRef)
 
   return getDb().transaction(() => {
     const investigation = createInvestigation({
       title: group.name,
       brief: brief ?? group.description,
-    });
+    })
     getDb()
-      .query('UPDATE task_groups SET investigation_ref = $investigation, updated_at = $at WHERE ref = $ref')
-      .run({ $investigation: investigation.ref, $at: nowIso(), $ref: group.ref });
-    return investigation;
-  })();
+      .query(
+        "UPDATE task_groups SET investigation_ref = $investigation, updated_at = $at WHERE ref = $ref",
+      )
+      .run({
+        $investigation: investigation.ref,
+        $at: nowIso(),
+        $ref: group.ref,
+      })
+    return investigation
+  })()
 }
 
 function validateGroupColor(value: string): string {
-  const color = value.trim();
+  const color = value.trim()
   if (!isGroupColor(color)) {
-    throw new Error(`A group colour must be a hex value like '#5b9dff', not '${value}'.`);
+    throw new Error(
+      `A group colour must be a hex value like '#5b9dff', not '${value}'.`,
+    )
   }
-  return color.toLowerCase();
+  return color.toLowerCase()
 }
 
 export function updateGroup(
   refOrName: string,
-  input: { name?: string; description?: string; color?: string; branchName?: string },
+  input: {
+    name?: string
+    description?: string
+    color?: string
+    branchName?: string
+  },
 ): TaskGroup {
-  const group = requireGroup(refOrName);
-  const assignments: string[] = [];
-  const params: Record<string, string | number | null> = { $ref: group.ref, $at: nowIso() };
+  const group = requireGroup(refOrName)
+  const assignments: string[] = []
+  const params: Record<string, string | number | null> = {
+    $ref: group.ref,
+    $at: nowIso(),
+  }
 
   if (input.name !== undefined) {
-    const name = input.name.trim();
-    if (!name) throw new Error('A group needs a name.');
-    const clash = findGroup(name);
-    if (clash && clash.ref !== group.ref) throw new Error(`A group called '${name}' already exists.`);
-    assignments.push('name = $name');
-    params.$name = name;
+    const name = input.name.trim()
+    if (!name) throw new Error("A group needs a name.")
+    const clash = findGroup(name)
+    if (clash && clash.ref !== group.ref)
+      throw new Error(`A group called '${name}' already exists.`)
+    assignments.push("name = $name")
+    params.$name = name
   }
   if (input.description !== undefined) {
-    assignments.push('description = $description');
-    params.$description = input.description;
+    assignments.push("description = $description")
+    params.$description = input.description
   }
   if (input.color !== undefined) {
-    assignments.push('color = $color');
-    params.$color = validateGroupColor(input.color);
+    assignments.push("color = $color")
+    params.$color = validateGroupColor(input.color)
   }
   if (input.branchName !== undefined) {
     // Renaming the branch here only repoints the group. The Git branch itself
     // is the user's to rename — a group whose branch does not exist yet is the
     // normal state, so this cannot tell a rename from a not-created-yet.
-    const branch = validateBranchName(input.branchName);
-    assertGroupBranchFree(branch, group.ref);
-    assignments.push('branch_name = $branch');
-    params.$branch = branch;
+    const branch = validateBranchName(input.branchName)
+    assertGroupBranchFree(branch, group.ref)
+    assignments.push("branch_name = $branch")
+    params.$branch = branch
   }
 
-  if (!assignments.length) return group;
+  if (!assignments.length) return group
 
   getDb()
-    .query(`UPDATE task_groups SET ${assignments.join(', ')}, updated_at = $at WHERE ref = $ref`)
-    .run(params);
-  return requireGroup(group.ref);
+    .query(
+      `UPDATE task_groups SET ${assignments.join(", ")}, updated_at = $at WHERE ref = $ref`,
+    )
+    .run(params)
+  return requireGroup(group.ref)
 }
 
 /**
@@ -1021,24 +1132,33 @@ export function updateGroup(
  * cascaded away — the same reasoning as deleting an investigation, and the
  * reason membership is a nullable ref instead of a foreign key.
  */
-export function deleteGroup(refOrName: string): { ref: string; released: string[] } {
-  const group = requireGroup(refOrName);
-  const released = listTasks({ groupRef: group.ref, includeClosed: true }).map((task) => task.ref);
+export function deleteGroup(refOrName: string): {
+  ref: string
+  released: string[]
+} {
+  const group = requireGroup(refOrName)
+  const released = listTasks({ groupRef: group.ref, includeClosed: true }).map(
+    (task) => task.ref,
+  )
 
   if (released.length) {
     throw new Error(
       `${group.ref} still has ${released.length} task(s). Move them to another group before deleting it.`,
-    );
+    )
   }
 
   getDb().transaction(() => {
     getDb()
-      .query('UPDATE tasks SET group_ref = NULL, updated_at = $at WHERE group_ref = $ref COLLATE NOCASE')
-      .run({ $at: nowIso(), $ref: group.ref });
-    getDb().query('DELETE FROM task_groups WHERE id = $id').run({ $id: group.id });
-  })();
+      .query(
+        "UPDATE tasks SET group_ref = NULL, updated_at = $at WHERE group_ref = $ref COLLATE NOCASE",
+      )
+      .run({ $at: nowIso(), $ref: group.ref })
+    getDb()
+      .query("DELETE FROM task_groups WHERE id = $id")
+      .run({ $id: group.id })
+  })()
 
-  return { ref: group.ref, released };
+  return { ref: group.ref, released }
 }
 
 /**
@@ -1050,21 +1170,28 @@ export function deleteGroup(refOrName: string): { ref: string; released: string[
  * ones and settles ties. Moving a group's work up the queue is a task reorder.
  */
 export function reorderGroups(refs: string[]): TaskGroupSummary[] {
-  const groups = refs.map((ref) => requireGroup(ref));
-  const seen = new Set<string>();
+  const groups = refs.map((ref) => requireGroup(ref))
+  const seen = new Set<string>()
   for (const group of groups) {
-    if (seen.has(group.ref)) throw new Error(`Group '${group.ref}' listed twice in the new order.`);
-    seen.add(group.ref);
+    if (seen.has(group.ref))
+      throw new Error(`Group '${group.ref}' listed twice in the new order.`)
+    seen.add(group.ref)
   }
-  if (groups.length < 2) return listGroups();
+  if (groups.length < 2) return listGroups()
 
-  const slots = groups.map((group) => group.position).sort((left, right) => left - right);
-  const assign = getDb().query('UPDATE task_groups SET position = $position WHERE id = $id');
+  const slots = groups
+    .map((group) => group.position)
+    .sort((left, right) => left - right)
+  const assign = getDb().query(
+    "UPDATE task_groups SET position = $position WHERE id = $id",
+  )
   getDb().transaction(() => {
-    groups.forEach((group, index) => assign.run({ $id: group.id, $position: slots[index]! }));
-  })();
+    groups.forEach((group, index) =>
+      assign.run({ $id: group.id, $position: slots[index]! }),
+    )
+  })()
 
-  return listGroups();
+  return listGroups()
 }
 
 /**
@@ -1081,38 +1208,47 @@ export function setTaskGroup(
   groupRefOrName: string | null,
   options: { reposition?: boolean } = {},
 ): Task {
-  const task = requireTask(ref);
+  const task = requireTask(ref)
   if (!groupRefOrName) {
-    throw new Error('Tasks must belong to a group. Choose another group instead.');
+    throw new Error(
+      "Tasks must belong to a group. Choose another group instead.",
+    )
   }
-  const group = groupRefOrName ? requireGroup(groupRefOrName) : null;
-  if ((task.groupRef ?? null) === (group?.ref ?? null)) return task;
+  const group = groupRefOrName ? requireGroup(groupRefOrName) : null
+  if ((task.groupRef ?? null) === (group?.ref ?? null)) return task
 
   getDb()
-    .query('UPDATE tasks SET group_ref = $group, updated_at = $at WHERE ref = $ref')
-    .run({ $group: group?.ref ?? null, $at: nowIso(), $ref: task.ref });
+    .query(
+      "UPDATE tasks SET group_ref = $group, updated_at = $at WHERE ref = $ref",
+    )
+    .run({ $group: group?.ref ?? null, $at: nowIso(), $ref: task.ref })
 
-  addEvent(
-    task.id,
-    'edited',
-    { note: group ? `moved into group ${group.ref} (${group.name})` : 'removed from its group' },
-  );
+  addEvent(task.id, "edited", {
+    note: group
+      ? `moved into group ${group.ref} (${group.name})`
+      : "removed from its group",
+  })
 
-  if (group && options.reposition !== false) appendToGroupRun(task.ref, group.ref);
-  return requireTask(task.ref);
+  if (group && options.reposition !== false)
+    appendToGroupRun(task.ref, group.ref)
+  return requireTask(task.ref)
 }
 
 /** Move `ref` to just after the last task already in `groupRef`, when there is
  *  one and both rows are in the ordered list. Closed tasks have no place in the
  *  queue, so a group made only of them simply leaves the task where it is. */
 function appendToGroupRun(ref: string, groupRef: string): void {
-  const order = listTasks();
+  const order = listTasks()
   const anchor = [...order]
     .reverse()
-    .find((one) => one.ref !== ref && one.groupRef?.toLowerCase() === groupRef.toLowerCase());
-  if (!anchor || !order.some((one) => one.ref === ref)) return;
+    .find(
+      (one) =>
+        one.ref !== ref &&
+        one.groupRef?.toLowerCase() === groupRef.toLowerCase(),
+    )
+  if (!anchor || !order.some((one) => one.ref === ref)) return
 
-  moveTask(ref, { to: 'after', ref: anchor.ref });
+  moveTask(ref, { to: "after", ref: anchor.ref })
 }
 
 /**
@@ -1123,35 +1259,35 @@ function appendToGroupRun(ref: string, groupRef: string): void {
  * of making a second one beside it.
  */
 export function groupForInvestigation(investigationRef: string): TaskGroup {
-  const investigation = requireInvestigation(investigationRef);
+  const investigation = requireInvestigation(investigationRef)
   const existing = getDb()
     .query<TaskGroupRow, { $ref: string }>(
-      'SELECT * FROM task_groups WHERE investigation_ref = $ref COLLATE NOCASE ORDER BY id ASC',
+      "SELECT * FROM task_groups WHERE investigation_ref = $ref COLLATE NOCASE ORDER BY id ASC",
     )
-    .get({ $ref: investigation.ref });
-  if (existing) return toGroup(existing);
+    .get({ $ref: investigation.ref })
+  if (existing) return toGroup(existing)
 
   // The investigation's own title is the name people already know it by. A
   // second group that happens to be called that is disambiguated with the ref
   // rather than refused: auto-grouping must never fail a task's creation.
-  const base = investigation.title.trim() || investigation.ref;
-  const name = findGroup(base) ? `${base} (${investigation.ref})` : base;
-  return createGroup({ name, investigationRef: investigation.ref });
+  const base = investigation.title.trim() || investigation.ref
+  const name = findGroup(base) ? `${base} (${investigation.ref})` : base
+  return createGroup({ name, investigationRef: investigation.ref })
 }
 
 /* ----------------------------------------------------------- investigations */
 
 interface InvestigationRow {
-  id: number;
-  ref: string;
-  title: string;
-  brief: string;
-  findings: string;
-  status: string;
-  created_at: string;
-  updated_at: string;
-  started_at: string | null;
-  completed_at: string | null;
+  id: number
+  ref: string
+  title: string
+  brief: string
+  findings: string
+  status: string
+  created_at: string
+  updated_at: string
+  started_at: string | null
+  completed_at: string | null
 }
 
 function toInvestigation(row: InvestigationRow): Investigation {
@@ -1166,19 +1302,21 @@ function toInvestigation(row: InvestigationRow): Investigation {
     updatedAt: row.updated_at,
     startedAt: row.started_at,
     completedAt: row.completed_at,
-  };
+  }
 }
 
 /** Timestamp column each investigation status stamps on entry. */
 const INVESTIGATION_TIMESTAMP: Partial<Record<InvestigationStatus, string>> = {
-  investigating: 'started_at',
-  complete: 'completed_at',
-};
+  investigating: "started_at",
+  complete: "completed_at",
+}
 
-export function listInvestigations(filter?: { status?: InvestigationStatus }): Investigation[] {
-  const params: Record<string, string> = {};
-  if (filter?.status) params.$status = filter.status;
-  const where = filter?.status ? 'WHERE status = $status' : '';
+export function listInvestigations(filter?: {
+  status?: InvestigationStatus
+}): Investigation[] {
+  const params: Record<string, string> = {}
+  if (filter?.status) params.$status = filter.status
+  const where = filter?.status ? "WHERE status = $status" : ""
 
   return getDb()
     .query<InvestigationRow, typeof params>(
@@ -1191,49 +1329,55 @@ export function listInvestigations(filter?: { status?: InvestigationStatus }): I
                 id DESC`,
     )
     .all(params)
-    .map(toInvestigation);
+    .map(toInvestigation)
 }
 
 export function findInvestigation(ref: string): Investigation | null {
   const row = getDb()
     .query<InvestigationRow, { $ref: string }>(
-      'SELECT * FROM investigations WHERE ref = $ref COLLATE NOCASE',
+      "SELECT * FROM investigations WHERE ref = $ref COLLATE NOCASE",
     )
-    .get({ $ref: ref });
-  return row ? toInvestigation(row) : null;
+    .get({ $ref: ref })
+  return row ? toInvestigation(row) : null
 }
 
 export function requireInvestigation(ref: string): Investigation {
-  const investigation = findInvestigation(ref);
-  if (!investigation) throw new Error(`No investigation with ref '${ref}'.`);
-  return investigation;
+  const investigation = findInvestigation(ref)
+  if (!investigation) throw new Error(`No investigation with ref '${ref}'.`)
+  return investigation
 }
 
 /** An investigation with the tasks it produced, closed ones included — a task
  *  taken all the way through is part of the answer. */
 export function getInvestigationDetail(ref: string): InvestigationDetail {
-  const investigation = requireInvestigation(ref);
+  const investigation = requireInvestigation(ref)
   return {
     ...investigation,
-    tasks: listTasks({ investigationRef: investigation.ref, includeClosed: true }),
-  };
+    tasks: listTasks({
+      investigationRef: investigation.ref,
+      includeClosed: true,
+    }),
+  }
 }
 
-export function createInvestigation(input: { title: string; brief?: string }): Investigation {
-  const title = input.title.trim();
-  if (!title) throw new Error('An investigation needs a title.');
+export function createInvestigation(input: {
+  title: string
+  brief?: string
+}): Investigation {
+  const title = input.title.trim()
+  if (!title) throw new Error("An investigation needs a title.")
 
-  const at = nowIso();
-  const ref = nextInvestigationRef();
+  const at = nowIso()
+  const ref = nextInvestigationRef()
 
   getDb()
     .query(
       `INSERT INTO investigations (ref, title, brief, findings, status, created_at, updated_at)
        VALUES ($ref, $title, $brief, '', 'draft', $at, $at)`,
     )
-    .run({ $ref: ref, $title: title, $brief: input.brief ?? '', $at: at });
+    .run({ $ref: ref, $title: title, $brief: input.brief ?? "", $at: at })
 
-  return requireInvestigation(ref);
+  return requireInvestigation(ref)
 }
 
 /** Partial update: only the keys present are written, so an agent saving its
@@ -1242,31 +1386,36 @@ export function updateInvestigation(
   ref: string,
   input: { title?: string; brief?: string; findings?: string },
 ): Investigation {
-  const investigation = requireInvestigation(ref);
+  const investigation = requireInvestigation(ref)
 
-  const assignments: string[] = [];
-  const params: Record<string, string> = { $ref: investigation.ref, $at: nowIso() };
+  const assignments: string[] = []
+  const params: Record<string, string> = {
+    $ref: investigation.ref,
+    $at: nowIso(),
+  }
 
   if (input.title !== undefined) {
-    const title = input.title.trim();
-    if (!title) throw new Error('An investigation needs a title.');
-    assignments.push('title = $title');
-    params.$title = title;
+    const title = input.title.trim()
+    if (!title) throw new Error("An investigation needs a title.")
+    assignments.push("title = $title")
+    params.$title = title
   }
   if (input.brief !== undefined) {
-    assignments.push('brief = $brief');
-    params.$brief = input.brief;
+    assignments.push("brief = $brief")
+    params.$brief = input.brief
   }
   if (input.findings !== undefined) {
-    assignments.push('findings = $findings');
-    params.$findings = input.findings;
+    assignments.push("findings = $findings")
+    params.$findings = input.findings
   }
 
-  if (!assignments.length) return investigation;
+  if (!assignments.length) return investigation
 
   getDb()
-    .query(`UPDATE investigations SET ${assignments.join(', ')}, updated_at = $at WHERE ref = $ref`)
-    .run(params);
+    .query(
+      `UPDATE investigations SET ${assignments.join(", ")}, updated_at = $at WHERE ref = $ref`,
+    )
+    .run(params)
 
   // A linked group's description is the compatibility projection of the brief:
   // the current UI calls it Investigation, while older clients still read the
@@ -1274,37 +1423,45 @@ export function updateInvestigation(
   // story without a schema-breaking migration.
   if (input.brief !== undefined) {
     getDb()
-      .query('UPDATE task_groups SET description = $brief, updated_at = $at WHERE investigation_ref = $ref COLLATE NOCASE')
-      .run({ $brief: input.brief, $at: params.$at, $ref: investigation.ref });
+      .query(
+        "UPDATE task_groups SET description = $brief, updated_at = $at WHERE investigation_ref = $ref COLLATE NOCASE",
+      )
+      .run({ $brief: input.brief, $at: params.$at, $ref: investigation.ref })
   }
 
-  return requireInvestigation(investigation.ref);
+  return requireInvestigation(investigation.ref)
 }
 
-export function setInvestigationStatus(ref: string, status: InvestigationStatus): Investigation {
-  const investigation = requireInvestigation(ref);
-  if (investigation.status === status) return investigation;
+export function setInvestigationStatus(
+  ref: string,
+  status: InvestigationStatus,
+): Investigation {
+  const investigation = requireInvestigation(ref)
+  if (investigation.status === status) return investigation
 
-  const stamp = INVESTIGATION_TIMESTAMP[status];
-  const stampClause = stamp ? `, ${stamp} = $at` : '';
+  const stamp = INVESTIGATION_TIMESTAMP[status]
+  const stampClause = stamp ? `, ${stamp} = $at` : ""
 
   getDb()
     .query(
       `UPDATE investigations SET status = $status, updated_at = $at${stampClause} WHERE ref = $ref`,
     )
-    .run({ $status: status, $at: nowIso(), $ref: investigation.ref });
+    .run({ $status: status, $at: nowIso(), $ref: investigation.ref })
 
-  return requireInvestigation(investigation.ref);
+  return requireInvestigation(investigation.ref)
 }
 
 /** Deleting the question does not delete the answers: the tasks it filed stay,
  *  unlinked, because the work still needs doing. */
 export function deleteInvestigation(ref: string): void {
-  const investigation = requireInvestigation(ref);
-  const db = getDb();
-  db.query('UPDATE tasks SET investigation_ref = NULL WHERE investigation_ref = $ref')
-    .run({ $ref: investigation.ref });
-  db.query('DELETE FROM investigations WHERE id = $id').run({ $id: investigation.id });
+  const investigation = requireInvestigation(ref)
+  const db = getDb()
+  db.query(
+    "UPDATE tasks SET investigation_ref = NULL WHERE investigation_ref = $ref",
+  ).run({ $ref: investigation.ref })
+  db.query("DELETE FROM investigations WHERE id = $id").run({
+    $id: investigation.id,
+  })
 }
 
 /** Record that a task's work was included in a combined delivery branch. */
@@ -1312,12 +1469,17 @@ export function deleteInvestigation(ref: string): void {
  * renamed in Git. Kept separate from ordinary task edits: branch assignment is
  * Git identity, not task metadata. */
 export function updateTaskBranchName(ref: string, branchName: string): Task {
-  const task = requireTask(ref);
-  const at = nowIso();
-  getDb().query('UPDATE tasks SET branch_name = $branch, updated_at = $at WHERE ref = $ref')
-    .run({ $branch: validateBranchName(branchName), $at: at, $ref: task.ref });
-  addEvent(task.id, 'note', { note: `Assigned branch updated to '${branchName}'.` });
-  return requireTask(ref);
+  const task = requireTask(ref)
+  const at = nowIso()
+  getDb()
+    .query(
+      "UPDATE tasks SET branch_name = $branch, updated_at = $at WHERE ref = $ref",
+    )
+    .run({ $branch: validateBranchName(branchName), $at: at, $ref: task.ref })
+  addEvent(task.id, "note", {
+    note: `Assigned branch updated to '${branchName}'.`,
+  })
+  return requireTask(ref)
 }
 
 /**
@@ -1328,10 +1490,17 @@ export function updateTaskBranchName(ref: string, branchName: string): Task {
  * legacy backfill in `db.ts`), and that parse only matters for delivery
  * branches predating the `combined_branches` table — so it stays untouched.
  */
-export function recordCombinedBranch(ref: string, branchName: string, combined = true): void {
-  addNote(ref, combined
-    ? `Included in combined branch '${branchName}'.`
-    : `Prepared as delivery branch '${branchName}'.`);
+export function recordCombinedBranch(
+  ref: string,
+  branchName: string,
+  combined = true,
+): void {
+  addNote(
+    ref,
+    combined
+      ? `Included in combined branch '${branchName}'.`
+      : `Prepared as delivery branch '${branchName}'.`,
+  )
 }
 
 /* ----------------------------------------------------- combined branches */
@@ -1340,41 +1509,43 @@ export function recordCombinedBranch(ref: string, branchName: string, combined =
  *  a branch without checks is a branch that has to run them, which is the safe
  *  reading. */
 function parseChecks(raw: string | null): ChecksReport | null {
-  if (!raw) return null;
+  if (!raw) return null
   try {
-    const parsed: unknown = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? (parsed as ChecksReport) : null;
+    const parsed: unknown = JSON.parse(raw)
+    return parsed && typeof parsed === "object"
+      ? (parsed as ChecksReport)
+      : null
   } catch {
-    return null;
+    return null
   }
 }
 
 interface CombinedBranchRow {
-  id: number;
-  branch_name: string;
-  base_branch: string | null;
-  remote_branch: string | null;
-  task_refs: string;
-  pr_title: string | null;
-  pr_body: string | null;
-  pr_url: string | null;
-  pr_number: number | null;
-  combine_state: 'complete' | 'conflict';
-  combine_pending_commits: string;
-  combine_close_tasks: number;
-  checks_json: string | null;
-  created_at: string;
-  updated_at: string;
+  id: number
+  branch_name: string
+  base_branch: string | null
+  remote_branch: string | null
+  task_refs: string
+  pr_title: string | null
+  pr_body: string | null
+  pr_url: string | null
+  pr_number: number | null
+  combine_state: "complete" | "conflict"
+  combine_pending_commits: string
+  combine_close_tasks: number
+  checks_json: string | null
+  created_at: string
+  updated_at: string
 }
 
 function toCombinedBranch(row: CombinedBranchRow): CombinedBranch {
-  let taskRefs: string[] = [];
-  let combinePendingCommits: string[] = [];
+  let taskRefs: string[] = []
+  let combinePendingCommits: string[] = []
   try {
-    const parsed: unknown = JSON.parse(row.task_refs);
-    if (Array.isArray(parsed)) taskRefs = parsed.map(String);
-    const pending: unknown = JSON.parse(row.combine_pending_commits);
-    if (Array.isArray(pending)) combinePendingCommits = pending.map(String);
+    const parsed: unknown = JSON.parse(row.task_refs)
+    if (Array.isArray(parsed)) taskRefs = parsed.map(String)
+    const pending: unknown = JSON.parse(row.combine_pending_commits)
+    if (Array.isArray(pending)) combinePendingCommits = pending.map(String)
   } catch {
     // A hand-edited row should not take the whole list down with it.
   }
@@ -1395,42 +1566,44 @@ function toCombinedBranch(row: CombinedBranchRow): CombinedBranch {
     checks: parseChecks(row.checks_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-  };
+  }
 }
 
 export function listCombinedBranches(): CombinedBranch[] {
   return getDb()
-    .query<CombinedBranchRow, []>('SELECT * FROM combined_branches ORDER BY id DESC')
+    .query<CombinedBranchRow, []>(
+      "SELECT * FROM combined_branches ORDER BY id DESC",
+    )
     .all()
-    .map(toCombinedBranch);
+    .map(toCombinedBranch)
 }
 
 export function findCombinedBranch(branchName: string): CombinedBranch | null {
   const row = getDb()
     .query<CombinedBranchRow, { $name: string }>(
-      'SELECT * FROM combined_branches WHERE branch_name = $name',
+      "SELECT * FROM combined_branches WHERE branch_name = $name",
     )
-    .get({ $name: branchName });
+    .get({ $name: branchName })
 
-  return row ? toCombinedBranch(row) : null;
+  return row ? toCombinedBranch(row) : null
 }
 
 export function requireCombinedBranch(branchName: string): CombinedBranch {
-  const branch = findCombinedBranch(branchName);
-  if (!branch) throw new Error(`No combined branch named '${branchName}'.`);
-  return branch;
+  const branch = findCombinedBranch(branchName)
+  if (!branch) throw new Error(`No combined branch named '${branchName}'.`)
+  return branch
 }
 
 /** Called once a combine's Git work has fully succeeded. */
 export function recordCombine(input: {
-  branchName: string;
-  baseBranch: string | null;
-  taskRefs: string[];
-  combineState?: 'complete' | 'conflict';
-  combinePendingCommits?: string[];
-  combineCloseTasks?: boolean;
+  branchName: string
+  baseBranch: string | null
+  taskRefs: string[]
+  combineState?: "complete" | "conflict"
+  combinePendingCommits?: string[]
+  combineCloseTasks?: boolean
 }): CombinedBranch {
-  const at = nowIso();
+  const at = nowIso()
   getDb()
     .query(
       `INSERT INTO combined_branches (branch_name, base_branch, task_refs, combine_state, combine_pending_commits, combine_close_tasks, created_at, updated_at)
@@ -1442,13 +1615,13 @@ export function recordCombine(input: {
       $name: input.branchName,
       $base: input.baseBranch,
       $refs: JSON.stringify(input.taskRefs),
-      $state: input.combineState ?? 'complete',
+      $state: input.combineState ?? "complete",
       $pending: JSON.stringify(input.combinePendingCommits ?? []),
       $closeTasks: input.combineCloseTasks ? 1 : 0,
       $at: at,
-    });
+    })
 
-  return requireCombinedBranch(input.branchName);
+  return requireCombinedBranch(input.branchName)
 }
 
 /**
@@ -1466,10 +1639,10 @@ export function registerTaskOnBranch(
   taskRef: string,
   baseBranch: string | null,
 ): CombinedBranch {
-  const task = requireTask(taskRef);
-  const existing = findCombinedBranch(branchName);
-  const refs = existing ? [...existing.taskRefs] : [];
-  if (!refs.includes(task.ref)) refs.push(task.ref);
+  const task = requireTask(taskRef)
+  const existing = findCombinedBranch(branchName)
+  const refs = existing ? [...existing.taskRefs] : []
+  if (!refs.includes(task.ref)) refs.push(task.ref)
 
   return recordCombine({
     branchName,
@@ -1480,7 +1653,7 @@ export function registerTaskOnBranch(
     combineState: existing?.combineState,
     combinePendingCommits: existing?.combinePendingCommits,
     combineCloseTasks: existing?.combineCloseTasks,
-  });
+  })
 }
 
 /** Partial update. Only the keys present are written, so saving a description
@@ -1488,93 +1661,98 @@ export function registerTaskOnBranch(
 export function updateCombinedBranch(
   branchName: string,
   input: {
-    baseBranch?: string | null;
-    remoteBranch?: string | null;
-    prTitle?: string | null;
-    prBody?: string | null;
-    prUrl?: string | null;
-    prNumber?: number | null;
-    combineState?: 'complete' | 'conflict';
-    checks?: ChecksReport | null;
+    baseBranch?: string | null
+    remoteBranch?: string | null
+    prTitle?: string | null
+    prBody?: string | null
+    prUrl?: string | null
+    prNumber?: number | null
+    combineState?: "complete" | "conflict"
+    checks?: ChecksReport | null
   },
 ): CombinedBranch {
-  requireCombinedBranch(branchName);
+  requireCombinedBranch(branchName)
 
   const columns = {
-    baseBranch: 'base_branch',
-    remoteBranch: 'remote_branch',
-    prTitle: 'pr_title',
-    prBody: 'pr_body',
-    prUrl: 'pr_url',
-    prNumber: 'pr_number',
-    combineState: 'combine_state',
-  } as const;
+    baseBranch: "base_branch",
+    remoteBranch: "remote_branch",
+    prTitle: "pr_title",
+    prBody: "pr_body",
+    prUrl: "pr_url",
+    prNumber: "pr_number",
+    combineState: "combine_state",
+  } as const
 
-  const assignments: string[] = [];
+  const assignments: string[] = []
   const params: Record<string, string | number | null> = {
     $name: branchName,
     $at: nowIso(),
-  };
+  }
 
   for (const [key, column] of Object.entries(columns)) {
-    const value = input[key as keyof typeof input];
-    if (value === undefined) continue;
-    assignments.push(`${column} = $${key}`);
-    params[`$${key}`] = value as string | number | null;
+    const value = input[key as keyof typeof input]
+    if (value === undefined) continue
+    assignments.push(`${column} = $${key}`)
+    params[`$${key}`] = value as string | number | null
   }
 
   if (input.checks !== undefined) {
-    assignments.push('checks_json = $checks');
-    params.$checks = input.checks === null ? null : JSON.stringify(input.checks);
+    assignments.push("checks_json = $checks")
+    params.$checks = input.checks === null ? null : JSON.stringify(input.checks)
   }
 
   if (assignments.length) {
     getDb()
       .query(
-        `UPDATE combined_branches SET ${assignments.join(', ')}, updated_at = $at
+        `UPDATE combined_branches SET ${assignments.join(", ")}, updated_at = $at
           WHERE branch_name = $name`,
       )
-      .run(params);
+      .run(params)
   }
 
-  return requireCombinedBranch(branchName);
+  return requireCombinedBranch(branchName)
 }
 
 /** Rename the persisted delivery-branch record after Git has renamed the ref. */
-export function renameCombinedBranch(branchName: string, newBranchName: string): CombinedBranch {
-  requireCombinedBranch(branchName);
-  const name = validateBranchName(newBranchName);
-  if (name === branchName) return requireCombinedBranch(branchName);
-  getDb().query(
-    'UPDATE combined_branches SET branch_name = $newName, updated_at = $at WHERE branch_name = $name',
-  ).run({ $newName: name, $name: branchName, $at: nowIso() });
-  return requireCombinedBranch(name);
+export function renameCombinedBranch(
+  branchName: string,
+  newBranchName: string,
+): CombinedBranch {
+  requireCombinedBranch(branchName)
+  const name = validateBranchName(newBranchName)
+  if (name === branchName) return requireCombinedBranch(branchName)
+  getDb()
+    .query(
+      "UPDATE combined_branches SET branch_name = $newName, updated_at = $at WHERE branch_name = $name",
+    )
+    .run({ $newName: name, $name: branchName, $at: nowIso() })
+  return requireCombinedBranch(name)
 }
 
 export function deleteCombinedBranch(branchName: string): void {
-  requireCombinedBranch(branchName);
+  requireCombinedBranch(branchName)
   getDb()
-    .query('DELETE FROM combined_branches WHERE branch_name = $name')
-    .run({ $name: branchName });
+    .query("DELETE FROM combined_branches WHERE branch_name = $name")
+    .run({ $name: branchName })
 }
 
 /* ----------------------------------------------------- checkpoint records */
 
 export interface RecordRunInput {
-  taskId: number;
-  checkpointName: string;
-  phase: Phase;
-  exitCode: number;
-  gitHead: string | null;
-  gitDirty: boolean | null;
-  scenarioCount: number;
-  selection: { scenarios?: string[]; folders?: string[] } | null;
-  raw: unknown;
-  comparisons: Omit<Comparison, 'id' | 'runId'>[];
+  taskId: number
+  checkpointName: string
+  phase: Phase
+  exitCode: number
+  gitHead: string | null
+  gitDirty: boolean | null
+  scenarioCount: number
+  selection: { scenarios?: string[]; folders?: string[] } | null
+  raw: unknown
+  comparisons: Omit<Comparison, "id" | "runId">[]
 }
 
 export function recordRun(input: RecordRunInput): number {
-  const db = getDb();
+  const db = getDb()
 
   const insert = db.transaction((run: RecordRunInput) => {
     const row = db
@@ -1596,9 +1774,9 @@ export function recordRun(input: RecordRunInput): number {
         $raw: run.raw === undefined ? null : JSON.stringify(run.raw),
         $selection: run.selection ? JSON.stringify(run.selection) : null,
         $at: nowIso(),
-      });
+      })
 
-    const runId = row!.id;
+    const runId = row!.id
     const statement = db.query(
       `INSERT INTO checkpoint_comparisons (run_id, scenario, description, status,
               percent_changed, pixel_diff_count, total_pixels,
@@ -1608,7 +1786,7 @@ export function recordRun(input: RecordRunInput): number {
                $percent, $pixels, $total,
                $before, $after, $diff,
                $logStatus, $logCount)`,
-    );
+    )
 
     for (const comparison of run.comparisons) {
       statement.run({
@@ -1624,23 +1802,23 @@ export function recordRun(input: RecordRunInput): number {
         $diff: comparison.diffPath,
         $logStatus: comparison.browserLogStatus,
         $logCount: comparison.browserLogChangeCount,
-      });
+      })
     }
 
-    return runId;
-  });
+    return runId
+  })
 
-  const runId = insert(input);
-  addEvent(input.taskId, 'checkpoint', {
+  const runId = insert(input)
+  addEvent(input.taskId, "checkpoint", {
     note: `${input.phase} checkpoint '${input.checkpointName}' — ${input.scenarioCount} scenario(s)`,
-  });
-  return runId;
+  })
+  return runId
 }
 
 /** Most recent run of a phase, used to tell whether `before` was ever captured. */
 export function latestRun(taskId: number, phase: Phase): CheckpointRun | null {
-  const runs = listRuns(taskId).filter((run) => run.phase === phase);
-  return runs.length ? runs[runs.length - 1]! : null;
+  const runs = listRuns(taskId).filter((run) => run.phase === phase)
+  return runs.length ? runs[runs.length - 1]! : null
 }
 
 /**
@@ -1649,7 +1827,7 @@ export function latestRun(taskId: number, phase: Phase): CheckpointRun | null {
  * a later re-capture was taken from that same point deliberately.
  */
 export function firstRun(taskId: number, phase: Phase): CheckpointRun | null {
-  return listRuns(taskId).find((run) => run.phase === phase) ?? null;
+  return listRuns(taskId).find((run) => run.phase === phase) ?? null
 }
 
 /* ------------------------------------------------------------ group runs */
@@ -1663,20 +1841,20 @@ export function firstRun(taskId: number, phase: Phase): CheckpointRun | null {
  */
 
 interface GroupRunRow {
-  id: number;
-  group_ref: string;
-  harness: string;
-  model: string;
-  permission_mode: string;
-  extra: string;
-  status: string;
-  current_run_id: number | null;
-  current_ref: string | null;
-  worked_json: string;
-  excluded_json: string;
-  stop_reason: string;
-  created_at: string;
-  finished_at: string | null;
+  id: number
+  group_ref: string
+  harness: string
+  model: string
+  permission_mode: string
+  extra: string
+  status: string
+  current_run_id: number | null
+  current_ref: string | null
+  worked_json: string
+  excluded_json: string
+  stop_reason: string
+  created_at: string
+  finished_at: string | null
 }
 
 function toGroupRun(row: GroupRunRow): GroupRun {
@@ -1695,7 +1873,7 @@ function toGroupRun(row: GroupRunRow): GroupRun {
     stopReason: row.stop_reason,
     createdAt: row.created_at,
     finishedAt: row.finished_at,
-  };
+  }
 }
 
 /**
@@ -1708,46 +1886,52 @@ function toGroupRun(row: GroupRunRow): GroupRun {
 export function latestGroupRun(groupRef: string): GroupRun | null {
   const row = getDb()
     .query<GroupRunRow, { $ref: string }>(
-      'SELECT * FROM group_runs WHERE group_ref = $ref COLLATE NOCASE ORDER BY id DESC LIMIT 1',
+      "SELECT * FROM group_runs WHERE group_ref = $ref COLLATE NOCASE ORDER BY id DESC LIMIT 1",
     )
-    .get({ $ref: groupRef });
-  return row ? toGroupRun(row) : null;
+    .get({ $ref: groupRef })
+  return row ? toGroupRun(row) : null
 }
 
 export function listGroupRuns(groupRef?: string, limit = 20): GroupRun[] {
-  const db = getDb();
+  const db = getDb()
   const rows = groupRef
     ? db
         .query<GroupRunRow, { $ref: string; $limit: number }>(
-          'SELECT * FROM group_runs WHERE group_ref = $ref COLLATE NOCASE ORDER BY id DESC LIMIT $limit',
+          "SELECT * FROM group_runs WHERE group_ref = $ref COLLATE NOCASE ORDER BY id DESC LIMIT $limit",
         )
         .all({ $ref: groupRef, $limit: limit })
     : db
-        .query<GroupRunRow, { $limit: number }>('SELECT * FROM group_runs ORDER BY id DESC LIMIT $limit')
-        .all({ $limit: limit });
-  return rows.map(toGroupRun);
+        .query<GroupRunRow, { $limit: number }>(
+          "SELECT * FROM group_runs ORDER BY id DESC LIMIT $limit",
+        )
+        .all({ $limit: limit })
+  return rows.map(toGroupRun)
 }
 
 export function findGroupRun(id: number): GroupRun | null {
   const row = getDb()
-    .query<GroupRunRow, { $id: number }>('SELECT * FROM group_runs WHERE id = $id')
-    .get({ $id: id });
-  return row ? toGroupRun(row) : null;
+    .query<GroupRunRow, { $id: number }>(
+      "SELECT * FROM group_runs WHERE id = $id",
+    )
+    .get({ $id: id })
+  return row ? toGroupRun(row) : null
 }
 
 export function requireGroupRun(id: number): GroupRun {
-  const found = findGroupRun(id);
-  if (!found) throw new Error(`No group run with id ${id}.`);
-  return found;
+  const found = findGroupRun(id)
+  if (!found) throw new Error(`No group run with id ${id}.`)
+  return found
 }
 
 /** Every loop that still believes it is working. Used to keep two from owning
  *  the same group, and to settle them all when the server restarts. */
 export function runningGroupRuns(): GroupRun[] {
   return getDb()
-    .query<GroupRunRow, []>("SELECT * FROM group_runs WHERE status = 'running' ORDER BY id")
+    .query<GroupRunRow, []>(
+      "SELECT * FROM group_runs WHERE status = 'running' ORDER BY id",
+    )
     .all()
-    .map(toGroupRun);
+    .map(toGroupRun)
 }
 
 /** The loop currently working `agentRunId`, if a loop launched it at all. */
@@ -1756,17 +1940,17 @@ export function groupRunForAgentRun(agentRunId: number): GroupRun | null {
     .query<GroupRunRow, { $id: number }>(
       "SELECT * FROM group_runs WHERE current_run_id = $id AND status = 'running' LIMIT 1",
     )
-    .get({ $id: agentRunId });
-  return row ? toGroupRun(row) : null;
+    .get({ $id: agentRunId })
+  return row ? toGroupRun(row) : null
 }
 
 export function createGroupRun(input: {
-  groupRef: string;
-  harness: AgentHarnessId;
-  model: string;
-  permissionMode: AgentPermissionMode;
-  extra: string;
-  excluded: string[];
+  groupRef: string
+  harness: AgentHarnessId
+  model: string
+  permissionMode: AgentPermissionMode
+  extra: string
+  excluded: string[]
 }): GroupRun {
   const row = getDb()
     .query<{ id: number }, Record<string, string>>(
@@ -1783,39 +1967,50 @@ export function createGroupRun(input: {
       $extra: input.extra,
       $excluded: JSON.stringify(input.excluded),
       $at: nowIso(),
-    })!;
+    })!
 
-  return requireGroupRun(row.id);
+  return requireGroupRun(row.id)
 }
 
 /** Point the loop at the task it has just launched. */
-export function setGroupRunCurrent(id: number, agentRunId: number, ref: string): GroupRun {
+export function setGroupRunCurrent(
+  id: number,
+  agentRunId: number,
+  ref: string,
+): GroupRun {
   getDb()
-    .query('UPDATE group_runs SET current_run_id = $run, current_ref = $ref WHERE id = $id')
-    .run({ $id: id, $run: agentRunId, $ref: ref });
-  return requireGroupRun(id);
+    .query(
+      "UPDATE group_runs SET current_run_id = $run, current_ref = $ref WHERE id = $id",
+    )
+    .run({ $id: id, $run: agentRunId, $ref: ref })
+  return requireGroupRun(id)
 }
 
 /** Record a task as carried all the way to Dev Complete by this loop. */
 export function recordGroupRunWorked(id: number, ref: string): GroupRun {
-  const run = requireGroupRun(id);
-  if (run.worked.includes(ref)) return run;
+  const run = requireGroupRun(id)
+  if (run.worked.includes(ref)) return run
 
   getDb()
-    .query('UPDATE group_runs SET worked_json = $worked WHERE id = $id')
-    .run({ $id: id, $worked: JSON.stringify([...run.worked, ref]) });
-  return requireGroupRun(id);
+    .query("UPDATE group_runs SET worked_json = $worked WHERE id = $id")
+    .run({ $id: id, $worked: JSON.stringify([...run.worked, ref]) })
+  return requireGroupRun(id)
 }
 
 /** Settle a loop. `running` is the one status this cannot set — a loop that has
  *  stopped stays stopped, and restarting one means a new row. */
-export function settleGroupRun(id: number, status: GroupRunStatus, stopReason: string): GroupRun {
-  if (status === 'running') throw new Error('A group run cannot be settled as still running.');
+export function settleGroupRun(
+  id: number,
+  status: GroupRunStatus,
+  stopReason: string,
+): GroupRun {
+  if (status === "running")
+    throw new Error("A group run cannot be settled as still running.")
   getDb()
     .query(
       `UPDATE group_runs SET status = $status, stop_reason = $reason, finished_at = $at
         WHERE id = $id AND status = 'running'`,
     )
-    .run({ $id: id, $status: status, $reason: stopReason, $at: nowIso() });
-  return requireGroupRun(id);
+    .run({ $id: id, $status: status, $reason: stopReason, $at: nowIso() })
+  return requireGroupRun(id)
 }

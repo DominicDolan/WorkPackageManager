@@ -5,5 +5,10 @@
     "jsxImportSource": "@solidjs/web",
     "types": ["bun", "vite/client"]
   },
-  "include": ["src/web-new/**/*.ts", "src/web-new/**/*.tsx", "src/shared/**/*.ts", "vite.new.config.ts"]
+  "include": [
+    "src/web-new/**/*.ts",
+    "src/web-new/**/*.tsx",
+    "src/shared/**/*.ts",
+    "vite.new.config.ts"
+  ]
 }

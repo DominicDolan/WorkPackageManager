@@ -1,6 +1,6 @@
-import { existsSync } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
-import { loadConfig, type TasksConfig } from './config';
+import { existsSync } from "node:fs"
+import { dirname, join, resolve, sep } from "node:path"
+import { loadConfig, type TasksConfig } from "./config"
 
 /**
  * The two roots this tool works from, and everything derived from them.
@@ -14,23 +14,23 @@ import { loadConfig, type TasksConfig } from './config';
  */
 
 /** Where the tool is installed. `import.meta.dir` is `<pkg>/src/config`. */
-export const packageRoot = resolve(import.meta.dir, '..', '..');
+export const packageRoot = resolve(import.meta.dir, "..", "..")
 
 export interface Workspace {
   /** Repo root — the directory that contains `.tasks/`. */
-  repoRoot: string;
+  repoRoot: string
   /** The `.tasks/` directory itself. */
-  tasksDir: string;
+  tasksDir: string
   /** SQLite file. */
-  dbPath: string;
+  dbPath: string
   /** The aio-vr workspace, whether or not it exists yet. */
-  aioVrDir: string;
+  aioVrDir: string
   /** The notes folder, whether or not it exists yet. Unlike the others this one
    *  is routinely *outside* the repo — a sibling directory with its own Git
    *  history — so nothing may assume it sits under `repoRoot`. */
-  notesDir: string;
+  notesDir: string
   /** Built SPA assets, shipped with the package. */
-  distDir: string;
+  distDir: string
   /**
    * Canonical Markdown for the agent commands (`plan-tasks`, `work-task`,
    * `work-group`), shipped with the package. Inlined into the prompt at
@@ -39,9 +39,9 @@ export interface Workspace {
    * `<promptsDir>/<command>.md`. A workspace may override one by placing its
    * own at `.tasks/prompts/<command>.md`.
    */
-  promptsDir: string;
+  promptsDir: string
   /** This repository's resolved settings. */
-  config: TasksConfig;
+  config: TasksConfig
 }
 
 /**
@@ -54,36 +54,40 @@ export interface Workspace {
  * mandatory when its whole point is that every key has a default.
  */
 function findTasksDir(startDir: string): string {
-  let current = resolve(startDir);
+  let current = resolve(startDir)
 
   while (true) {
-    const candidate = join(current, '.tasks');
-    if (existsSync(candidate)) return candidate;
+    const candidate = join(current, ".tasks")
+    if (existsSync(candidate)) return candidate
 
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
+    const parent = dirname(current)
+    if (parent === current) break
+    current = parent
   }
 
   throw new Error(
     `Could not find a .tasks/ workspace by walking up from ${startDir}. ` +
-      'Run `tasks init` in the repository root, or set TASKS_DIR.',
-  );
+      "Run `tasks init` in the repository root, or set TASKS_DIR.",
+  )
 }
 
-let cached: Workspace | undefined;
+let cached: Workspace | undefined
 
 export function workspace(startDir = process.cwd()): Workspace {
-  if (cached) return cached;
+  if (cached) return cached
 
-  const tasksDir = process.env.TASKS_DIR ? resolve(process.env.TASKS_DIR) : findTasksDir(startDir);
-  const repoRoot = dirname(tasksDir);
-  const config = loadConfig(tasksDir);
+  const tasksDir = process.env.TASKS_DIR
+    ? resolve(process.env.TASKS_DIR)
+    : findTasksDir(startDir)
+  const repoRoot = dirname(tasksDir)
+  const config = loadConfig(tasksDir)
 
   cached = {
     repoRoot,
     tasksDir,
-    dbPath: process.env.TASKS_DB ? resolve(process.env.TASKS_DB) : join(tasksDir, 'data', 'tasks.db'),
+    dbPath: process.env.TASKS_DB
+      ? resolve(process.env.TASKS_DB)
+      : join(tasksDir, "data", "tasks.db"),
     // Relative config values resolve against .tasks/, so the default
     // `../.aio-vr` lands beside it in the repo root.
     aioVrDir: process.env.AIO_VR_DIR
@@ -97,11 +101,11 @@ export function workspace(startDir = process.cwd()): Workspace {
     // package is globally installed and the workspace lives elsewhere.
     distDir: process.env.TASKS_WEB_DIST
       ? resolve(process.env.TASKS_WEB_DIST)
-      : join(packageRoot, 'dist', 'web'),
-    promptsDir: join(packageRoot, 'prompts'),
+      : join(packageRoot, "dist", "web"),
+    promptsDir: join(packageRoot, "prompts"),
     config,
-  };
-  return cached;
+  }
+  return cached
 }
 
 /**
@@ -110,10 +114,10 @@ export function workspace(startDir = process.cwd()): Workspace {
  * disk, so this is what stops `?path=../../../../etc/passwd`.
  */
 export function resolveArtifact(relativePath: string): string | null {
-  const ws = workspace();
-  const absolute = resolve(ws.repoRoot, relativePath);
-  const root = ws.aioVrDir.endsWith(sep) ? ws.aioVrDir : ws.aioVrDir + sep;
+  const ws = workspace()
+  const absolute = resolve(ws.repoRoot, relativePath)
+  const root = ws.aioVrDir.endsWith(sep) ? ws.aioVrDir : ws.aioVrDir + sep
 
-  if (absolute !== ws.aioVrDir && !absolute.startsWith(root)) return null;
-  return existsSync(absolute) ? absolute : null;
+  if (absolute !== ws.aioVrDir && !absolute.startsWith(root)) return null
+  return existsSync(absolute) ? absolute : null
 }

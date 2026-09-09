@@ -1,1 +1,1 @@
-export type MainView = 'groups' | 'notes' | 'issues';
+export type MainView = "groups" | "notes" | "issues"

@@ -96,19 +96,19 @@ The recommended directive pattern is **two-phase**, similar in spirit to “spli
 function titleDirective(source) {
   // Setup phase (owned): create primitives/subscriptions here
   // but avoid imperative DOM mutation at top level.
-  let el;
+  let el
 
-  createEffect(source, value => {
+  createEffect(source, (value) => {
     // Effect can run before the element is available
-    if (el) el.title = value;
-  });
+    if (el) el.title = value
+  })
 
   // Apply phase (unowned): DOM writes happen here.
   // No new primitives should be created in this callback.
-  return nextEl => {
-    el = nextEl;
-    el.title = source();
-  };
+  return (nextEl) => {
+    el = nextEl
+    el.title = source()
+  }
 }
 ```
 
@@ -136,14 +136,14 @@ const on = (type, handler, options) => el => el.addEventListener(type, handler, 
 
 ## Removals
 
-| Removed                      | Replacement / notes                                                                                          |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `classList`                  | Use `class` with object or array                                                                             |
-| tolerated `class:` / `style:` syntax | Use `class={{ ... }}` / `style={{ ... }}` or standard attributes                                      |
-| `/*@once*/`                  | Keep reactive reads reactive; use DOM default props for initial state, or narrow JavaScript `untrack` snapshots for rare one-time reads |
-| `on:` / `oncapture:`         | Use `onClick` for Solid events; use `ref` callbacks that call `addEventListener` for native listener options |
-| `attr:` / `bool:` namespaces | Single attribute/property model above                                                                        |
-| `use:` directives            | Use `ref` callbacks / directive factories (`ref={directive(opts)}`); arrays compose (`ref={[a, b]}`)         |
+| Removed                              | Replacement / notes                                                                                                                     |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `classList`                          | Use `class` with object or array                                                                                                        |
+| tolerated `class:` / `style:` syntax | Use `class={{ ... }}` / `style={{ ... }}` or standard attributes                                                                        |
+| `/*@once*/`                          | Keep reactive reads reactive; use DOM default props for initial state, or narrow JavaScript `untrack` snapshots for rare one-time reads |
+| `on:` / `oncapture:`                 | Use `onClick` for Solid events; use `ref` callbacks that call `addEventListener` for native listener options                            |
+| `attr:` / `bool:` namespaces         | Single attribute/property model above                                                                                                   |
+| `use:` directives                    | Use `ref` callbacks / directive factories (`ref={directive(opts)}`); arrays compose (`ref={[a, b]}`)                                    |
 
 ## Alternatives considered
 

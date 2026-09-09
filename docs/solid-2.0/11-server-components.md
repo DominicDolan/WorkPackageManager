@@ -17,18 +17,18 @@ In a Vite app this is now one line: `serverFunctions: { components: true }` on `
 **1. Server — install the two result transforms** (from `@solidjs/web/frames/server`):
 
 ```ts
-import { configureServerFunctionsServer } from "@solidjs/web/server-functions/server";
+import { configureServerFunctionsServer } from "@solidjs/web/server-functions/server"
 import {
   frameTransformResult,
   frameTransformDirectResult,
-  frameTransformFlightResult
-} from "@solidjs/web/frames/server";
+  frameTransformFlightResult,
+} from "@solidjs/web/frames/server"
 
 configureServerFunctionsServer({
   transformResult: frameTransformResult, // HTTP: function results stream as frames
   transformDirectResult: frameTransformDirectResult, // document SSR: function results render inline
-  transformFlightResult: frameTransformFlightResult // single-flight: invalidated markup rides as regions
-});
+  transformFlightResult: frameTransformFlightResult, // single-flight: invalidated markup rides as regions
+})
 ```
 
 All are configurable server-wide (per-request `handleServerFunctionRequest` options still override), so this works through any generic dispatcher — including dev middlewares that call `handleServerFunctionRequest(request)` with no options. A server function returning _data_ behaves exactly as before; only function-returning results engage the frames path. The third transform matters only with single-flight (RFC 10): when part of what a mutation invalidates is a server component, it answers with one frame-stream response carrying each invalidated call’s markup as a region plus the ordinary `{ value, data }` envelope. Data-only payloads keep the byte-identical plain envelope; install all three together whenever components are enabled.
@@ -73,13 +73,13 @@ A complete working setup (no Vite, no metaframework) is `examples/hackernews`; i
 
 ```tsx
 async function getStory(id: number) {
-  "use server";
-  const story = await db.stories.get(id);
-  return props => (
+  "use server"
+  const story = await db.stories.get(id)
+  return (props) => (
     <article>
       <h1>{story.title}</h1>
       <section>
-        {story.comments.map(c => (
+        {story.comments.map((c) => (
           <props.comment $key={c.id} cid={c.id}>
             <p>{c.text}</p>
             {c.replies.map(renderReply)}
@@ -88,7 +88,7 @@ async function getStory(id: number) {
       </section>
       <footer>{props.children}</footer>
     </article>
-  );
+  )
 }
 ```
 
@@ -102,12 +102,16 @@ async function getStory(id: number) {
 
 ```tsx
 function StoryPage(props) {
-  const Story = dynamic(() => getStory(props.storyId));
+  const Story = dynamic(() => getStory(props.storyId))
   return (
-    <Story comment={p => <CollapsibleComment cid={p.cid}>{p.children}</CollapsibleComment>}>
+    <Story
+      comment={(p) => (
+        <CollapsibleComment cid={p.cid}>{p.children}</CollapsibleComment>
+      )}
+    >
       <ShareBar />
     </Story>
-  );
+  )
 }
 ```
 

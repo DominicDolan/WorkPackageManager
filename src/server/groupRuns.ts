@@ -1,6 +1,6 @@
-import { onRunSettled, startRun, stopRun } from './agents';
-import { branchExists, isAncestor } from './branches';
-import { getGroupDetail, groupBranchOf } from './groupBranch';
+import { onRunSettled, startRun, stopRun } from "./agents"
+import { branchExists, isAncestor } from "./branches"
+import { getGroupDetail, groupBranchOf } from "./groupBranch"
 import {
   createGroupRun,
   findTask,
@@ -12,7 +12,7 @@ import {
   runningGroupRuns,
   setGroupRunCurrent,
   settleGroupRun,
-} from './repo';
+} from "./repo"
 import {
   groupRunActive,
   nextWorkableTask,
@@ -21,7 +21,7 @@ import {
   type AgentRunStatus,
   type GroupRun,
   type TaskGroupDetail,
-} from '../shared/types';
+} from "../shared/types"
 
 /**
  * Working a whole group unattended, one fresh agent per task.
@@ -72,28 +72,31 @@ import {
  * around after being finished stops the run — so this is the backstop for a
  * failure nobody has thought of yet, not the mechanism.
  */
-const MAX_TASKS_PER_RUN = 50;
+const MAX_TASKS_PER_RUN = 50
 
 /* ------------------------------------------------------------- launching */
 
 export interface StartGroupRunInput {
-  groupRef: string;
-  harness: string;
-  model: string;
-  permissionMode: AgentPermissionMode;
+  groupRef: string
+  harness: string
+  model: string
+  permissionMode: AgentPermissionMode
   /** Extra prompt text appended to every task in the loop, not just the first. */
-  extra: string;
+  extra: string
   /** Unfinished tasks the user chose to leave out of this run. */
-  excluded: string[];
+  excluded: string[]
 }
 
-function nextIncludedTask(detail: TaskGroupDetail, excluded: readonly string[]) {
-  const omitted = new Set(excluded.map((ref) => ref.toLowerCase()));
+function nextIncludedTask(
+  detail: TaskGroupDetail,
+  excluded: readonly string[],
+) {
+  const omitted = new Set(excluded.map((ref) => ref.toLowerCase()))
   const eligible = {
     ...detail,
     queue: detail.queue.filter((task) => !omitted.has(task.ref.toLowerCase())),
-  };
-  return nextWorkableTask(eligible);
+  }
+  return nextWorkableTask(eligible)
 }
 
 /**
@@ -110,83 +113,102 @@ function whyNotWorkable(
   allowRef: string | null,
   excluded: readonly string[] = [],
 ): string | null {
-  const omitted = new Set(excluded.map((ref) => ref.toLowerCase()));
-  const included = detail.queue.filter((task) => !omitted.has(task.ref.toLowerCase()));
-  if (!included.length) return 'There are no included tasks left in this group for an agent to work.';
+  const omitted = new Set(excluded.map((ref) => ref.toLowerCase()))
+  const included = detail.queue.filter(
+    (task) => !omitted.has(task.ref.toLowerCase()),
+  )
+  if (!included.length)
+    return "There are no included tasks left in this group for an agent to work."
 
-  const next = nextIncludedTask(detail, excluded);
+  const next = nextIncludedTask(detail, excluded)
   if (!next) {
-    return 'Every included task is waiting on unfinished work this run will not do.';
+    return "Every included task is waiting on unfinished work this run will not do."
   }
 
   const foreign = detail.inProgress.find(
     (task) => task.ref !== next.ref && task.ref !== allowRef,
-  );
+  )
   if (foreign) {
     return (
       `${foreign.ref} (${foreign.title}) is already in progress. A task owns a branch and a ` +
-      'checkpoint, and two at once corrupts both — finish or park it first.'
-    );
+      "checkpoint, and two at once corrupts both — finish or park it first."
+    )
   }
 
-  return null;
+  return null
 }
 
-export function startGroupRun(input: StartGroupRunInput): { groupRun: GroupRun; run: AgentRun } {
-  const group = requireGroup(input.groupRef);
+export function startGroupRun(input: StartGroupRunInput): {
+  groupRun: GroupRun
+  run: AgentRun
+} {
+  const group = requireGroup(input.groupRef)
 
-  const previous = latestGroupRun(group.ref);
+  const previous = latestGroupRun(group.ref)
   if (groupRunActive(previous)) {
     throw new Error(
       `${group.ref} already has a run in flight (group run ${previous!.id}). Stop that one first.`,
-    );
+    )
   }
 
   // One loop at a time across the whole workspace, not just per group. Two loops
   // would be two agents on two branches with one working tree between them.
-  const elsewhere = runningGroupRuns();
+  const elsewhere = runningGroupRuns()
   if (elsewhere.length) {
-    const other = elsewhere[0]!;
-    throw new Error(`${other.groupRef} is already being worked by group run ${other.id}. Stop it first.`);
+    const other = elsewhere[0]!
+    throw new Error(
+      `${other.groupRef} is already being worked by group run ${other.id}. Stop it first.`,
+    )
   }
 
   // `plan` can never finish a task by design — it reads and proposes and
   // changes nothing — so a loop in it would stall on its first task forever.
-  if (input.permissionMode === 'plan') {
-    throw new Error('A group run cannot use Plan only: it changes nothing, so no task would ever complete.');
+  if (input.permissionMode === "plan") {
+    throw new Error(
+      "A group run cannot use Plan only: it changes nothing, so no task would ever complete.",
+    )
   }
 
-  const detail = getGroupDetail(group.ref);
-  const queued = new Map(detail.queue.map((task) => [task.ref.toLowerCase(), task.ref]));
-  const excluded = [...new Set(input.excluded.map((ref) => ref.toLowerCase()))].map((ref) => {
-    const canonical = queued.get(ref);
-    if (!canonical) throw new Error(`${ref} is not an unfinished task in ${group.ref}.`);
-    return canonical;
-  });
-  const problem = whyNotWorkable(detail, null, excluded);
-  if (problem) throw new Error(problem);
+  const detail = getGroupDetail(group.ref)
+  const queued = new Map(
+    detail.queue.map((task) => [task.ref.toLowerCase(), task.ref]),
+  )
+  const excluded = [
+    ...new Set(input.excluded.map((ref) => ref.toLowerCase())),
+  ].map((ref) => {
+    const canonical = queued.get(ref)
+    if (!canonical)
+      throw new Error(`${ref} is not an unfinished task in ${group.ref}.`)
+    return canonical
+  })
+  const problem = whyNotWorkable(detail, null, excluded)
+  if (problem) throw new Error(problem)
 
-  const next = nextIncludedTask(detail, excluded)!;
+  const next = nextIncludedTask(detail, excluded)!
   const groupRun = createGroupRun({
     groupRef: group.ref,
-    harness: input.harness as GroupRun['harness'],
+    harness: input.harness as GroupRun["harness"],
     model: input.model,
     permissionMode: input.permissionMode,
     extra: input.extra,
     excluded,
-  });
+  })
 
-  let run: AgentRun;
+  let run: AgentRun
   try {
-    run = launch(groupRun, next.ref);
+    run = launch(groupRun, next.ref)
   } catch (caught) {
     // The row exists, so the failure is visible rather than being a start that
     // silently did not happen.
-    settleGroupRun(groupRun.id, 'failed', caught instanceof Error ? caught.message : String(caught));
-    throw caught;
+    settleGroupRun(
+      groupRun.id,
+      "failed",
+      caught instanceof Error ? caught.message : String(caught),
+    )
+    throw caught
   }
 
-  return { groupRun: requireGroupRun(groupRun.id), run };
+  return { groupRun: requireGroupRun(groupRun.id), run }
 }
 
 /** Point a fresh headless `/work-task` at one ref and record it as in flight. */
@@ -194,17 +216,17 @@ function launch(groupRun: GroupRun, ref: string): AgentRun {
   const run = startRun({
     harness: groupRun.harness,
     model: groupRun.model,
-    mode: 'print',
-    command: 'work-task',
+    mode: "print",
+    command: "work-task",
     target: ref,
     extra: groupRun.extra,
-    subjectKind: 'task',
+    subjectKind: "task",
     subjectRef: ref,
     permissionMode: groupRun.permissionMode,
-  });
+  })
 
-  setGroupRunCurrent(groupRun.id, run.id, ref);
-  return run;
+  setGroupRunCurrent(groupRun.id, run.id, ref)
+  return run
 }
 
 /* ---------------------------------------------------------------- the loop */
@@ -217,39 +239,55 @@ function launch(groupRun: GroupRun, ref: string): AgentRun {
  * find no group run and return, which is why this can be a blanket listener.
  */
 function advance(agentRunId: number, status: AgentRunStatus): void {
-  const groupRun = groupRunForAgentRun(agentRunId);
-  if (!groupRun) return;
+  const groupRun = groupRunForAgentRun(agentRunId)
+  if (!groupRun) return
 
-  const ref = groupRun.currentRef;
+  const ref = groupRun.currentRef
   if (!ref) {
-    settleGroupRun(groupRun.id, 'failed', 'The run in flight had no task recorded against it.');
-    return;
+    settleGroupRun(
+      groupRun.id,
+      "failed",
+      "The run in flight had no task recorded against it.",
+    )
+    return
   }
 
-  if (status === 'stopped') {
-    settleGroupRun(groupRun.id, 'stopped', `${ref}'s agent was stopped, so the loop stopped with it.`);
-    return;
+  if (status === "stopped") {
+    settleGroupRun(
+      groupRun.id,
+      "stopped",
+      `${ref}'s agent was stopped, so the loop stopped with it.`,
+    )
+    return
   }
-  if (status !== 'succeeded') {
-    settleGroupRun(groupRun.id, 'failed', `${ref}'s agent exited with an error. Its log has the detail.`);
-    return;
+  if (status !== "succeeded") {
+    settleGroupRun(
+      groupRun.id,
+      "failed",
+      `${ref}'s agent exited with an error. Its log has the detail.`,
+    )
+    return
   }
 
   // Exiting cleanly is not the same as finishing the task — see the note at the
   // top of this file. The database is what decides.
-  const task = findTask(ref);
+  const task = findTask(ref)
   if (!task) {
-    settleGroupRun(groupRun.id, 'blocked', `${ref} no longer exists, so the loop cannot tell what happened to it.`);
-    return;
-  }
-  if (task.status === 'backlog' || task.status === 'in_progress') {
     settleGroupRun(
       groupRun.id,
-      'blocked',
+      "blocked",
+      `${ref} no longer exists, so the loop cannot tell what happened to it.`,
+    )
+    return
+  }
+  if (task.status === "backlog" || task.status === "in_progress") {
+    settleGroupRun(
+      groupRun.id,
+      "blocked",
       `${ref} (${task.title}) finished without reaching Dev Complete, so its agent stopped for ` +
-        'something it wants a person for. Read its log, or resume its session, before carrying on.',
-    );
-    return;
+        "something it wants a person for. Read its log, or resume its session, before carrying on.",
+    )
+    return
   }
 
   // Dev Complete is necessary but not sufficient. `tasks done` moves the status
@@ -257,54 +295,65 @@ function advance(agentRunId: number, status: AgentRunStatus): void {
   // aborts — and it exits 0 either way, so a task can sit at Dev Complete with
   // its work still only on its own branch. Waving that through would branch the
   // next task from a tip that is missing it.
-  const unmerged = whyNotOnGroupBranch(task);
+  const unmerged = whyNotOnGroupBranch(task)
   if (unmerged) {
-    settleGroupRun(groupRun.id, 'blocked', unmerged);
-    return;
+    settleGroupRun(groupRun.id, "blocked", unmerged)
+    return
   }
 
-  recordGroupRunWorked(groupRun.id, ref);
-  const current = requireGroupRun(groupRun.id);
+  recordGroupRunWorked(groupRun.id, ref)
+  const current = requireGroupRun(groupRun.id)
 
-  const detail = getGroupDetail(current.groupRef);
+  const detail = getGroupDetail(current.groupRef)
   if (
     !detail.queue.some(
-      (task) => !current.excluded.some((ref) => ref.toLowerCase() === task.ref.toLowerCase()),
+      (task) =>
+        !current.excluded.some(
+          (ref) => ref.toLowerCase() === task.ref.toLowerCase(),
+        ),
     )
   ) {
-    settleGroupRun(current.id, 'finished', '');
-    return;
+    settleGroupRun(current.id, "finished", "")
+    return
   }
 
-  const problem = whyNotWorkable(detail, null, current.excluded);
+  const problem = whyNotWorkable(detail, null, current.excluded)
   if (problem) {
-    settleGroupRun(current.id, 'blocked', problem);
-    return;
+    settleGroupRun(current.id, "blocked", problem)
+    return
   }
 
-  const next = nextIncludedTask(detail, current.excluded)!;
+  const next = nextIncludedTask(detail, current.excluded)!
   if (current.worked.includes(next.ref)) {
     settleGroupRun(
       current.id,
-      'blocked',
+      "blocked",
       `${next.ref} came back to the front of the queue after this run had already finished it. ` +
-        'Something is moving tasks backwards, and going round again would not help.',
-    );
-    return;
+        "Something is moving tasks backwards, and going round again would not help.",
+    )
+    return
   }
   if (current.worked.length >= MAX_TASKS_PER_RUN) {
-    settleGroupRun(current.id, 'blocked', `Stopped after ${MAX_TASKS_PER_RUN} tasks, which is as far as one run goes.`);
-    return;
+    settleGroupRun(
+      current.id,
+      "blocked",
+      `Stopped after ${MAX_TASKS_PER_RUN} tasks, which is as far as one run goes.`,
+    )
+    return
   }
 
   try {
-    launch(current, next.ref);
+    launch(current, next.ref)
   } catch (caught) {
-    settleGroupRun(current.id, 'failed', caught instanceof Error ? caught.message : String(caught));
+    settleGroupRun(
+      current.id,
+      "failed",
+      caught instanceof Error ? caught.message : String(caught),
+    )
   }
 }
 
-onRunSettled(advance);
+onRunSettled(advance)
 
 /**
  * Why a Dev Complete task's work is not on its group's branch, or null when it
@@ -316,44 +365,53 @@ onRunSettled(advance);
  * task branch tip *becomes* the group branch tip, so a task that landed is
  * always an ancestor and one that did not never is.
  */
-function whyNotOnGroupBranch(task: { ref: string; title: string; branchName: string | null; groupRef: string | null }): string | null {
-  const resolved = groupBranchOf(task as Parameters<typeof groupBranchOf>[0]);
-  if (!resolved) return null;
+function whyNotOnGroupBranch(task: {
+  ref: string
+  title: string
+  branchName: string | null
+  groupRef: string | null
+}): string | null {
+  const resolved = groupBranchOf(task as Parameters<typeof groupBranchOf>[0])
+  if (!resolved) return null
 
   if (!task.branchName) {
-    return `${task.ref} (${task.title}) reached Dev Complete with no branch assigned, so there is nothing to merge into '${resolved.branch}'.`;
+    return `${task.ref} (${task.title}) reached Dev Complete with no branch assigned, so there is nothing to merge into '${resolved.branch}'.`
   }
-  if (!branchExists(resolved.branch) || !isAncestor(task.branchName, resolved.branch)) {
+  if (
+    !branchExists(resolved.branch) ||
+    !isAncestor(task.branchName, resolved.branch)
+  ) {
     return (
       `${task.ref} (${task.title}) reached Dev Complete but '${task.branchName}' is not on ` +
       `'${resolved.branch}', so the merge did not happen — its branch may have been pushed, or its ` +
-      'commits may collide with work already there. Carrying on would branch the next task from a ' +
-      'tip that is missing this one.'
-    );
+      "commits may collide with work already there. Carrying on would branch the next task from a " +
+      "tip that is missing this one."
+    )
   }
 
-  return null;
+  return null
 }
 
 /* ------------------------------------------------------------- stop, reset */
 
 export function stopGroupRun(id: number): GroupRun {
-  const groupRun = requireGroupRun(id);
-  if (groupRun.status !== 'running') throw new Error(`Group run ${id} is not running.`);
+  const groupRun = requireGroupRun(id)
+  if (groupRun.status !== "running")
+    throw new Error(`Group run ${id} is not running.`)
 
   // Settled first, so the agent's own exit finds a loop that has already
   // stopped rather than one asking it what to do next.
-  const settled = settleGroupRun(id, 'stopped', 'Stopped by hand.');
+  const settled = settleGroupRun(id, "stopped", "Stopped by hand.")
 
   if (groupRun.currentRunId !== null) {
     try {
-      stopRun(groupRun.currentRunId);
+      stopRun(groupRun.currentRunId)
     } catch {
       // Already finished on its own between the two lines. Nothing to kill.
     }
   }
 
-  return settled;
+  return settled
 }
 
 /**
@@ -366,6 +424,10 @@ export function stopGroupRun(id: number): GroupRun {
  */
 export function reconcileGroupRuns(): void {
   for (const groupRun of runningGroupRuns()) {
-    settleGroupRun(groupRun.id, 'stopped', 'The server restarted, which ended the agent it was running.');
+    settleGroupRun(
+      groupRun.id,
+      "stopped",
+      "The server restarted, which ended the agent it was running.",
+    )
   }
 }

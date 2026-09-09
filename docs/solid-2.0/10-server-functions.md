@@ -25,9 +25,9 @@ A function-level `"use server"` directive extracts the function to the server bu
 
 ```ts
 export async function addTodo(title: string) {
-  "use server";
-  await db.insert(title);
-  return reload({ revalidate: "todos" });
+  "use server"
+  await db.insert(title)
+  return reload({ revalidate: "todos" })
 }
 ```
 
@@ -49,12 +49,12 @@ The package resolves to a client entry in the browser and a server entry elsewhe
 **Server:** `configureServerFunctionsServer({ endpoint?, codec?, provideEvent?, wrapInvocation?, collectFlightData?, transformResult?, transformDirectResult? })` plus the web-standard HTTP handler:
 
 ```ts
-import { handleServerFunctionRequest } from "@solidjs/web/server-functions";
-import "virtual:solid-server-function-manifest";
+import { handleServerFunctionRequest } from "@solidjs/web/server-functions"
+import "virtual:solid-server-function-manifest"
 
 // in the server's request handling:
 if (url.pathname.startsWith("/_server")) {
-  return handleServerFunctionRequest(request);
+  return handleServerFunctionRequest(request)
 }
 ```
 
@@ -78,16 +78,16 @@ Inside a function body, `getRequestEvent()` (from `@solidjs/web`) reads the curr
 Exported from `@solidjs/web`, usable from server functions and client-side actions alike — same object, same meaning, both sides:
 
 ```ts
-import { redirect, reload, respond } from "@solidjs/web";
+import { redirect, reload, respond } from "@solidjs/web"
 
 // redirect the caller (integration follows it; 302 default)
-return redirect("/dashboard", { revalidate: "session" });
+return redirect("/dashboard", { revalidate: "session" })
 
 // no value, just "refetch your data" (all keys when omitted)
-return reload({ revalidate: "todos" });
+return reload({ revalidate: "todos" })
 
 // a value plus HTTP metadata a naked return can't express
-return respond(item, { status: 201, revalidate: "items" });
+return respond(item, { status: 201, revalidate: "items" })
 ```
 
 `respond()` produces a `ResponseEnvelope` — HTTP metadata paired with an in-memory value. The handler forwards the envelope’s headers and status and encodes the value as the body, while scripted callers receive the value transparently. Crucially, the carried response holds a **real JSON body**, so progressive-enhancement consumers (no-JS form posts, direct HTTP) get real JSON while scripted calls get the in-memory value — no reparse. Thrown envelopes ride the same path with an error tag (`X-Server-Function-Error`) and their status forwarded. Check with `isResponseEnvelope()` (a registered-symbol brand, correct across duplicated bundles — always prefer it over `instanceof`).
@@ -147,30 +147,35 @@ Per-function _server_ concerns have no slot here because they are not transport:
 `GET` is core’s per-function method declaration (formerly a two-line Start export over the client proxy’s `.GET` getter):
 
 ```ts
-import { GET } from "@solidjs/web/server-functions";
+import { GET } from "@solidjs/web/server-functions"
 
 export const getUser = GET(async (id: string) => {
-  "use server";
-  return db.users.find(id);
-});
+  "use server"
+  return db.users.find(id)
+})
 ```
 
 Calls go over HTTP GET with arguments codec-encoded in the query string of the call’s data address — cacheable by HTTP infrastructure (the varying instance header doesn’t break caching; caches key on URL unless `Vary` says otherwise, and the data address serves the codec shape to every caller, so what a cache stores there is right for anyone who reads it). Arguments too long for a url dispatch over POST instead, which costs the cache entry rather than meeting whichever proxy in the chain draws the line at a 414. Cache headers flow through the handler’s existing header forwarding: `respond(data, { headers: { "cache-control": "max-age=60" } })`. Server-side, the wrapper is identity-flavored — SSR calls stay in-process. Because function-level directives round-trip wrapper calls (above), this needs **no compiler involvement**.
 
-Conditional reads belong here too, and to the **browser**: set `ETag`/`Cache-Control` on a GET-declared read and the browser owns the conditional exchange — it sends `If-None-Match`, receives the 304, and replays its cached 200 without the caller ever seeing a 304. Answering a *scripted* call with a hand-rolled `respond(undefined, { status: 304 })` answers a question the transport never asked — it sends no conditional headers — so the bodiless answer resolves the call to `undefined`, which reads as data loss. The dev build warns when a scripted call is answered with a 304 (#3101).
+Conditional reads belong here too, and to the **browser**: set `ETag`/`Cache-Control` on a GET-declared read and the browser owns the conditional exchange — it sends `If-None-Match`, receives the 304, and replays its cached 200 without the caller ever seeing a 304. Answering a _scripted_ call with a hand-rolled `respond(undefined, { status: 304 })` answers a question the transport never asked — it sends no conditional headers — so the bodiless answer resolves the call to `undefined`, which reads as data loss. The dev build warns when a scripted call is answered with a 304 (#3101).
 
 Under the sugar sits a symbol-branded metadata channel (`Symbol.for`, surviving duplicated module instances — the same trick as the `ResponseEnvelope` brand), populated on both proxies and read through typed accessors. `withMeta(fn, meta)` is its public write path — it exists because `prepareRequest`’s `meta` parameter was otherwise unreachable for user declarations — and `GET` is sugar over the same write:
 
 ```ts
 export interface ServerFunctionMetadata {
   /** The declared HTTP method. Undeclared references call over POST. */
-  readonly method?: "GET" | "POST";
+  readonly method?: "GET" | "POST"
   /** User-declared transport metadata attached with `withMeta`. */
-  readonly [key: string]: unknown;
+  readonly [key: string]: unknown
 }
-export function getServerFunctionMetadata(fn: unknown): ServerFunctionMetadata | undefined;
-export function isServerFunction(fn: unknown): fn is ServerFunction;
-export function withMeta<F extends (...args: any[]) => any>(fn: F, meta: ServerFunctionMetadata): F;
+export function getServerFunctionMetadata(
+  fn: unknown,
+): ServerFunctionMetadata | undefined
+export function isServerFunction(fn: unknown): fn is ServerFunction
+export function withMeta<F extends (...args: any[]) => any>(
+  fn: F,
+  meta: ServerFunctionMetadata,
+): F
 ```
 
 `withMeta` attaches arbitrary user-declared transport metadata to a reference and returns it, shallow-merging later writes over earlier ones; it composes with `GET` in either order. The pattern is declare-on-function, react-in-hook: metadata declared here reaches `prepareRequest` as `context.meta`, so session-dynamic transport policy keys on declarations (e.g. `requiresAuth`) instead of comparing function ids.
@@ -181,15 +186,15 @@ export function withMeta<F extends (...args: any[]) => any>(fn: F, meta: ServerF
 
 The reference contract shrinks accordingly (no compatibility shims):
 
-| Surface                         | Status                                                                                   |
-| ------------------------------- | ---------------------------------------------------------------------------------------- |
-| callable                        | kept                                                                                     |
-| `id`                            | **added** (both proxies; the client already leaked it via `.url`)                        |
-| `url`                           | kept                                                                                     |
-| `getServerFunctionMetadata(fn)` | **added**                                                                                |
-| `.GET` proxy getter             | **removed** (the `GET(fn)` export replaces it; internal transport path remains)          |
+| Surface                         | Status                                                                                                                                 |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| callable                        | kept                                                                                                                                   |
+| `id`                            | **added** (both proxies; the client already leaked it via `.url`)                                                                      |
+| `url`                           | kept                                                                                                                                   |
+| `getServerFunctionMetadata(fn)` | **added**                                                                                                                              |
+| `.GET` proxy getter             | **removed** (the `GET(fn)` export replaces it; internal transport path remains)                                                        |
 | `.withOptions(init)`            | **removed** — session-dynamic uses go through `prepareRequest`; call-scoped uses through `invoke` (bounded options, not `RequestInit`) |
-| Start’s `GET` export            | **deleted**; `GET` imports from core                                                     |
+| Start’s `GET` export            | **deleted**; `GET` imports from core                                                                                                   |
 
 #### `prepareRequest`: client-side transport middleware
 
@@ -198,9 +203,12 @@ The motivating case is OAuth bearer tokens: dynamic credentials that rotate duri
 ```ts
 configureServerFunctionsClient({
   prepareRequest(init, { id, meta }) {
-    return { ...init, headers: { ...init.headers, Authorization: `Bearer ${session.token()}` } };
-  }
-});
+    return {
+      ...init,
+      headers: { ...init.headers, Authorization: `Bearer ${session.token()}` },
+    }
+  },
+})
 ```
 
 **Single hook, not a chain** — composition is userland (wrap functions if you need layers). Note the symmetry this completes: server-side global policy is the existing handler hooks (`createEvent` / `transformResult` / `handleNoJS`); client-side global policy is `prepareRequest`.
@@ -210,9 +218,9 @@ configureServerFunctionsClient({
 The call-scoped slot was empty in the first draft — its two candidate consumers had found better homes, and the standing rule was "revisit only with a concrete use case in hand." The use case arrived ([#3057](https://github.com/solidjs/solid/issues/3057)): a data layer supersedes a query — navigation, a newer search keystroke — and needs the in-flight HTTP request cancelled, which no declaration or session hook can express because it is a fact about _one call_. `invoke` fills the slot:
 
 ```ts
-import { invoke } from "@solidjs/web/server-functions";
+import { invoke } from "@solidjs/web/server-functions"
 
-const user = await invoke(getUser, { signal: controller.signal }, id);
+const user = await invoke(getUser, { signal: controller.signal }, id)
 ```
 
 The mental model: **declaration wrappers are `bind`, `invoke` is `call`.** `GET(fn)`/`withMeta(fn, meta)` return a new reference with context baked in that travels wherever the reference is passed; `invoke` applies one call with ephemeral context and leaves no residue on the reference — which is why the options bag sits positionally in the `thisArg` slot (`Function.prototype.call`'s silhouette) with the call's own arguments spreading naturally after it. The shape is deliberate the other way too: a curried form (`invoke(fn, options)` returning a callable) was rejected because it _is_ a bind — visually indistinguishable from the declaration wrappers, inviting held references and quietly reviving `withOptions`. Options are always required; with nothing to pass, call the function.
@@ -227,12 +235,12 @@ The three are not peers: `signal` is **contract** — every transport a referenc
 
 **Refusals are redirects.** Everything with a longer lifetime is rejected _with a pointer to its home_ — each backed by an invariant, not taste, and `invoke` throws the redirect at runtime rather than silently dropping:
 
-| Refused                       | Invariant it would break                                                     | Home                                                        |
-| ----------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Refused                       | Invariant it would break                                                    | Home                                                              |
+| ----------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `headers` / raw `RequestInit` | cache-key integrity — response-changing input must be keyed in the URL/args | `prepareRequest` (session), `withMeta` (declaration), args (data) |
-| `method`                      | CSRF posture — methods are server-gated by declaration                       | `GET(fn)`                                                   |
-| retries / deadlines / dedupe  | residue-free application — policy is state _across_ calls                    | the data layer, wired through `signal`                      |
-| response envelope access      | isomorphism — in-process calls have no `Response` to mirror                  | return metadata as part of the value                        |
+| `method`                      | CSRF posture — methods are server-gated by declaration                      | `GET(fn)`                                                         |
+| retries / deadlines / dedupe  | residue-free application — policy is state _across_ calls                   | the data layer, wired through `signal`                            |
+| response envelope access      | isomorphism — in-process calls have no `Response` to mirror                 | return metadata as part of the value                              |
 
 The test cuts both ways: an option with no invariant against it gets admitted. That is what keeps the surface principled rather than arbitrary.
 
@@ -252,12 +260,12 @@ The intended shape, in brief: a non-throwing `validate(schema, value)` helper ov
 
 ### Layering
 
-| Layer                                 | Owns                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Layer                                 | Owns                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Core**                              | The directive contract, transport, handler + hooks, `respond`/`redirect`/`reload`, codec configuration, streaming; the shipped extension surface: `GET` + `withMeta` over the metadata channel, `getServerFunctionMetadata`/`isServerFunction`, `prepareRequest`, `invoke` over the invocation channel, `id` on proxies, method 405 enforcement, automatic single-flight header via `subscribeFlightData`. Mechanisms only |
-| **Router**                            | Metadata detection in `query()`, single-flight via `subscribeFlightData` registration, errors landing in submission state (already true), the flash-cookie convention and SSR submission seeding via `handleNoJS`                                                                                                                                                                    |
-| **Form layer (router/Start, future)** | Field-error UX conventions: typed field accessors, `aria-invalid` wiring, no-JS flash-cookie repopulation, FormData coercion                                                                                                                                                                                                                                                         |
-| **Userland**                          | Per-function server concerns as body code (validation, auth guards, logging, rate limiting); `prepareRequest` composition                                                                                                                                                                                                                                                            |
+| **Router**                            | Metadata detection in `query()`, single-flight via `subscribeFlightData` registration, errors landing in submission state (already true), the flash-cookie convention and SSR submission seeding via `handleNoJS`                                                                                                                                                                                                          |
+| **Form layer (router/Start, future)** | Field-error UX conventions: typed field accessors, `aria-invalid` wiring, no-JS flash-cookie repopulation, FormData coercion                                                                                                                                                                                                                                                                                               |
+| **Userland**                          | Per-function server concerns as body code (validation, auth guards, logging, rate limiting); `prepareRequest` composition                                                                                                                                                                                                                                                                                                  |
 
 Unprivileged patterns that need neither core nor router access — the validation helper above being the canonical example — ship as standalone packages.
 

@@ -37,10 +37,10 @@ solid-js              // component model and renderer-neutral renderable values
 Core component and child APIs use `Element` from `solid-js`. It represents values Solid can carry through component trees without naming DOM node types.
 
 ```ts
-import type { Element, Component, ParentComponent } from "solid-js";
+import type { Element, Component, ParentComponent } from "solid-js"
 
-const App: Component = () => "hello";
-const Layout: ParentComponent = props => props.children;
+const App: Component = () => "hello"
+const Layout: ParentComponent = (props) => props.children
 ```
 
 Use this type for renderer-neutral component APIs. Do not import `JSX` from `solid-js`; it is no longer exported.
@@ -50,10 +50,10 @@ Use this type for renderer-neutral component APIs. Do not import `JSX` from `sol
 For DOM JSX, import renderer-specific helper types from `@solidjs/web`:
 
 ```ts
-import type { ComponentProps, JSX } from "@solidjs/web";
+import type { ComponentProps, JSX } from "@solidjs/web"
 
-type ButtonProps = ComponentProps<"button">;
-type ClickHandler = JSX.EventHandler<HTMLButtonElement, MouseEvent>;
+type ButtonProps = ComponentProps<"button">
+type ClickHandler = JSX.EventHandler<HTMLButtonElement, MouseEvent>
 ```
 
 `@solidjs/web/jsx-runtime` and `@solidjs/web/jsx-dev-runtime` provide the TypeScript JSX namespace for web projects. `solid-js/jsx-runtime` and `solid-js/jsx-dev-runtime` are removed.

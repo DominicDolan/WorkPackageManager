@@ -1,53 +1,235 @@
-:global(.note-list) { overflow: auto; }
-:global(.note-list-item) { display: block; width: 100%; border: 0; border-bottom: 1px solid var(--line); background: transparent; padding: .9rem 1rem; color: var(--graphite); text-align: left; }
-:global(.note-list-item):hover, :global(.note-list-active) { background: #202b3a; box-shadow: inset 3px 0 var(--signal); }
-:global(.note-list-item) > span, :global(.note-list-item) small { display: block; color: var(--cobalt); font-size: .66rem; }
-:global(.note-list-item) strong { display: block; margin-top: .25rem; font-size: .86rem; font-weight: 600; }
-:global(.note-list-item) p { display: -webkit-box; margin: .35rem 0; overflow: hidden; color: var(--steel); font-size: .75rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-:global(.note-list-item) small { color: var(--color-slate-400); }
-:global(.notes-status) { margin-top: auto; padding: 1rem; border-top: 1px solid var(--line); color: var(--steel); font-size: .7rem; line-height: 1.5; }
-:global(.notes-status) p { margin: 0 0 .5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:global(.note-list) {
+  overflow: auto;
+}
+:global(.note-list-item) {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  padding: 0.9rem 1rem;
+  color: var(--graphite);
+  text-align: left;
+}
+:global(.note-list-item):hover,
+:global(.note-list-active) {
+  background: #202b3a;
+  box-shadow: inset 3px 0 var(--signal);
+}
+:global(.note-list-item) > span,
+:global(.note-list-item) small {
+  display: block;
+  color: var(--cobalt);
+  font-size: 0.66rem;
+}
+:global(.note-list-item) strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+:global(.note-list-item) p {
+  display: -webkit-box;
+  margin: 0.35rem 0;
+  overflow: hidden;
+  color: var(--steel);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+:global(.note-list-item) small {
+  color: var(--color-slate-400);
+}
+:global(.notes-status) {
+  margin-top: auto;
+  padding: 1rem;
+  border-top: 1px solid var(--line);
+  color: var(--steel);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+:global(.notes-status) p {
+  margin: 0 0 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-:global(.editor-fields) { display: grid; gap: 1.1rem; margin-top: 1.5rem; }
-:global(.note-body) { min-height: 26rem !important; font-family: var(--font-mono); font-size: .8rem; line-height: 1.6; }
-:global(.note-modes) { display: flex; }
-:global(.note-modes) button { min-height: 2.5rem; border: 1px solid var(--line-strong); border-right: 0; background: var(--paper); padding: .5rem .8rem; color: var(--steel); font-size: .78rem; font-weight: 600; }
-:global(.note-modes) button:first-child { border-radius: .35rem 0 0 .35rem; }
-:global(.note-modes) button:last-child { border-right: 1px solid var(--line-strong); border-radius: 0 .35rem .35rem 0; }
-:global(.note-modes) button:global(.active) { border-color: var(--cobalt); background: var(--cobalt); color: #fff; }
-:global(.note-rendered) { min-height: 26rem; margin-top: 1.5rem; border: 1px solid var(--line); background: var(--paper); padding: clamp(1.25rem, 3vw, 2.25rem); }
-:global(.markdown) { color: var(--color-slate-700); font-size: .9rem; line-height: 1.7; }
-:global(.markdown) > :first-child { margin-top: 0; }
-:global(.markdown) h1, :global(.markdown) h2, :global(.markdown) h3, :global(.markdown) h4 { margin: 1.5em 0 .55em; color: var(--graphite); line-height: 1.25; }
-:global(.markdown) h1 { font-size: 1.75rem; }
-:global(.markdown) h2 { font-size: 1.35rem; }
-:global(.markdown) h3 { font-size: 1.08rem; }
-:global(.markdown) h4 { font-size: .95rem; color: var(--steel); }
-:global(.markdown) p { margin: 0 0 1em; }
-:global(.markdown) a { color: var(--cobalt-dark); }
-:global(.markdown) code { border-radius: .25rem; background: var(--workbench); padding: .1rem .32rem; color: var(--signal); font-family: var(--font-mono); font-size: .82em; }
-:global(.markdown) pre { overflow-x: auto; border: 1px solid var(--line); background: var(--workbench); padding: 1rem; }
-:global(.markdown) pre code { background: none; padding: 0; color: var(--color-slate-700); }
-:global(.markdown) blockquote { margin: 0 0 1em; border-left: 3px solid var(--cobalt); padding-left: 1rem; color: var(--steel); }
-:global(.markdown) ul, :global(.markdown) ol { margin: 0 0 1em; padding-left: 1.5rem; }
-:global(.markdown) li:global(.md-task) { margin-left: -1.25rem; list-style: none; }
-:global(.markdown) li:global(.md-task) input { width: auto; margin-right: .5rem; }
-:global(.markdown) img { display: block; max-width: 100%; height: auto; margin: 1rem 0; border: 1px solid var(--line); }
-:global(.markdown) hr { margin: 1.5em 0; border: 0; border-top: 1px solid var(--line); }
-:global(.markdown) :global(.md-tag) { color: var(--cobalt-dark); }
-:global(.markdown) :global(.md-table-wrap) { overflow-x: auto; margin-bottom: 1em; }
-:global(.markdown) table { min-width: 100%; border-collapse: collapse; }
-:global(.markdown) th, :global(.markdown) td { border: 1px solid var(--line); padding: .45rem .7rem; text-align: left; }
-:global(.markdown) th { background: var(--workbench); color: var(--graphite); }
+:global(.editor-fields) {
+  display: grid;
+  gap: 1.1rem;
+  margin-top: 1.5rem;
+}
+:global(.note-body) {
+  min-height: 26rem !important;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+:global(.note-modes) {
+  display: flex;
+}
+:global(.note-modes) button {
+  min-height: 2.5rem;
+  border: 1px solid var(--line-strong);
+  border-right: 0;
+  background: var(--paper);
+  padding: 0.5rem 0.8rem;
+  color: var(--steel);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+:global(.note-modes) button:first-child {
+  border-radius: 0.35rem 0 0 0.35rem;
+}
+:global(.note-modes) button:last-child {
+  border-right: 1px solid var(--line-strong);
+  border-radius: 0 0.35rem 0.35rem 0;
+}
+:global(.note-modes) button:global(.active) {
+  border-color: var(--cobalt);
+  background: var(--cobalt);
+  color: #fff;
+}
+:global(.note-rendered) {
+  min-height: 26rem;
+  margin-top: 1.5rem;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  padding: clamp(1.25rem, 3vw, 2.25rem);
+}
+:global(.markdown) {
+  color: var(--color-slate-700);
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+:global(.markdown) > :first-child {
+  margin-top: 0;
+}
+:global(.markdown) h1,
+:global(.markdown) h2,
+:global(.markdown) h3,
+:global(.markdown) h4 {
+  margin: 1.5em 0 0.55em;
+  color: var(--graphite);
+  line-height: 1.25;
+}
+:global(.markdown) h1 {
+  font-size: 1.75rem;
+}
+:global(.markdown) h2 {
+  font-size: 1.35rem;
+}
+:global(.markdown) h3 {
+  font-size: 1.08rem;
+}
+:global(.markdown) h4 {
+  font-size: 0.95rem;
+  color: var(--steel);
+}
+:global(.markdown) p {
+  margin: 0 0 1em;
+}
+:global(.markdown) a {
+  color: var(--cobalt-dark);
+}
+:global(.markdown) code {
+  border-radius: 0.25rem;
+  background: var(--workbench);
+  padding: 0.1rem 0.32rem;
+  color: var(--signal);
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+}
+:global(.markdown) pre {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  background: var(--workbench);
+  padding: 1rem;
+}
+:global(.markdown) pre code {
+  background: none;
+  padding: 0;
+  color: var(--color-slate-700);
+}
+:global(.markdown) blockquote {
+  margin: 0 0 1em;
+  border-left: 3px solid var(--cobalt);
+  padding-left: 1rem;
+  color: var(--steel);
+}
+:global(.markdown) ul,
+:global(.markdown) ol {
+  margin: 0 0 1em;
+  padding-left: 1.5rem;
+}
+:global(.markdown) li:global(.md-task) {
+  margin-left: -1.25rem;
+  list-style: none;
+}
+:global(.markdown) li:global(.md-task) input {
+  width: auto;
+  margin-right: 0.5rem;
+}
+:global(.markdown) img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1rem 0;
+  border: 1px solid var(--line);
+}
+:global(.markdown) hr {
+  margin: 1.5em 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+:global(.markdown) :global(.md-tag) {
+  color: var(--cobalt-dark);
+}
+:global(.markdown) :global(.md-table-wrap) {
+  overflow-x: auto;
+  margin-bottom: 1em;
+}
+:global(.markdown) table {
+  min-width: 100%;
+  border-collapse: collapse;
+}
+:global(.markdown) th,
+:global(.markdown) td {
+  border: 1px solid var(--line);
+  padding: 0.45rem 0.7rem;
+  text-align: left;
+}
+:global(.markdown) th {
+  background: var(--workbench);
+  color: var(--graphite);
+}
 
 @media (max-width: 820px) {
-  :global(.note-list) { display: flex; overflow-x: auto; }
-    :global(.note-list-item) { min-width: 13rem; border-right: 1px solid var(--line); border-bottom: 0; }
-    :global(.notes-status) { display: none; }
+  :global(.note-list) {
+    display: flex;
+    overflow-x: auto;
+  }
+  :global(.note-list-item) {
+    min-width: 13rem;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+  }
+  :global(.notes-status) {
+    display: none;
+  }
 }
 
 @media (max-width: 560px) {
-  :global(.note-editor) header, :global(.issue-detail-pane) header { display: block; }
-    :global(.note-editor) header :global(.flex), :global(.issue-detail-pane) header :global(.button-primary) { margin-top: 1rem; }
+  :global(.note-editor) header,
+  :global(.issue-detail-pane) header {
+    display: block;
+  }
+  :global(.note-editor) header :global(.flex),
+  :global(.issue-detail-pane) header :global(.button-primary) {
+    margin-top: 1rem;
+  }
 }
-.scope {}
+.scope {
+}

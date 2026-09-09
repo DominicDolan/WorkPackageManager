@@ -1,4 +1,4 @@
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from "vue"
 
 /**
  * Tiny history-backed location state for this single-page app. It deliberately
@@ -6,21 +6,21 @@ import { onBeforeUnmount, onMounted, ref } from 'vue';
  * matching pane without requiring a router dependency.
  */
 export function useLocation() {
-  const location = ref(window.location.pathname);
+  const location = ref(window.location.pathname)
 
   const syncFromBrowser = () => {
-    location.value = window.location.pathname;
-  };
+    location.value = window.location.pathname
+  }
 
   const navigate = (path: string): void => {
-    const target = path.startsWith('/') ? path : `/${path}`;
-    if (target === location.value) return;
-    window.history.pushState({}, '', target);
-    location.value = target;
-  };
+    const target = path.startsWith("/") ? path : `/${path}`
+    if (target === location.value) return
+    window.history.pushState({}, "", target)
+    location.value = target
+  }
 
-  onMounted(() => window.addEventListener('popstate', syncFromBrowser));
-  onBeforeUnmount(() => window.removeEventListener('popstate', syncFromBrowser));
+  onMounted(() => window.addEventListener("popstate", syncFromBrowser))
+  onBeforeUnmount(() => window.removeEventListener("popstate", syncFromBrowser))
 
-  return { location, navigate };
+  return { location, navigate }
 }
