@@ -6,6 +6,8 @@ export interface WorkspaceSnapshot {
   tasks: Task[];
   investigations: Investigation[];
   branches: CombinedBranchDetail[];
+  currentBranch: string | null;
+  localBranches: string[];
   aioVrReady: boolean;
   tools: Meta['tools'];
 }

@@ -15,6 +15,8 @@ export async function loadWorkspace(): Promise<WorkspaceSnapshot> {
     tasks,
     investigations,
     branches: branchResult.branches,
+    currentBranch: branchResult.currentBranch,
+    localBranches: branchResult.localBranches,
     aioVrReady: meta.aioVrInstalled && meta.aioVrWorkspaceExists,
     tools: meta.tools,
   };

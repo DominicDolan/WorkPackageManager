@@ -62,6 +62,15 @@ export function branchExists(branch: string): boolean {
   return git(['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]).code === 0;
 }
 
+/** Every local branch name, for branch pickers in the web clients. */
+export function listLocalBranches(): string[] {
+  const result = git(['for-each-ref', '--format=%(refname:short)', '--sort=refname', 'refs/heads']);
+  if (result.code !== 0) {
+    throw new Error(result.stderr.trim() || 'Could not list local Git branches.');
+  }
+  return result.stdout.split('\n').map((name) => name.trim()).filter(Boolean);
+}
+
 /** Any resolvable ref, not just a local branch — so a base that exists only as
  *  `origin/master` (a fresh clone, before the combine's fetch) still works. */
 export function refExists(ref: string): boolean {

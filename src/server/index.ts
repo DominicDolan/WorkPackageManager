@@ -82,8 +82,10 @@ import {
   branchExists,
   builtOnTopOf,
   createPullRequest,
+  currentBranch,
   defaultBaseBranch,
   generatePrDescription,
+  listLocalBranches,
   readBranch,
   refreshBaseBranch,
   toolAvailability,
@@ -428,6 +430,8 @@ async function handleBranches(request: Request, rest: string[]): Promise<Respons
     if (request.method !== 'GET') return fail('Method not allowed.', 405);
     return json({
       branches: listCombinedBranches().map((branch) => branchDetail(branch.branchName)),
+      currentBranch: currentBranch(),
+      localBranches: listLocalBranches(),
       defaultBase: defaultBaseBranch(),
     });
   }

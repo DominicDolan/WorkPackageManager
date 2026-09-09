@@ -37,6 +37,8 @@
     "build:new": "vite build --config vite.new.config.ts",
     "build:all": "bun run build && bun run build:new",
     "typecheck": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.solid.json",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "prepack": "bun run build:all"
   },
   "dependencies": {
@@ -49,6 +51,7 @@
     "@tailwindcss/vite": "^4.1.14",
     "@types/bun": "^1.3.0",
     "@vitejs/plugin-vue": "^6.0.1",
+    "prettier": "^3.9.6",
     "tailwindcss": "^4.1.14",
     "typescript": "^5.9.2",
     "vite": "^8.2.1",

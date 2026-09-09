@@ -47,7 +47,7 @@ export function App() {
             {group => <Show when={taskRef()} fallback={<GroupWorkspace groupRef={group()} snapshot={snapshot()} back={home} openTask={openTask} changed={reload} />}>{task => <TaskWorkspace groupRef={group()} taskRef={task()} snapshot={snapshot()} back={backToGroup} openTask={openTask} changed={reload} />}</Show>}
           </Show>
         </Show>
-        <Show when={creating()}><CreateGroup close={() => setCreating(false)} created={ref => { setCreating(false); reload(); openGroup(ref); }} /></Show>
+        <Show when={creating()}><CreateGroup snapshot={snapshot()} close={() => setCreating(false)} created={ref => { setCreating(false); reload(); openGroup(ref); }} /></Show>
       </Loading>
     </Errored>
   );

@@ -333,7 +333,7 @@ export const api = {
   /* ------------------------------------------------------------ branches */
 
   listBranches: () =>
-    request<{ branches: CombinedBranchDetail[]; defaultBase: string }>('/branches'),
+    request<{ branches: CombinedBranchDetail[]; currentBranch: string | null; localBranches: string[]; defaultBase: string }>('/branches'),
 
   getBranch: (name: string) =>
     request<{ branch: CombinedBranchDetail }>(`/branches/${branchPath(name)}`).then((r) => r.branch),
