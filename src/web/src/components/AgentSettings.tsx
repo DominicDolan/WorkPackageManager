@@ -1,4 +1,3 @@
-import { For, Show, createEffect, createSignal, onSettled } from "solid-js"
 import {
     AGENT_PERMISSION_MODE_LABELS,
     type AgentEnvironment,
@@ -7,8 +6,9 @@ import {
     type AgentRunMode,
     type ModelTier,
 } from "@shared/types"
+import { For, Show, createEffect, createSignal } from "solid-js"
 import { api } from "../api"
-import styles from "./AgentSettings.module.css"
+import { ModelPicker } from "./ModelPicker"
 
 export function AgentSettings(props: {
     environment: AgentEnvironment
@@ -67,8 +67,8 @@ export function AgentSettings(props: {
         },
     )
     return (
-        <div class={`${styles.scope} mt-5 grid gap-4 sm:grid-cols-2`}>
-            <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
+        <div class="mt-5 grid gap-4 sm:grid-cols-2">
+            <label class="field">
                 <span>Agent</span>
                 <select
                     value={props.harness}
@@ -95,7 +95,7 @@ export function AgentSettings(props: {
                 }
             />
             <Show when={!props.unattended}>
-                <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
+                <label class="field">
                     <span>Run mode</span>
                     <select
                         value={props.mode}
@@ -115,7 +115,7 @@ export function AgentSettings(props: {
                     </select>
                 </label>
             </Show>
-            <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
+            <label class="field">
                 <span>Permissions</span>
                 <select
                     value={
@@ -137,110 +137,5 @@ export function AgentSettings(props: {
                 </select>
             </label>
         </div>
-    )
-}
-
-function ModelPicker(props: {
-    models: AgentModel[]
-    value: string
-    setValue: (value: string) => void
-    defaultLabel: string
-}) {
-    // The empty id means "use this harness's default". Do not borrow the label
-    // from the last model response: while a new harness's models load, that can
-    // briefly (and misleadingly) describe the previously selected harness.
-    const selected = () =>
-        props.value
-            ? props.models.find((item) => item.id === props.value)
-            : undefined
-    const [query, setQuery] = createSignal("")
-    const [open, setOpen] = createSignal(false)
-    let picker: HTMLLabelElement | undefined
-    const filtered = () => {
-        const needle = query().trim().toLowerCase()
-        const choices = props.models.filter((item) => item.id)
-        return (
-            needle
-                ? choices.filter((item) =>
-                      `${item.label} ${item.id} ${item.group ?? ""}`
-                          .toLowerCase()
-                          .includes(needle),
-                  )
-                : choices
-        ).slice(0, 80)
-    }
-    const choose = (entry?: AgentModel) => {
-        props.setValue(entry?.id ?? "")
-        setQuery(entry?.label ?? "")
-        setOpen(false)
-    }
-    onSettled(() => {
-        const dismiss = (event: PointerEvent) => {
-            if (picker && !picker.contains(event.target as Node)) setOpen(false)
-        }
-        document.addEventListener("pointerdown", dismiss)
-        return () => document.removeEventListener("pointerdown", dismiss)
-    })
-    return (
-        <label
-            ref={picker}
-            class="field relative grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]"
-        >
-            <span>Model</span>
-            <input
-                role="combobox"
-                aria-expanded={open() ? "true" : "false"}
-                value={
-                    open() ? query() : (selected()?.label ?? props.defaultLabel)
-                }
-                placeholder={
-                    props.models.length ? "Search models…" : "Harness default"
-                }
-                onFocus={() => {
-                    setQuery(selected()?.label ?? "")
-                    setOpen(true)
-                }}
-                onInput={(event) => {
-                    setQuery(event.currentTarget.value)
-                    setOpen(true)
-                    if (!event.currentTarget.value) props.setValue("")
-                }}
-                onKeyDown={(event) => {
-                    if (event.key === "Escape") setOpen(false)
-                }}
-            />
-            <Show when={open()}>
-                <div class="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white p-1 shadow-2xl">
-                    <button
-                        type="button"
-                        class="model-option flex w-full items-center justify-between gap-[1rem] p-[0.6rem_0.75rem] [&_small]:flex-none"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => choose()}
-                    >
-                        <span>{props.defaultLabel}</span>
-                    </button>
-                    <For
-                        each={filtered()}
-                        fallback={
-                            <p class="px-3 py-5 text-center text-xs text-slate-500">
-                                No matching models.
-                            </p>
-                        }
-                    >
-                        {(entry) => (
-                            <button
-                                type="button"
-                                class="model-option flex w-full items-center justify-between gap-[1rem] p-[0.6rem_0.75rem] [&_small]:flex-none"
-                                onMouseDown={(event) => event.preventDefault()}
-                                onClick={() => choose(entry)}
-                            >
-                                <span class="truncate">{entry.label}</span>
-                                <small>{entry.group ?? entry.id}</small>
-                            </button>
-                        )}
-                    </For>
-                </div>
-            </Show>
-        </label>
     )
 }

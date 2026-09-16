@@ -1,16 +1,20 @@
-:global(.brand) {
-    color: white;
-}
-:global(.brand-mark) {
-    fill: var(--cobalt);
-}
-:global(.brand-signal) {
-    fill: var(--signal);
-}
-:global(.brand-name) {
-    font-size: 1.05rem;
-    font-weight: 650;
-    letter-spacing: -0.035em;
-}
-.scope {
+@layer theme, base, components, utilities;
+
+@layer components {
+    @scope (.scope) {
+        :scope {
+            color: white;
+        }
+        :global(.brand-mark) {
+            fill: var(--cobalt);
+        }
+        :global(.brand-signal) {
+            fill: var(--signal);
+        }
+        :global(.brand-name) {
+            font-size: 1.05rem;
+            font-weight: 650;
+            letter-spacing: -0.035em;
+        }
+    }
 }

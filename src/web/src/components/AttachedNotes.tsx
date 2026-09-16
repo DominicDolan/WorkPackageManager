@@ -52,15 +52,13 @@ export function AttachedNotes(props: {
             <Show
                 when={props.notes.length}
                 fallback={
-                    <p class="text-sm text-slate-500">
-                        No reference notes attached.
-                    </p>
+                    <p class="description">No reference notes attached.</p>
                 }
             >
                 <ul class="space-y-2">
                     <For each={props.notes}>
                         {(note) => (
-                            <li class="flex items-start gap-3 rounded-lg bg-slate-50 p-3">
+                            <li class="flex items-start gap-3 tonal p-3">
                                 <button
                                     class="min-w-0 flex-1 text-left"
                                     onClick={() => props.open(note.path)}
@@ -68,17 +66,17 @@ export function AttachedNotes(props: {
                                     <strong class="block truncate text-sm text-slate-800">
                                         {note.title}
                                     </strong>
-                                    <span class="mt-1 block truncate text-xs text-slate-400">
+                                    <span class="mt-1 block truncate caption muted">
                                         {note.path}
                                     </span>
                                     <Show when={note.excerpt}>
-                                        <p class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                                        <p class="mt-1 line-clamp-2 caption muted">
                                             {note.excerpt}
                                         </p>
                                     </Show>
                                 </button>
                                 <button
-                                    class="button px-2 py-1 text-xs inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                                    class="outlined px-2 py-1 text-xs"
                                     disabled={!!busy()}
                                     aria-label={`Detach ${note.title}`}
                                     title="Detach note"
@@ -94,7 +92,7 @@ export function AttachedNotes(props: {
             <Show
                 when={listing().workspace.exists}
                 fallback={
-                    <p class="mt-3 text-xs text-slate-500">
+                    <p class="mt-3 caption muted">
                         Create the notes workspace before attaching reference
                         material.
                     </p>
@@ -102,7 +100,7 @@ export function AttachedNotes(props: {
             >
                 <div class="mt-3 flex gap-2">
                     <select
-                        class="input min-w-0 flex-1 w-full p-[0.68rem_0.75rem]"
+                        class="min-w-0 flex-1 w-full p-[0.68rem_0.75rem]"
                         value={selected()}
                         disabled={!available().length || !!busy()}
                         onChange={(event) =>
@@ -121,7 +119,7 @@ export function AttachedNotes(props: {
                         </For>
                     </select>
                     <button
-                        class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                        class="outlined"
                         disabled={!selected() || !!busy()}
                         onClick={attach}
                     >
@@ -132,7 +130,7 @@ export function AttachedNotes(props: {
                 </div>
             </Show>
             <Show when={error()}>
-                <p class="banner mt-3 p-[0.8rem_1rem]">{error()}</p>
+                <p class="notice error mt-3">{error()}</p>
             </Show>
         </div>
     )

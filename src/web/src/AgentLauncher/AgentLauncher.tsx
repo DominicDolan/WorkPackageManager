@@ -166,9 +166,7 @@ export function AgentLauncher(props: {
 
             <Loading
                 fallback={
-                    <p class="mt-5 text-sm text-slate-500">
-                        Checking installed agents…
-                    </p>
+                    <p class="mt-5 description">Checking installed agents…</p>
                 }
             >
                 <AgentSettings
@@ -186,7 +184,7 @@ export function AgentLauncher(props: {
                 />
             </Loading>
 
-            <label class="field mt-4 grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
+            <label class="field mt-4">
                 <span>Extra instructions</span>
                 <textarea
                     value={extra()}
@@ -200,14 +198,14 @@ export function AgentLauncher(props: {
                         <h3 class="text-sm font-semibold text-slate-800">
                             Earlier runs
                         </h3>
-                        <p class="mt-1 text-xs text-slate-500">
+                        <p class="mt-1 caption muted">
                             Reopen an agent conversation that previously worked
                             on this task.
                         </p>
                         <ul class="mt-3 space-y-2">
                             <For each={history()}>
                                 {(entry) => (
-                                    <li class="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs">
+                                    <li class="flex flex-wrap items-center gap-2 tonal px-3 py-2 text-xs">
                                         <span class="font-medium capitalize text-slate-700">
                                             {entry.status}
                                         </span>
@@ -228,7 +226,7 @@ export function AgentLauncher(props: {
                                             ).toLocaleString()}
                                         </time>
                                         <button
-                                            class="button px-2 py-1 text-xs inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                                            class="outlined px-2 py-1 text-xs"
                                             disabled={
                                                 !entry.sessionId ||
                                                 resuming() !== null
@@ -252,14 +250,10 @@ export function AgentLauncher(props: {
                 </Show>
             </Loading>
             <Show when={error()}>
-                <p class="banner mt-4 p-[0.8rem_1rem]">{error()}</p>
+                <p class="notice error mt-4">{error()}</p>
             </Show>
             <div class="mt-5 flex justify-end">
-                <button
-                    class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
-                    disabled={busy()}
-                    onClick={run}
-                >
+                <button class="primary" disabled={busy()} onClick={run}>
                     {busy() ? "Starting…" : "Start run"}
                 </button>
             </div>
@@ -275,13 +269,12 @@ function RunChoice(props: {
 }) {
     return (
         <button
-            class={`rounded-xl border p-4 text-left transition ${props.selected ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100" : "border-slate-200 hover:border-slate-300"}`}
+            class="card-item p-4"
+            aria-pressed={props.selected ? "true" : "false"}
             onClick={props.onClick}
         >
             <strong class="block text-sm">{props.title}</strong>
-            <span class="mt-1 block text-xs leading-5 text-slate-500">
-                {props.detail}
-            </span>
+            <span class="mt-1 block caption muted">{props.detail}</span>
         </button>
     )
 }

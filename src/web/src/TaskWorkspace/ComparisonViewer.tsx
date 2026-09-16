@@ -40,27 +40,30 @@ export function ComparisonViewer(props: { comparison: VisualComparison }) {
         mode() === "diff" ? diff() : mode() === "before" ? before() : after()
 
     return (
-        <article class="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-            <header class="flex flex-wrap items-center gap-3 border-b border-slate-200 px-5 py-4">
+        <article class="overflow-hidden">
+            <header class="flex flex-wrap items-center gap-3 px-5 py-4">
                 <strong class="font-mono text-sm">
                     {props.comparison.scenario}
                 </strong>
-                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold capitalize text-slate-600">
+                <span class="badge px-2 py-0.5 capitalize">
                     {props.comparison.status}
                 </span>
                 <Show when={props.comparison.percentChanged !== null}>
-                    <span class="text-xs text-slate-400">
+                    <span class="caption muted">
                         {props.comparison.percentChanged!.toFixed(2)}% of pixels
                     </span>
                 </Show>
-                <div class="ml-auto flex flex-wrap gap-1">
+                <div
+                    role="group"
+                    aria-label="Comparison view"
+                    class="segmented inset ml-auto flex flex-wrap gap-1 p-1"
+                >
                     <For each={modes()}>
                         {(option) => (
                             <button
-                                class={
-                                    option.id === mode()
-                                        ? "button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
-                                        : "button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                                class="px-3 py-2"
+                                aria-pressed={
+                                    option.id === mode() ? "true" : "false"
                                 }
                                 disabled={!option.enabled}
                                 onClick={() => setMode(option.id)}
@@ -72,7 +75,7 @@ export function ComparisonViewer(props: { comparison: VisualComparison }) {
                 </div>
             </header>
             <Show when={props.comparison.description}>
-                <p class="px-5 pt-4 text-sm text-slate-500">
+                <p class="px-5 pt-4 description">
                     {props.comparison.description}
                 </p>
             </Show>
@@ -84,7 +87,7 @@ export function ComparisonViewer(props: { comparison: VisualComparison }) {
                                 Before
                             </figcaption>
                             <img
-                                class="w-full rounded-xl ring-1 ring-slate-200"
+                                class="framed w-full"
                                 src={before()!}
                                 alt={`${props.comparison.scenario} before`}
                             />
@@ -94,7 +97,7 @@ export function ComparisonViewer(props: { comparison: VisualComparison }) {
                                 After
                             </figcaption>
                             <img
-                                class="w-full rounded-xl ring-1 ring-slate-200"
+                                class="framed w-full"
                                 src={after()!}
                                 alt={`${props.comparison.scenario} after`}
                             />
@@ -103,7 +106,7 @@ export function ComparisonViewer(props: { comparison: VisualComparison }) {
                 </Show>
                 <Show when={mode() === "slider"}>
                     <div>
-                        <div class="relative overflow-hidden rounded-xl ring-1 ring-slate-200">
+                        <div class="framed relative overflow-hidden">
                             <img
                                 class="block w-full"
                                 src={before()!}
@@ -135,7 +138,7 @@ export function ComparisonViewer(props: { comparison: VisualComparison }) {
                             }
                             aria-label="Reveal the after image"
                         />
-                        <p class="mt-1 text-center text-xs text-slate-400">
+                        <p class="mt-1 text-center caption muted">
                             Left of the handle is after; right is before.
                         </p>
                     </div>
@@ -144,14 +147,14 @@ export function ComparisonViewer(props: { comparison: VisualComparison }) {
                     <Show
                         when={singleImage()}
                         fallback={
-                            <div class="empty-panel p-[2.5rem]">
+                            <div class="empty outlined p-[2.5rem]">
                                 This image was not captured.
                             </div>
                         }
                     >
                         {(src) => (
                             <img
-                                class="block w-full rounded-xl ring-1 ring-slate-200"
+                                class="framed block w-full"
                                 src={src()}
                                 alt={`${props.comparison.scenario} ${mode()}`}
                             />

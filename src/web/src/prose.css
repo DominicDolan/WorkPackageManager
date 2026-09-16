@@ -1,0 +1,130 @@
+.prose {
+    color: var(--color-slate-700);
+    font-size: 0.9rem;
+    line-height: 1.7;
+}
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+    color: var(--graphite);
+    line-height: 1.25;
+}
+.prose h1 {
+    font-size: 1.75rem;
+}
+.prose h2 {
+    font-size: 1.35rem;
+}
+.prose h3 {
+    font-size: 1.08rem;
+}
+.prose h4 {
+    font-size: 0.95rem;
+    color: var(--steel);
+}
+.prose a {
+    color: var(--cobalt-dark);
+}
+.prose code {
+    border-radius: 0.25rem;
+    background: var(--workbench);
+    color: var(--signal);
+    font-family: var(--font-mono);
+    font-size: 0.82em;
+}
+.prose pre {
+    border: 1px solid var(--line);
+    background: var(--workbench);
+}
+.prose pre code {
+    background: none;
+    color: var(--color-slate-700);
+}
+.prose blockquote {
+    border-left: 3px solid var(--cobalt);
+    color: var(--steel);
+}
+.prose li.md-task {
+    list-style: none;
+}
+.prose img {
+    border: 1px solid var(--line);
+}
+.prose hr {
+    border: 0;
+    border-top: 1px solid var(--line);
+}
+.prose .md-tag {
+    color: var(--cobalt-dark);
+}
+.prose table {
+    border-collapse: collapse;
+}
+.prose th,
+.prose td {
+    border: 1px solid var(--line);
+    text-align: left;
+}
+.prose th {
+    background: var(--workbench);
+    color: var(--graphite);
+}
+
+.prose :is(h1, h2, h3, h4) {
+    margin: 1.5em 0 0.55em;
+}
+.prose > :first-child {
+    margin-top: 0;
+}
+.prose :is(p, blockquote, ul, ol) {
+    margin: 0 0 1em;
+}
+.prose :is(ul, ol) {
+    padding-inline-start: 1.5rem;
+}
+.prose ul {
+    list-style: disc;
+}
+.prose ol {
+    list-style: decimal;
+}
+.prose code {
+    padding: 0.1rem 0.32rem;
+}
+.prose pre {
+    overflow-x: auto;
+    padding: 1rem;
+}
+.prose pre code {
+    padding: 0;
+}
+.prose blockquote {
+    padding-inline-start: 1rem;
+}
+.prose li.md-task {
+    margin-inline-start: -1.25rem;
+}
+.prose li.md-task input {
+    width: auto;
+    margin-inline-end: 0.5rem;
+}
+.prose img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 1rem 0;
+}
+.prose hr {
+    margin: 1.5em 0;
+}
+.prose .md-table-wrap {
+    overflow-x: auto;
+    margin-bottom: 1em;
+}
+.prose table {
+    min-width: 100%;
+}
+.prose :is(th, td) {
+    padding: 0.45rem 0.7rem;
+}

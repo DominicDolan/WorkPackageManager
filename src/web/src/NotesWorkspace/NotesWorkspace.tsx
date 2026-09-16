@@ -1,3 +1,4 @@
+import type { Note } from "@shared/types"
 import {
     For,
     Loading,
@@ -7,15 +8,13 @@ import {
     createSignal,
     refresh,
 } from "solid-js"
-import type { Note, NotesWorkspaceInfo } from "@shared/types"
-import { api, noteAssetUrl } from "../api"
-import { renderMarkdown } from "../markdown"
+import { api } from "../api"
 import { PageSkeleton } from "../components/PageSkeleton"
 import { ProductRail } from "../components/ProductRail"
 import { PlusIcon } from "../components/icons"
 import type { MainView } from "../types/navigation"
-import layoutStyles from "../components/LibraryLayout.module.css"
-import styles from "./NotesWorkspace.module.css"
+import { NoteEditor } from "./NoteEditor"
+import { NotesStatus } from "./NotesStatus"
 
 export function NotesWorkspace(props: {
     select: (view: MainView) => void
@@ -115,15 +114,13 @@ export function NotesWorkspace(props: {
     }
 
     return (
-        <main
-            class={`${layoutStyles.scope} ${styles.scope} app-shell min-h-screen text-slate-950 grid grid-cols-[220px_minmax(0,_1fr)] max-[820px]:block`}
-        >
+        <main class="app-shell min-h-screen text-slate-950 grid grid-cols-[220px_minmax(0,_1fr)] max-[820px]:block">
             <ProductRail active="notes" select={props.select} />
             <Loading fallback={<PageSkeleton />}>
                 <Show when={listing()} keyed>
                     {(data) => (
                         <section class="library-surface min-w-0 p-[2.2rem_clamp(1.3rem,_3.5vw,_4.5rem)_4rem] max-[820px]:p-[1.25rem] max-[820px]:overflow-hidden">
-                            <header class="library-header flex max-w-[1500px] items-start justify-between gap-[2rem] m-[0_auto_1.5rem] p-[1.5rem_clamp(1.25rem,_3vw,_3rem)_1.7rem] [&_h1]:m-[0.45rem_0_0] [&_p:last-child]:max-w-[62ch] [&_p:last-child]:m-[0.8rem_0_0] max-[560px]:block max-[560px]:p-[1.25rem]">
+                            <header class="library flex max-w-[1500px] items-start justify-between gap-[2rem] m-[0_auto_1.5rem] p-[1.5rem_clamp(1.25rem,_3vw,_3rem)_1.7rem] [&_h1]:m-[0.45rem_0_0] [&_p:last-child]:max-w-[62ch] [&_p:last-child]:m-[0.8rem_0_0] max-[560px]:block max-[560px]:p-[1.25rem]">
                                 <div>
                                     <p class="eyebrow m-0">
                                         Reference workspace
@@ -134,7 +131,7 @@ export function NotesWorkspace(props: {
                                         a versioned folder beside the work.
                                     </p>
                                 </div>
-                                <div class="library-header-actions flex flex-wrap items-center justify-end gap-[0.5rem] max-[560px]:mt-[1.25rem] max-[560px]:justify-start">
+                                <div class="flex flex-wrap items-center justify-end gap-[0.5rem] max-[560px]:mt-[1.25rem] max-[560px]:justify-start">
                                     <Show
                                         when={
                                             data.workspace.exists &&
@@ -142,14 +139,14 @@ export function NotesWorkspace(props: {
                                         }
                                     >
                                         <button
-                                            class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                                            class="outlined"
                                             disabled={busy()}
                                             onClick={sync}
                                         >
                                             {busy() ? "Syncing…" : "Sync"}
                                         </button>
                                         <button
-                                            class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                                            class="outlined"
                                             disabled={
                                                 busy() ||
                                                 !data.workspace.git.upstream
@@ -164,7 +161,7 @@ export function NotesWorkspace(props: {
                                         </button>
                                     </Show>
                                     <button
-                                        class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                                        class="primary"
                                         disabled={
                                             !data.workspace.exists || busy()
                                         }
@@ -176,13 +173,11 @@ export function NotesWorkspace(props: {
                                 </div>
                             </header>
                             <Show when={error()}>
-                                <p class="banner mb-5 p-[0.8rem_1rem]">
-                                    {error()}
-                                </p>
+                                <p class="notice error mb-5">{error()}</p>
                             </Show>
-                            <div class="library-layout grid grid-cols-[minmax(260px,_310px)_minmax(0,_1fr)] max-w-[1500px] min-h-[620px] m-[0_auto] max-[820px]:grid-cols-[1fr]">
-                                <aside class="library-list flex min-w-0 flex-col">
-                                    <label class="library-search grid gap-[0.45rem] p-[1rem] [&_input]:p-[0.58rem_0.65rem]">
+                            <section class="library grid grid-cols-[minmax(260px,_310px)_minmax(0,_1fr)] max-w-[1500px] min-h-[620px] m-[0_auto] max-[820px]:grid-cols-[1fr]">
+                                <aside class="library flex min-w-0 flex-col">
+                                    <label class="search grid gap-[0.45rem] p-[1rem] [&_input]:p-[0.58rem_0.65rem]">
                                         <span>Find a note</span>
                                         <input
                                             value={query()}
@@ -201,7 +196,7 @@ export function NotesWorkspace(props: {
                                             data.tags.length > 0
                                         }
                                     >
-                                        <div class="library-filters [&_select]:p-[0.58rem_0.65rem] grid gap-[0.5rem] p-[0.75rem_1rem]">
+                                        <div class="filters [&_select]:p-[0.58rem_0.65rem] grid gap-[0.5rem] p-[0.75rem_1rem]">
                                             <Show
                                                 when={data.folders.length > 0}
                                             >
@@ -258,7 +253,7 @@ export function NotesWorkspace(props: {
                                         <For
                                             each={data.notes}
                                             fallback={
-                                                <p class="empty-copy p-4 m-[0.5rem_0_0] m-[0.5rem_0_0_1.05rem] ml-0">
+                                                <p class="caption muted p-4 m-[0.5rem_0_0] m-[0.5rem_0_0_1.05rem] ml-0">
                                                     {data.workspace.exists
                                                         ? "No notes match these filters."
                                                         : "The notes folder has not been created yet."}
@@ -267,7 +262,13 @@ export function NotesWorkspace(props: {
                                         >
                                             {(item) => (
                                                 <button
-                                                    class={`note-list-item ${selectedPath() === item.path ? "note-list-active" : ""} block w-full p-[0.9rem_1rem] [&>span]:block [&_small]:block [&_strong]:block [&_strong]:mt-[0.25rem] [&_p]:line-clamp-2 [&_p]:m-[0.35rem_0] [&_p]:overflow-hidden max-[820px]:min-w-[13rem]`}
+                                                    class={`card-item row compact  block w-full p-[0.9rem_1rem] [&>span]:block [&_small]:block [&_strong]:block [&_strong]:mt-[0.25rem] [&_p]:line-clamp-2 [&_p]:m-[0.35rem_0] [&_p]:overflow-hidden max-[820px]:min-w-[13rem]`}
+                                                    aria-current={
+                                                        selectedPath() ===
+                                                        item.path
+                                                            ? "page"
+                                                            : undefined
+                                                    }
                                                     onClick={() =>
                                                         choose(item.path)
                                                     }
@@ -302,7 +303,7 @@ export function NotesWorkspace(props: {
                                         initialise={initialise}
                                     />
                                 </aside>
-                                <section class="note-detail-pane min-w-0">
+                                <section class="detail min-w-0">
                                     <Show
                                         when={creating()}
                                         fallback={
@@ -315,7 +316,7 @@ export function NotesWorkspace(props: {
                                                     when={selected()}
                                                     keyed
                                                     fallback={
-                                                        <div class="library-empty max-w-[48ch] m-[6rem_auto] p-[0_2rem] [&_h2]:m-0 [&_p]:m-[0.75rem_0_0]">
+                                                        <section class="empty max-w-[48ch] m-[6rem_auto] p-[0_2rem] [&_h2]:m-0 [&_p]:m-[0.75rem_0_0]">
                                                             <h2>
                                                                 Choose a note
                                                             </h2>
@@ -328,7 +329,7 @@ export function NotesWorkspace(props: {
                                                                 in the shared
                                                                 folder.
                                                             </p>
-                                                        </div>
+                                                        </section>
                                                     }
                                                 >
                                                     {(note) => (
@@ -357,9 +358,9 @@ export function NotesWorkspace(props: {
                                             </Loading>
                                         }
                                     >
-                                        <div class="editor-panel max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)] m-[2rem] [&_h2]:m-[0_0_1.25rem]">
+                                        <article class="max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)] m-[2rem] [&_h2]:m-[0_0_1.25rem]">
                                             <h2>New note</h2>
-                                            <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
+                                            <label class="field">
                                                 <span>Title</span>
                                                 <input
                                                     autofocus
@@ -374,7 +375,7 @@ export function NotesWorkspace(props: {
                                             </label>
                                             <div class="mt-5 flex gap-2">
                                                 <button
-                                                    class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                                                    class="outlined"
                                                     onClick={() =>
                                                         setCreating(false)
                                                     }
@@ -382,7 +383,7 @@ export function NotesWorkspace(props: {
                                                     Cancel
                                                 </button>
                                                 <button
-                                                    class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                                                    class="primary"
                                                     disabled={
                                                         !newTitle().trim() ||
                                                         busy()
@@ -392,243 +393,14 @@ export function NotesWorkspace(props: {
                                                     Create note
                                                 </button>
                                             </div>
-                                        </div>
+                                        </article>
                                     </Show>
                                 </section>
-                            </div>
+                            </section>
                         </section>
                     )}
                 </Show>
             </Loading>
         </main>
-    )
-}
-
-function NotesStatus(props: {
-    workspace: NotesWorkspaceInfo
-    busy: boolean
-    initialise: () => Promise<void>
-}) {
-    return (
-        <div class="notes-status mt-auto p-[1rem] [&_p]:m-[0_0_0.5rem] [&_p]:overflow-hidden max-[820px]:hidden">
-            <p>{props.workspace.dir}</p>
-            <Show
-                when={!props.workspace.exists}
-                fallback={
-                    <>
-                        <p>
-                            {props.workspace.git.repo
-                                ? `${props.workspace.git.branch ?? "Detached"} · ${props.workspace.git.dirty ? `${props.workspace.git.dirty} uncommitted` : "clean"}`
-                                : "Not yet a Git repository"}
-                        </p>
-                    </>
-                }
-            >
-                <p>The notes folder does not exist yet.</p>
-                <button
-                    class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
-                    disabled={props.busy}
-                    onClick={props.initialise}
-                >
-                    Create folder
-                </button>
-            </Show>
-        </div>
-    )
-}
-
-function NoteEditor(props: {
-    note: Note
-    mode: "write" | "preview"
-    setMode: (mode: "write" | "preview") => void
-    saved: () => Promise<unknown>
-    close: () => void
-}) {
-    const [title, setTitle] = createSignal(props.note.title)
-    const [tags, setTags] = createSignal(props.note.tags.join(", "))
-    const [body, setBody] = createSignal(props.note.body)
-    const [busy, setBusy] = createSignal(false)
-    const [error, setError] = createSignal("")
-    let editor: HTMLTextAreaElement | undefined
-    const noteInput = () => ({
-        title: title().trim(),
-        body: body(),
-        tags: tags()
-            .split(",")
-            .map((value) => value.trim())
-            .filter(Boolean),
-    })
-    const preview = () =>
-        renderMarkdown(body(), {
-            resolveLink: (href) => noteAssetUrl(props.note.path, href),
-        })
-    const applySavedNote = (note: Note) => {
-        setTitle(note.title)
-        setTags(note.tags.join(", "))
-        setBody(note.body)
-    }
-    const save = async () => {
-        setBusy(true)
-        setError("")
-        try {
-            applySavedNote(await api.updateNote(props.note.path, noteInput()))
-            await props.saved()
-        } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy(false)
-        }
-    }
-    const remove = async () => {
-        if (!confirm(`Delete ${title()}?`)) return
-        setBusy(true)
-        try {
-            await api.deleteNote(props.note.path)
-            props.close()
-            await props.saved()
-        } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy(false)
-        }
-    }
-
-    const insertAtCursor = (markdown: string): string => {
-        const start = editor?.selectionStart ?? body().length
-        const end = editor?.selectionEnd ?? start
-        const before = body().slice(0, start)
-        const after = body().slice(end)
-        const next = `${before}${before && !before.endsWith("\n") ? "\n\n" : ""}${markdown}\n${after}`
-        setBody(next)
-        const caret = next.length - after.length
-        requestAnimationFrame(() => {
-            editor?.focus()
-            editor?.setSelectionRange(caret, caret)
-        })
-        return next
-    }
-
-    const pasteImages = async (event: ClipboardEvent) => {
-        const images = [...(event.clipboardData?.files ?? [])].filter((file) =>
-            file.type.startsWith("image/"),
-        )
-        if (!images.length) return
-        event.preventDefault()
-        setBusy(true)
-        setError("")
-        try {
-            // Attachments belong to a saved note. Save the current draft first so the
-            // final update cannot replace text typed before the paste.
-            await api.updateNote(props.note.path, noteInput())
-            const uploaded = await api.uploadAttachments(
-                props.note.path,
-                images,
-            )
-            const nextBody = insertAtCursor(
-                uploaded.added.map((item) => item.markdown).join("\n"),
-            )
-            applySavedNote(
-                await api.updateNote(props.note.path, { body: nextBody }),
-            )
-            await props.saved()
-        } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy(false)
-        }
-    }
-
-    return (
-        <article class="note-editor max-[560px]:[&_header]:block max-[560px]:[&_header_.flex]:mt-[1rem] max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)] [&_header]:flex [&_header]:items-start [&_header]:justify-between [&_header]:gap-[1rem] [&_header]:pb-[1.25rem] [&_h2]:max-w-[25ch] [&_h2]:m-[0.4rem_0_0]">
-            <header>
-                <div>
-                    <p class="note-path">{props.note.path}</p>
-                    <h2>{title()}</h2>
-                </div>
-                <div class="flex flex-wrap gap-2">
-                    <div
-                        class="note-modes flex [&_button]:min-h-[2.5rem] [&_button]:p-[0.5rem_0.8rem]"
-                        role="group"
-                        aria-label="Note view"
-                    >
-                        <button
-                            class={props.mode === "write" ? "active" : ""}
-                            onClick={() => props.setMode("write")}
-                        >
-                            Write
-                        </button>
-                        <button
-                            class={props.mode === "preview" ? "active" : ""}
-                            onClick={() => props.setMode("preview")}
-                        >
-                            Preview
-                        </button>
-                    </div>
-                    <button
-                        class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
-                        disabled={busy()}
-                        onClick={remove}
-                    >
-                        Delete
-                    </button>
-                    <button
-                        class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
-                        disabled={!title().trim() || busy()}
-                        onClick={save}
-                    >
-                        {busy() ? "Saving…" : "Save changes"}
-                    </button>
-                </div>
-            </header>
-            <Show when={error()}>
-                <p class="banner mt-5 p-[0.8rem_1rem]">{error()}</p>
-            </Show>
-            <Show
-                when={props.mode === "write"}
-                fallback={
-                    <div
-                        class="note-rendered markdown min-h-[26rem] mt-[1.5rem] p-[clamp(1.25rem,_3vw,_2.25rem)] [&>:first-child]:mt-0 [&_h1]:m-[1.5em_0_0.55em] [&_h2]:m-[1.5em_0_0.55em] [&_h3]:m-[1.5em_0_0.55em] [&_h4]:m-[1.5em_0_0.55em] [&_p]:m-[0_0_1em] [&_code]:p-[0.1rem_0.32rem] [&_pre]:overflow-x-auto [&_pre]:p-[1rem] [&_pre_code]:p-0 [&_blockquote]:m-[0_0_1em] [&_blockquote]:pl-[1rem] [&_ul]:m-[0_0_1em] [&_ul]:pl-[1.5rem] [&_ol]:m-[0_0_1em] [&_ol]:pl-[1.5rem] [&_li.md-task]:ml-[-1.25rem] [&_li.md-task_input]:w-auto [&_li.md-task_input]:mr-[0.5rem] [&_img]:block [&_img]:max-w-full [&_img]:h-auto [&_img]:m-[1rem_0] [&_hr]:m-[1.5em_0] [&_.md-table-wrap]:overflow-x-auto [&_.md-table-wrap]:mb-[1em] [&_table]:min-w-full [&_th]:p-[0.45rem_0.7rem] [&_td]:p-[0.45rem_0.7rem]"
-                        innerHTML={preview()}
-                    />
-                }
-            >
-                <div class="editor-fields grid gap-[1.1rem] mt-[1.5rem]">
-                    <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
-                        <span>Title</span>
-                        <input
-                            value={title()}
-                            onInput={(event) =>
-                                setTitle(event.currentTarget.value)
-                            }
-                        />
-                    </label>
-                    <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
-                        <span>Tags</span>
-                        <input
-                            value={tags()}
-                            onInput={(event) =>
-                                setTags(event.currentTarget.value)
-                            }
-                            placeholder="research, decision"
-                        />
-                    </label>
-                    <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
-                        <span>
-                            Markdown — paste an image to attach and insert it
-                            here
-                        </span>
-                        <textarea
-                            ref={editor}
-                            class="note-body !min-h-[26rem]"
-                            value={body()}
-                            onInput={(event) =>
-                                setBody(event.currentTarget.value)
-                            }
-                            onPaste={pasteImages}
-                        />
-                    </label>
-                </div>
-            </Show>
-        </article>
     )
 }

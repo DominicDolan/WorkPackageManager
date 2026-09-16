@@ -1,53 +1,35 @@
-:global(.eyebrow) {
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--cobalt);
-}
+@layer theme, base, components, utilities;
 
-:global(.app-shell) {
-    background: var(--workbench);
-}
-:global(.product-rail) {
-    background: var(--rail);
-    color: white;
-}
-:global(.product-rail)::after {
-    border: 1px solid rgb(255 255 255 / 0.09);
-    border-radius: 50%;
-    box-shadow:
-        0 0 0 2.2rem rgb(255 255 255 / 0.025),
-        0 0 0 4.4rem rgb(255 255 255 / 0.02);
-    content: "";
-}
-:global(.rail-link) {
-    font-size: 0.84rem;
-    color: #b6bdc9;
-}
-:global(.rail-link-active) {
-    background: rgb(255 255 255 / 0.055);
-    color: white;
-}
-:global(.rail-indicator) {
-    background: var(--signal);
-}
-:global(.rail-note) {
-    border-top: 1px solid rgb(255 255 255 / 0.14);
-}
-:global(.rail-note) span,
-:global(.rail-version) {
-    font-size: 0.7rem;
-    color: #929aa7;
-}
-:global(.rail-note) p {
-    font-size: 0.9rem;
-    line-height: 1.55;
-    letter-spacing: -0.01em;
-}
+@layer components {
+    @scope (.scope) {
+        :scope {
+            background: var(--rail);
+            color: white;
+        }
+        :scope::after {
+            border: 1px solid rgb(255 255 255 / 0.09);
+            border-radius: 50%;
+            box-shadow:
+                0 0 0 2.2rem rgb(255 255 255 / 0.025),
+                0 0 0 4.4rem rgb(255 255 255 / 0.02);
+            content: "";
+        }
 
-:global(.rail-link) {
-    border: 0;
-    background: transparent;
-    text-align: left;
-}
-.scope {
+        :global(.rail-indicator) {
+            background: var(--signal);
+        }
+        :global(.rail-note) {
+            border-top: 1px solid rgb(255 255 255 / 0.14);
+        }
+        :global(.rail-note) span,
+        :global(.rail-version) {
+            font-size: 0.7rem;
+            color: #929aa7;
+        }
+        :global(.rail-note) p {
+            font-size: 0.9rem;
+            line-height: 1.55;
+            letter-spacing: -0.01em;
+        }
+    }
 }

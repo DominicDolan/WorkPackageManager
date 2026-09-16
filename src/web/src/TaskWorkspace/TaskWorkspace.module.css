@@ -1,108 +1,72 @@
-:global(.task-ref) {
-    color: var(--cobalt);
-    font-size: 0.72rem;
-    font-weight: 600;
-}
-:global(.section-title) {
-    font-size: 0.95rem;
-    font-weight: 600;
-    letter-spacing: -0.015em;
-}
-:global(.task-sidebar) {
-    border-right: 1px solid var(--line);
-    background: var(--rail);
-    color: white;
-}
-:global(.task-sidebar) :global(.back-link) {
-    color: #aeb5c0;
-}
-:global(.task-sidebar) :global(.back-link):hover {
-    color: white;
-}
-:global(.sidebar-heading) {
-    border-bottom: 1px solid rgb(255 255 255 / 0.14);
-}
-:global(.sidebar-heading) h2,
-:global(.sidebar-heading) span {
-    color: #aeb5c0;
-    font-size: 0.72rem;
-    font-weight: 500;
-}
-:global(.task-nav-item) {
-    border: 0;
-    border-radius: 0.25rem;
-    background: transparent;
-    color: white;
-    text-align: left;
-}
-:global(.task-nav-item):hover {
-    background: rgb(255 255 255 / 0.055);
-}
-:global(.task-nav-item) > span {
-    color: #8f98a7;
-    font-size: 0.65rem;
-}
-:global(.task-nav-item) > strong {
-    color: #dce0e6;
-    font-size: 0.78rem;
-    font-weight: 450;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-:global(.task-nav-item) > :global(.task-nav-detail) {
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-:global(.task-nav-detail) em {
-    color: #f2ca67;
-    font-style: normal;
-}
-:global(.task-nav-active) {
-    background: rgb(49 92 244 / 0.2);
-    box-shadow: inset 3px 0 var(--signal);
-}
-:global(.task-nav-active) > span {
-    color: #9eb0ff;
-}
-:global(.task-nav-active) > strong {
-    color: white;
-    font-weight: 550;
-}
-:global(.task-titlebar) {
-    border-bottom: 1px solid var(--line);
-}
-:global(.task-titlebar) h1 {
-    font-size: clamp(1.8rem, 3vw, 2.9rem);
-    font-weight: 470;
-    line-height: 1.06;
-    letter-spacing: -0.046em;
-}
-:global(.task-description) {
-    color: var(--color-slate-600);
-    font-size: 0.9rem;
-    line-height: 1.75;
-}
+@layer theme, base, components, utilities;
 
-@media (max-width: 820px) {
-    :global(.task-sidebar) {
-        border-right: 0;
+@layer components {
+    @scope (.scope) {
+        :global(.task-sidebar) {
+            border-right: 1px solid var(--line);
+            background: var(--rail);
+            color: white;
+        }
+        :global(.task-sidebar) :global(button.back) {
+            color: #aeb5c0;
+        }
+        :global(.task-sidebar) :global(button.back):hover {
+            color: white;
+        }
+        :global(.sidebar-heading) {
+            border-bottom: 1px solid rgb(255 255 255 / 0.14);
+        }
+        :global(.sidebar-heading) h2,
+        :global(.sidebar-heading) span {
+            color: #aeb5c0;
+            font-size: 0.72rem;
+            font-weight: 500;
+        }
+        :global(.task-nav-item) {
+            border: 0;
+            border-radius: 0.25rem;
+            background: transparent;
+            color: white;
+            text-align: left;
+        }
+        :global(.task-nav-item):hover {
+            background: rgb(255 255 255 / 0.055);
+        }
+        :global(.task-nav-item) > span {
+            color: #8f98a7;
+            font-size: 0.65rem;
+        }
+        :global(.task-nav-item) > strong {
+            color: #dce0e6;
+            font-size: 0.78rem;
+            font-weight: 450;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        :global(.task-nav-item) > :global(.task-nav-detail) {
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        :global(.task-nav-detail) em {
+            color: #f2ca67;
+            font-style: normal;
+        }
+        :global(.task-nav-item)[aria-current="page"] {
+            background: rgb(49 92 244 / 0.2);
+            box-shadow: inset 3px 0 var(--signal);
+        }
+        :global(.task-nav-item)[aria-current="page"] > span {
+            color: #9eb0ff;
+        }
+        :global(.task-nav-item)[aria-current="page"] > strong {
+            color: white;
+            font-weight: 550;
+        }
+
+        @media (max-width: 820px) {
+            :global(.task-sidebar) {
+                border-right: 0;
+            }
+        }
     }
-}
-
-@media (max-width: 560px) {
-    :global(.task-titlebar) h1 {
-        font-size: 1.9rem;
-    }
-}
-.scope {
-}
-
-:global(.task-workspace) :global(.rounded-2xl) {
-    border-radius: 0.45rem;
-}
-:global(.task-workspace) :global(.rounded-xl) {
-    border-radius: 0.35rem;
-}
-:global(.task-workspace) :global(.shadow-sm) {
-    box-shadow: none;
 }

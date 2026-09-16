@@ -124,20 +124,17 @@ export function App() {
         <Errored
             fallback={(error, reset) => (
                 <main class="grid min-h-screen place-items-center bg-slate-50 p-6">
-                    <div class="max-w-lg rounded-2xl bg-white p-6 ring-1 ring-red-200">
+                    <article class="max-w-lg p-6 ring-1 ring-red-200">
                         <h1 class="text-lg font-semibold">
                             The app hit a problem
                         </h1>
                         <p class="mt-2 text-sm text-red-700">
                             {String(error())}
                         </p>
-                        <button
-                            class="button-primary mt-4 inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
-                            onClick={reset}
-                        >
+                        <button class="primary mt-4" onClick={reset}>
                             Try again
                         </button>
-                    </div>
+                    </article>
                 </main>
             )}
         >

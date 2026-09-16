@@ -13,11 +13,11 @@ export function ProductRail(props: {
         >
             <Brand />
             <nav
-                class="rail-nav m-[4.5rem_-1.5rem_0] max-[820px]:m-0"
+                class="primary m-[4.5rem_-1.5rem_0] max-[820px]:m-0"
                 aria-label="Primary navigation"
             >
                 <button
-                    class={`rail-link ${props.active === "work-packages" ? "rail-link-active" : ""} relative flex min-h-[2.8rem] items-center gap-[0.75rem] p-[0_1.5rem] w-full max-[820px]:min-h-[2rem] max-[820px]:p-[0_0_0_1rem]`}
+                    class={` relative flex min-h-[2.8rem] items-center gap-[0.75rem] p-[0_1.5rem] w-full max-[820px]:min-h-[2rem] max-[820px]:p-[0_0_0_1rem]`}
                     aria-current={
                         props.active === "work-packages" ? "page" : undefined
                     }
@@ -29,7 +29,7 @@ export function ProductRail(props: {
                     Work packages
                 </button>
                 <button
-                    class={`rail-link ${props.active === "notes" ? "rail-link-active" : ""} relative flex min-h-[2.8rem] items-center gap-[0.75rem] p-[0_1.5rem] w-full max-[820px]:min-h-[2rem] max-[820px]:p-[0_0_0_1rem]`}
+                    class={` relative flex min-h-[2.8rem] items-center gap-[0.75rem] p-[0_1.5rem] w-full max-[820px]:min-h-[2rem] max-[820px]:p-[0_0_0_1rem]`}
                     aria-current={props.active === "notes" ? "page" : undefined}
                     onClick={() => props.select("notes")}
                 >
@@ -39,7 +39,7 @@ export function ProductRail(props: {
                     Notes
                 </button>
                 <button
-                    class={`rail-link ${props.active === "issues" ? "rail-link-active" : ""} relative flex min-h-[2.8rem] items-center gap-[0.75rem] p-[0_1.5rem] w-full max-[820px]:min-h-[2rem] max-[820px]:p-[0_0_0_1rem]`}
+                    class={` relative flex min-h-[2.8rem] items-center gap-[0.75rem] p-[0_1.5rem] w-full max-[820px]:min-h-[2rem] max-[820px]:p-[0_0_0_1rem]`}
                     aria-current={
                         props.active === "issues" ? "page" : undefined
                     }

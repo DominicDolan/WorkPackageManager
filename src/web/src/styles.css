@@ -1,4 +1,8 @@
+@layer theme, base, components, utilities;
+
 @import "tailwindcss";
+@import "./elements.css" layer(components);
+@import "./prose.css" layer(components);
 
 @theme {
     --font-sans: "IBM Plex Sans", "Segoe UI Variable", "Segoe UI", sans-serif;
@@ -49,123 +53,40 @@
     --color-violet-50: #28213d;
     --color-violet-700: #bea8ff;
 }
-html {
-    background: var(--workbench);
-}
-body {
-    background: var(--workbench);
-    color: var(--graphite);
-    font-family: var(--font-sans);
-    font-feature-settings: "ss01", "cv02";
-    -webkit-font-smoothing: antialiased;
-}
-::selection {
-    background: #3653a6;
-    color: #fff;
-}
-button,
-a,
-input,
-select,
-textarea {
-    font: inherit;
-}
-button:not(:disabled),
-a {
-    cursor: pointer;
-}
-button:disabled {
-    cursor: not-allowed;
-    opacity: 0.46;
-}
-:where(button, a, input, select, textarea):focus-visible {
-    outline: 3px solid color-mix(in srgb, var(--cobalt) 38%, transparent);
-    outline-offset: 2px;
-}
-
-.button,
-.button-primary {
-    border-radius: 0.35rem;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    letter-spacing: -0.005em;
-    transition:
-        border-color 130ms ease,
-        background-color 130ms ease,
-        color 130ms ease;
-}
-.button {
-    border: 1px solid var(--line-strong);
-    background: var(--paper);
-    color: var(--color-slate-700);
-}
-.button:hover:not(:disabled) {
-    border-color: #637188;
-    background: #202833;
-    color: var(--graphite);
-}
-.button-primary {
-    border: 1px solid var(--cobalt);
-    background: var(--cobalt);
-    color: white;
-}
-.button-primary:hover:not(:disabled) {
-    border-color: var(--cobalt-dark);
-    background: var(--cobalt-dark);
-}
-.ui-icon {
-    fill: none;
-    stroke: currentColor;
-    stroke-linecap: square;
-    stroke-linejoin: miter;
-    stroke-width: 1.7;
-}
-.field > span,
-.field-label,
-.content-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--color-slate-600);
-}
-.field input,
-.field select,
-.field textarea,
-.input {
-    border: 1px solid var(--line-strong);
-    border-radius: 0.35rem;
-    background: var(--paper);
-    color: var(--graphite);
-    outline: none;
-}
-.field textarea {
-    resize: vertical;
-}
-.field input:focus,
-.field select:focus,
-.field textarea:focus,
-.input:focus {
-    border-color: var(--cobalt);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--cobalt) 12%, transparent);
-}
-
-.banner {
-    border: 1px solid var(--color-red-200);
-    border-left: 4px solid var(--color-red-700);
-    border-radius: 0.25rem;
-    background: var(--color-red-50);
-    font-size: 0.8125rem;
-    color: var(--color-red-700);
-}
-.empty-panel {
-    border: 1px dashed var(--line-strong);
-    border-radius: 0.35rem;
-    background: rgb(255 255 255 / 0.48);
-    text-align: center;
-    font-size: 0.875rem;
-    color: var(--steel);
-}
-.text-white {
-    color: white;
+@layer base {
+    html {
+        background: var(--workbench);
+    }
+    body {
+        background: var(--workbench);
+        color: var(--graphite);
+        font-family: var(--font-sans);
+        font-feature-settings: "ss01", "cv02";
+        -webkit-font-smoothing: antialiased;
+    }
+    ::selection {
+        background: #3653a6;
+        color: #fff;
+    }
+    button,
+    a,
+    input,
+    select,
+    textarea {
+        font: inherit;
+    }
+    button:not(:disabled),
+    a {
+        cursor: pointer;
+    }
+    button:disabled {
+        cursor: not-allowed;
+        opacity: 0.46;
+    }
+    :where(button, a, input, select, textarea):focus-visible {
+        outline: 3px solid color-mix(in srgb, var(--cobalt) 38%, transparent);
+        outline-offset: 2px;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,172 +1,39 @@
-:global(.portfolio-header) {
-    border-top: 5px solid var(--cobalt);
-    background: var(--paper);
-}
-:global(.eyebrow) {
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--cobalt);
-}
-:global(.portfolio-copy) h1 {
-    font-size: clamp(2.25rem, 4vw, 4rem);
-    font-weight: 430;
-    line-height: 0.98;
-    letter-spacing: -0.058em;
-}
-:global(.portfolio-copy) > p:last-child {
-    color: var(--steel);
-    font-size: 0.98rem;
-    line-height: 1.65;
-}
-:global(.portfolio-stats) {
-    border-top: 1px solid var(--line);
-}
-:global(.portfolio-stats) > div {
-    border-right: 1px solid var(--line);
-}
-:global(.portfolio-stats) > div:last-child {
-    border-right: 0;
-}
-:global(.portfolio-stats) dt {
-    color: var(--steel);
-    font-size: 0.78rem;
-}
-:global(.portfolio-stats) dd {
-    font-size: 1.8rem;
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.04em;
-}
-:global(.ledger-heading) h2 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    letter-spacing: -0.025em;
-}
-:global(.ledger-heading) p,
-:global(.ledger-heading) > span {
-    color: var(--steel);
-    font-size: 0.75rem;
-}
-:global(.work-package-ledger) {
-    border: 1px solid var(--line);
-    border-bottom: 0;
-    background: var(--paper);
-}
-:global(.closed-work-packages) > summary {
-    border: 1px solid var(--line);
-    background: var(--paper);
-    color: var(--steel);
-    font-size: 0.78rem;
-    font-weight: 600;
-    cursor: pointer;
-    list-style: none;
-}
-:global(.closed-work-packages) > summary::before {
-    content: "\25B8";
-    color: var(--cobalt);
-}
-:global(.closed-work-packages)[open] > summary::before {
-    content: "\25BE";
-}
-:global(.closed-work-packages) > summary span {
-    font-variant-numeric: tabular-nums;
-}
-:global(.work-package-card) {
-    border: 0;
-    border-bottom: 1px solid var(--line);
-    border-radius: 0;
-    background: var(--paper);
-    color: var(--graphite);
-    outline: none;
-    text-align: left;
-    transition: background-color 130ms ease;
-}
-:global(.work-package-card):hover {
-    background: #1d2530;
-}
-:global(.work-package-card):focus-visible {
-    outline: 3px solid color-mix(in srgb, var(--cobalt) 38%, transparent);
-    outline-offset: -3px;
-}
-:global(.work-package-ref),
-:global(.task-ref) {
-    color: var(--cobalt);
-    font-size: 0.72rem;
-    font-weight: 600;
-}
-:global(.work-package-identity) h3 {
-    font-size: 1.12rem;
-    font-weight: 600;
-    letter-spacing: -0.025em;
-}
-:global(.work-package-identity) p {
-    color: var(--steel);
-    font-size: 0.8rem;
-    line-height: 1.5;
-}
-:global(.task-preview-row) {
-    color: var(--color-slate-600);
-    font-size: 0.76rem;
-}
-:global(.task-preview-row) > span:last-child {
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-:global(.status-dot) {
-    border-radius: 50%;
-}
-:global(.more-count),
-:global(.empty-copy) {
-    color: var(--color-slate-400);
-    font-size: 0.7rem;
-}
-:global(.empty-copy) {
-    line-height: 1.45;
-}
-:global(.progress-copy) {
-    color: var(--color-slate-400);
-    font-size: 0.84rem;
-    font-variant-numeric: tabular-nums;
-}
-:global(.progress-copy) strong {
-    color: var(--graphite);
-    font-size: 1.35rem;
-    font-weight: 500;
-}
-:global(.progress-track) {
-    background: var(--color-slate-200);
-}
-:global(.work-package-progress) small {
-    color: var(--steel);
-    font-size: 0.68rem;
-}
-:global(.open-cue) {
-    color: var(--color-slate-400);
-}
-:global(.open-cue) svg {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.5;
-}
-:global(.work-package-card):hover :global(.open-cue) {
-    color: var(--cobalt);
-}
+@layer theme, base, components, utilities;
 
-@media (max-width: 820px) {
-    :global(.portfolio-copy) h1 {
-        font-size: clamp(2.15rem, 8vw, 3.25rem);
+@layer components {
+    @scope (.scope) {
+        :global(.task-preview-row) {
+            color: var(--color-slate-600);
+            font-size: 0.76rem;
+        }
+        :global(.task-preview-row) > span:last-child {
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        :global(.progress-copy) {
+            color: var(--color-slate-400);
+            font-size: 0.84rem;
+            font-variant-numeric: tabular-nums;
+        }
+        :global(.progress-copy) strong {
+            color: var(--graphite);
+            font-size: 1.35rem;
+            font-weight: 500;
+        }
+        :global(.progress-track) {
+            background: var(--color-slate-200);
+        }
+        :global(.work-package-progress) small {
+            color: var(--steel);
+            font-size: 0.68rem;
+        }
+        :global(.open-cue) {
+            color: var(--color-slate-400);
+        }
+        :global(.open-cue) svg {
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.5;
+        }
     }
-}
-
-@media (max-width: 560px) {
-    :global(.portfolio-stats) dt {
-        font-size: 0.68rem;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    :global(.portfolio-stats) dd {
-        font-size: 1.45rem;
-    }
-}
-.scope {
 }

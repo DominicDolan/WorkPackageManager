@@ -1,0 +1,200 @@
+import type { Note } from "@shared/types"
+import { Show, createSignal } from "solid-js"
+import { api, noteAssetUrl } from "../api"
+import { renderMarkdown } from "../markdown"
+
+export function NoteEditor(props: {
+    note: Note
+    mode: "write" | "preview"
+    setMode: (mode: "write" | "preview") => void
+    saved: () => Promise<unknown>
+    close: () => void
+}) {
+    const [title, setTitle] = createSignal(props.note.title)
+    const [tags, setTags] = createSignal(props.note.tags.join(", "))
+    const [body, setBody] = createSignal(props.note.body)
+    const [busy, setBusy] = createSignal(false)
+    const [error, setError] = createSignal("")
+    let editor: HTMLTextAreaElement | undefined
+    const noteInput = () => ({
+        title: title().trim(),
+        body: body(),
+        tags: tags()
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+    })
+    const preview = () =>
+        renderMarkdown(body(), {
+            resolveLink: (href) => noteAssetUrl(props.note.path, href),
+        })
+    const applySavedNote = (note: Note) => {
+        setTitle(note.title)
+        setTags(note.tags.join(", "))
+        setBody(note.body)
+    }
+    const save = async () => {
+        setBusy(true)
+        setError("")
+        try {
+            applySavedNote(await api.updateNote(props.note.path, noteInput()))
+            await props.saved()
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : String(caught))
+        } finally {
+            setBusy(false)
+        }
+    }
+    const remove = async () => {
+        if (!confirm(`Delete ${title()}?`)) return
+        setBusy(true)
+        try {
+            await api.deleteNote(props.note.path)
+            props.close()
+            await props.saved()
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : String(caught))
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    const insertAtCursor = (markdown: string): string => {
+        const start = editor?.selectionStart ?? body().length
+        const end = editor?.selectionEnd ?? start
+        const before = body().slice(0, start)
+        const after = body().slice(end)
+        const next = `${before}${before && !before.endsWith("\n") ? "\n\n" : ""}${markdown}\n${after}`
+        setBody(next)
+        const caret = next.length - after.length
+        requestAnimationFrame(() => {
+            editor?.focus()
+            editor?.setSelectionRange(caret, caret)
+        })
+        return next
+    }
+
+    const pasteImages = async (event: ClipboardEvent) => {
+        const images = [...(event.clipboardData?.files ?? [])].filter((file) =>
+            file.type.startsWith("image/"),
+        )
+        if (!images.length) return
+        event.preventDefault()
+        setBusy(true)
+        setError("")
+        try {
+            // Attachments belong to a saved note. Save the current draft first so the
+            // final update cannot replace text typed before the paste.
+            await api.updateNote(props.note.path, noteInput())
+            const uploaded = await api.uploadAttachments(
+                props.note.path,
+                images,
+            )
+            const nextBody = insertAtCursor(
+                uploaded.added.map((item) => item.markdown).join("\n"),
+            )
+            applySavedNote(
+                await api.updateNote(props.note.path, { body: nextBody }),
+            )
+            await props.saved()
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : String(caught))
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    return (
+        <article class="document max-[560px]:[&_header]:block max-[560px]:[&_header_.flex]:mt-[1rem] max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)] [&_header]:flex [&_header]:items-start [&_header]:justify-between [&_header]:gap-[1rem] [&_header]:pb-[1.25rem] [&_h2]:max-w-[25ch] [&_h2]:m-[0.4rem_0_0]">
+            <header>
+                <div>
+                    <p class="reference">{props.note.path}</p>
+                    <h2>{title()}</h2>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <div
+                        class="segmented flex [&_button]:min-h-[2.5rem] [&_button]:p-[0.5rem_0.8rem]"
+                        role="group"
+                        aria-label="Note view"
+                    >
+                        <button
+                            aria-pressed={
+                                props.mode === "write" ? "true" : "false"
+                            }
+                            onClick={() => props.setMode("write")}
+                        >
+                            Write
+                        </button>
+                        <button
+                            aria-pressed={
+                                props.mode === "preview" ? "true" : "false"
+                            }
+                            onClick={() => props.setMode("preview")}
+                        >
+                            Preview
+                        </button>
+                    </div>
+                    <button class="outlined" disabled={busy()} onClick={remove}>
+                        Delete
+                    </button>
+                    <button
+                        class="primary"
+                        disabled={!title().trim() || busy()}
+                        onClick={save}
+                    >
+                        {busy() ? "Saving…" : "Save changes"}
+                    </button>
+                </div>
+            </header>
+            <Show when={error()}>
+                <p class="notice error mt-5">{error()}</p>
+            </Show>
+            <Show
+                when={props.mode === "write"}
+                fallback={
+                    <article
+                        class="prose min-h-[26rem] mt-[1.5rem] p-[clamp(1.25rem,_3vw,_2.25rem)]"
+                        innerHTML={preview()}
+                    />
+                }
+            >
+                <div class="editor-fields grid gap-[1.1rem] mt-[1.5rem]">
+                    <label class="field">
+                        <span>Title</span>
+                        <input
+                            value={title()}
+                            onInput={(event) =>
+                                setTitle(event.currentTarget.value)
+                            }
+                        />
+                    </label>
+                    <label class="field">
+                        <span>Tags</span>
+                        <input
+                            value={tags()}
+                            onInput={(event) =>
+                                setTags(event.currentTarget.value)
+                            }
+                            placeholder="research, decision"
+                        />
+                    </label>
+                    <label class="field">
+                        <span>
+                            Markdown — paste an image to attach and insert it
+                            here
+                        </span>
+                        <textarea
+                            ref={editor}
+                            class="code !min-h-[26rem]"
+                            value={body()}
+                            onInput={(event) =>
+                                setBody(event.currentTarget.value)
+                            }
+                            onPaste={pasteImages}
+                        />
+                    </label>
+                </div>
+            </Show>
+        </article>
+    )
+}
