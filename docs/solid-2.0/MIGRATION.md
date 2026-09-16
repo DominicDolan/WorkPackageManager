@@ -71,10 +71,10 @@ For web apps, update `tsconfig.json`:
 
 ```json
 {
-  "compilerOptions": {
-    "jsx": "preserve",
-    "jsxImportSource": "@solidjs/web"
-  }
+    "compilerOptions": {
+        "jsx": "preserve",
+        "jsxImportSource": "@solidjs/web"
+    }
 }
 ```
 
@@ -124,15 +124,15 @@ Solid 2.0 splits effects into two phases:
 ```js
 // 1.x (single function effect)
 createEffect(() => {
-  el().title = name()
+    el().title = name()
 })
 
 // 2.0 (split effect: compute -> apply)
 createEffect(
-  () => name(),
-  (value) => {
-    el().title = value
-  },
+    () => name(),
+    (value) => {
+        el().title = value
+    },
 )
 ```
 
@@ -141,16 +141,16 @@ The `initialValue` parameter from 1.x is gone. In 2.0, the compute function rece
 ```js
 // 1.x (initialValue as second arg)
 createEffect((prev) => {
-  console.log("changed from", prev, "to", count())
-  return count()
+    console.log("changed from", prev, "to", count())
+    return count()
 }, 0)
 
 // 2.0 (default parameter for prev, apply function is second arg)
 createEffect(
-  (prev = 0) => count(),
-  (value, prev) => {
-    console.log("changed from", prev, "to", value)
-  },
+    (prev = 0) => count(),
+    (value, prev) => {
+        console.log("changed from", prev, "to", value)
+    },
 )
 ```
 
@@ -169,17 +169,17 @@ Cleanup usually lives on the apply side now:
 ```js
 // 1.x
 createEffect(() => {
-  const id = setInterval(() => console.log(name()), 1000)
-  onCleanup(() => clearInterval(id))
+    const id = setInterval(() => console.log(name()), 1000)
+    onCleanup(() => clearInterval(id))
 })
 
 // 2.0
 createEffect(
-  () => name(),
-  (value) => {
-    const id = setInterval(() => console.log(value), 1000)
-    return () => clearInterval(id)
-  },
+    () => name(),
+    (value) => {
+        const id = setInterval(() => console.log(value), 1000)
+        return () => clearInterval(id)
+    },
 )
 ```
 
@@ -188,15 +188,15 @@ If you used `onMount`, the closest replacement is `onSettled` (and it can also r
 ```js
 // 1.x
 onMount(() => {
-  measureLayout()
+    measureLayout()
 })
 
 // 2.0
 onSettled(() => {
-  measureLayout()
-  const onResize = () => measureLayout()
-  window.addEventListener("resize", onResize)
-  return () => window.removeEventListener("resize", onResize)
+    measureLayout()
+    const onResize = () => measureLayout()
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
 })
 ```
 
@@ -211,25 +211,25 @@ In 2.0, reading reactive values at the top level of a component body (including 
 ```jsx
 // ❌ 2.0 warns (top-level reactive read)
 function Bad(props) {
-  const n = props.count
-  return <div>{n}</div>
+    const n = props.count
+    return <div>{n}</div>
 }
 
 // ✅ read inside JSX/expression
 function Ok(props) {
-  return <div>{props.count}</div>
+    return <div>{props.count}</div>
 }
 ```
 
 ```jsx
 // ❌ 2.0 warns (common: destructuring in args)
 function BadArgs({ title }) {
-  return <h1>{title}</h1>
+    return <h1>{title}</h1>
 }
 
 // ✅ keep props object, or destructure inside a memo/effect
 function OkArgs(props) {
-  return <h1>{props.title}</h1>
+    return <h1>{props.title}</h1>
 }
 ```
 
@@ -313,7 +313,7 @@ const user = createMemo(() => fetchUser(id()))
 
 ```jsx
 <Loading fallback={<Spinner />}>
-  <Profile user={user()} />
+    <Profile user={user()} />
 </Loading>
 ```
 
@@ -337,10 +337,10 @@ See [RFC 05 — createResource migration](05-async-data.md#createresource--async
 const listPending = () => isPending(() => users() || posts())
 
 ;<Loading fallback={<Spinner />}>
-  <Show when={listPending()}>
-    {/* subtle "updating…" indicator while a new query loads */}
-  </Show>
-  <List users={users()} posts={posts()} />
+    <Show when={listPending()}>
+        {/* subtle "updating…" indicator while a new query loads */}
+    </Show>
+    <List users={users()} posts={posts()} />
 </Loading>
 ```
 
@@ -368,18 +368,18 @@ In 1.x, mutations often ended up as “call an async function, flip some flags, 
 ```js
 const [todos] = createStore(() => api.getTodos(), { list: [] })
 const [optimisticTodos, setOptimisticTodos] = createOptimisticStore({
-  list: [],
+    list: [],
 })
 
 const addTodo = action(function* (todo) {
-  // optimistic UI
-  setOptimisticTodos((s) => s.list.push(todo))
+    // optimistic UI
+    setOptimisticTodos((s) => s.list.push(todo))
 
-  // server write
-  yield api.addTodo(todo)
+    // server write
+    yield api.addTodo(todo)
 
-  // recompute reads derived from the source-of-truth
-  refresh(todos)
+    // recompute reads derived from the source-of-truth
+    refresh(todos)
 })
 ```
 
@@ -390,7 +390,7 @@ const addTodo = action(function* (todo) {
 ```js
 // 2.0 preferred: produce-style draft updates
 setStore((s) => {
-  s.user.address.city = "Paris"
+    s.user.address.city = "Paris"
 })
 
 // Optional compatibility: old “path argument” ergonomics via storePath
@@ -444,10 +444,10 @@ const [doubled] = createSignal(() => count() * 2)
 const [items] = createStore(() => api.listItems(), [])
 
 const [cache] = createStore(
-  (draft) => {
-    draft.total = items().length
-  },
-  { total: 0 },
+    (draft) => {
+        draft.total = items().length
+    },
+    { total: 0 },
 )
 ```
 
@@ -577,7 +577,7 @@ Solid 2.0 aims to be more “what you write is what the platform sees”:
 
 ```jsx
 const on = (type, handler, options) => (el) =>
-  el.addEventListener(type, handler, options)
+    el.addEventListener(type, handler, options)
 
 ;<button ref={on("click", handleClick, { capture: true })} />
 ```
@@ -598,10 +598,10 @@ In Solid 1.x, a ref callback ran inside the reactive owner of the component that
 ```jsx
 // 1.x — the ref callback ran owned, so cleanup could live inside it
 <div
-  ref={(el) => {
-    el.addEventListener("pointerdown", onDown)
-    onCleanup(() => el.removeEventListener("pointerdown", onDown))
-  }}
+    ref={(el) => {
+        el.addEventListener("pointerdown", onDown)
+        onCleanup(() => el.removeEventListener("pointerdown", onDown))
+    }}
 />
 ```
 
@@ -613,8 +613,8 @@ For one-off, component-local behavior, use `onSettled` in the component body —
 // 2.0 — setup + teardown together in the owned component scope
 let el
 onSettled(() => {
-  el.addEventListener("pointerdown", onDown)
-  return () => el.removeEventListener("pointerdown", onDown)
+    el.addEventListener("pointerdown", onDown)
+    return () => el.removeEventListener("pointerdown", onDown)
 })
 
 ;<div ref={el} />
@@ -624,18 +624,18 @@ For reusable behavior, use a directive factory: its setup half runs owned at com
 
 ```jsx
 function tooltip(options) {
-  let el
-  const instance = createTooltipInstance()
-  createEffect(
-    () => options.content,
-    (content) => el && instance.setContent(content),
-  )
-  onCleanup(() => instance.destroy())
+    let el
+    const instance = createTooltipInstance()
+    createEffect(
+        () => options.content,
+        (content) => el && instance.setContent(content),
+    )
+    onCleanup(() => instance.destroy())
 
-  return (nextEl) => {
-    el = nextEl
-    instance.attach(nextEl)
-  }
+    return (nextEl) => {
+        el = nextEl
+        instance.attach(nextEl)
+    }
 }
 
 ;<button ref={tooltip({ content: "Save" })} />
@@ -658,18 +658,18 @@ Two-phase directive factories are recommended (owned setup → unowned apply):
 
 ```js
 function titleDirective(source) {
-  // Setup phase (owned): create primitives/subscriptions here.
-  // Avoid imperative DOM mutation at top level.
-  let el
-  createEffect(source, (value) => {
-    if (el) el.title = value
-  })
+    // Setup phase (owned): create primitives/subscriptions here.
+    // Avoid imperative DOM mutation at top level.
+    let el
+    createEffect(source, (value) => {
+        if (el) el.title = value
+    })
 
-  // Apply phase (unowned): DOM writes happen here.
-  // No new primitives should be created in this callback.
-  return (nextEl) => {
-    el = nextEl
-  }
+    // Apply phase (unowned): DOM writes happen here.
+    // No new primitives should be created in this callback.
+    return (nextEl) => {
+        el = nextEl
+    }
 }
 ```
 
@@ -705,9 +705,9 @@ const Theme = createContext("light")
 // 1.x — wrapper exists purely to narrow T | undefined → T
 const TodosContext = createContext<TodosCtx>()
 const useTodos = () => {
-  const ctx = useContext(TodosContext)
-  if (!ctx) throw new Error("missing TodosContext.Provider")
-  return ctx
+    const ctx = useContext(TodosContext)
+    if (!ctx) throw new Error("missing TodosContext.Provider")
+    return ctx
 }
 
 // 2.0 — direct call. Type is TodosCtx; throws if no Provider.
@@ -758,8 +758,8 @@ In 1.x, `batch` was explicit — you wrapped multiple writes to avoid intermedia
 ```js
 // 1.x
 batch(() => {
-  setA(1)
-  setB(2)
+    setA(1)
+    setB(2)
 })
 
 // 2.0 — just write; batching is automatic
@@ -791,14 +791,14 @@ const doubled = createMemo(() => count() * 2)
 ```js
 // 1.x
 createComputed(() => {
-  const val = input()
-  localStorage.setItem("input", val)
+    const val = input()
+    localStorage.setItem("input", val)
 })
 
 // 2.0
 createEffect(
-  () => input(),
-  (val) => localStorage.setItem("input", val),
+    () => input(),
+    (val) => localStorage.setItem("input", val),
 )
 ```
 
@@ -820,32 +820,32 @@ const [value, setValue] = createSignal(() => props.initial)
 ```js
 // 1.x
 createEffect(
-  on(count, (value, prev) => {
-    console.log("changed from", prev, "to", value)
-  }),
+    on(count, (value, prev) => {
+        console.log("changed from", prev, "to", value)
+    }),
 )
 
 // 2.0 — compute phase declares deps, effect phase runs side effects
 createEffect(
-  () => count(),
-  (value, prev) => {
-    console.log("changed from", prev, "to", value)
-  },
+    () => count(),
+    (value, prev) => {
+        console.log("changed from", prev, "to", value)
+    },
 )
 ```
 
 ```js
 // 1.x — multiple deps
 createEffect(
-  on([a, b], ([a, b]) => {
-    console.log(a, b)
-  }),
+    on([a, b], ([a, b]) => {
+        console.log(a, b)
+    }),
 )
 
 // 2.0
 createEffect(
-  () => [a(), b()],
-  ([a, b]) => console.log(a, b),
+    () => [a(), b()],
+    ([a, b]) => console.log(a, b),
 )
 ```
 
@@ -854,22 +854,22 @@ createEffect(
 ```js
 // 1.x
 createEffect(
-  on(
-    count,
-    (value) => {
-      console.log("changed to", value)
-    },
-    { defer: true },
-  ),
+    on(
+        count,
+        (value) => {
+            console.log("changed to", value)
+        },
+        { defer: true },
+    ),
 )
 
 // 2.0
 createEffect(
-  count,
-  (value) => {
-    console.log("changed to", value)
-  },
-  { defer: true },
+    count,
+    (value) => {
+        console.log("changed to", value)
+    },
+    { defer: true },
 )
 ```
 
@@ -896,18 +896,18 @@ In 1.x, `onError`/`catchError` were imperative error handlers registered in scop
 ```js
 // 1.x
 catchError(
-  () => {
-    createEffect(() => riskyAsyncWork())
-  },
-  (err) => console.error("caught:", err),
+    () => {
+        createEffect(() => riskyAsyncWork())
+    },
+    (err) => console.error("caught:", err),
 )
 
 // 2.0
 createEffect(() => riskyAsyncWork(), {
-  effect: (value) => {
-    /* success path */
-  },
-  error: (err) => console.error("caught:", err),
+    effect: (value) => {
+        /* success path */
+    },
+    error: (err) => console.error("caught:", err),
 })
 ```
 
@@ -919,16 +919,16 @@ createEffect(() => riskyAsyncWork(), {
 // 1.x
 import { produce } from "solid-js/store"
 setStore(
-  produce((s) => {
-    s.user.name = "Alice"
-    s.list.push("item")
-  }),
+    produce((s) => {
+        s.user.name = "Alice"
+        s.list.push("item")
+    }),
 )
 
 // 2.0 — draft-first is the default
 setStore((s) => {
-  s.user.name = "Alice"
-  s.list.push("item")
+    s.user.name = "Alice"
+    s.list.push("item")
 })
 ```
 
@@ -951,8 +951,8 @@ state.items.push("a")
 // 2.0
 const [state, setState] = createStore({ count: 0, items: [] })
 setState((s) => {
-  s.count++
-  s.items.push("a")
+    s.count++
+    s.items.push("a")
 })
 ```
 
@@ -971,9 +971,9 @@ const signal = from(observable$)
 
 // 2.0 — async iterables are first-class in computations
 const value = createMemo(async function* () {
-  for await (const val of observable$) {
-    yield val
-  }
+    for await (const val of observable$) {
+        yield val
+    }
 })
 ```
 
@@ -987,7 +987,7 @@ obs$.subscribe((value) => externalLib.update(value))
 
 // 2.0 — use an effect to push changes outward
 createEffect(signal, (value) => {
-  externalLib.update(value)
+    externalLib.update(value)
 })
 ```
 

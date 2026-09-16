@@ -10,7 +10,7 @@ let db: Database | undefined
 /** Schema statements, applied in order. Each is idempotent, so opening an
  *  existing database is the same code path as creating a new one. */
 const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS tasks (
+    `CREATE TABLE IF NOT EXISTS tasks (
      id               INTEGER PRIMARY KEY AUTOINCREMENT,
      ref              TEXT    NOT NULL UNIQUE,
      title            TEXT    NOT NULL,
@@ -37,7 +37,7 @@ const SCHEMA = [
      closed_at        TEXT
    )`,
 
-  `CREATE TABLE IF NOT EXISTS task_events (
+    `CREATE TABLE IF NOT EXISTS task_events (
      id          INTEGER PRIMARY KEY AUTOINCREMENT,
      task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
      type        TEXT    NOT NULL,
@@ -47,26 +47,26 @@ const SCHEMA = [
      created_at  TEXT    NOT NULL
    )`,
 
-  `CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, id)`,
+    `CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, id)`,
 
-  // "task_id waits for depends_on_id". One row per edge, both sides cascading:
-  // deleting a task must not leave an edge pointing at a ref nothing can
-  // resolve. The composite primary key makes re-adding an existing edge a
-  // no-op rather than a duplicate.
-  `CREATE TABLE IF NOT EXISTS task_dependencies (
+    // "task_id waits for depends_on_id". One row per edge, both sides cascading:
+    // deleting a task must not leave an edge pointing at a ref nothing can
+    // resolve. The composite primary key makes re-adding an existing edge a
+    // no-op rather than a duplicate.
+    `CREATE TABLE IF NOT EXISTS task_dependencies (
      task_id       INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
      depends_on_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
      created_at    TEXT    NOT NULL,
      PRIMARY KEY (task_id, depends_on_id)
    )`,
 
-  // The reverse direction — "what is waiting on this task" — is asked as often
-  // as the forward one, and the primary key only indexes the forward one.
-  `CREATE INDEX IF NOT EXISTS idx_task_dependencies_blocker
+    // The reverse direction — "what is waiting on this task" — is asked as often
+    // as the forward one, and the primary key only indexes the forward one.
+    `CREATE INDEX IF NOT EXISTS idx_task_dependencies_blocker
      ON task_dependencies(depends_on_id)`,
 
-  // One row per `aio-vr before` / `aio-vr after` invocation.
-  `CREATE TABLE IF NOT EXISTS checkpoint_runs (
+    // One row per `aio-vr before` / `aio-vr after` invocation.
+    `CREATE TABLE IF NOT EXISTS checkpoint_runs (
      id              INTEGER PRIMARY KEY AUTOINCREMENT,
      task_id         INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
      checkpoint_name TEXT    NOT NULL,
@@ -82,11 +82,11 @@ const SCHEMA = [
      created_at      TEXT    NOT NULL
    )`,
 
-  `CREATE INDEX IF NOT EXISTS idx_runs_task ON checkpoint_runs(task_id, id)`,
+    `CREATE INDEX IF NOT EXISTS idx_runs_task ON checkpoint_runs(task_id, id)`,
 
-  // One row per scenario within a run. Image paths stay repo-root-relative,
-  // exactly as aio-vr reports them, so they survive the repo moving.
-  `CREATE TABLE IF NOT EXISTS checkpoint_comparisons (
+    // One row per scenario within a run. Image paths stay repo-root-relative,
+    // exactly as aio-vr reports them, so they survive the repo moving.
+    `CREATE TABLE IF NOT EXISTS checkpoint_comparisons (
      id                       INTEGER PRIMARY KEY AUTOINCREMENT,
      run_id                   INTEGER NOT NULL REFERENCES checkpoint_runs(id) ON DELETE CASCADE,
      scenario                 TEXT    NOT NULL,
@@ -102,19 +102,19 @@ const SCHEMA = [
      browser_log_change_count INTEGER
    )`,
 
-  `CREATE INDEX IF NOT EXISTS idx_comparisons_run ON checkpoint_comparisons(run_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_comparisons_run ON checkpoint_comparisons(run_id)`,
 
-  // Monotonic counters behind the T-<n> and I-<n> refs. Kept separate from the
-  // row ids so deleting a record never lets a ref be reused.
-  `CREATE TABLE IF NOT EXISTS counters (
+    // Monotonic counters behind the T-<n> and I-<n> refs. Kept separate from the
+    // row ids so deleting a record never lets a ref be reused.
+    `CREATE TABLE IF NOT EXISTS counters (
      name  TEXT PRIMARY KEY,
      value INTEGER NOT NULL
    )`,
 
-  // A question written down before the investigating happens. Tasks point back
-  // at one by ref (tasks.investigation_ref) rather than by foreign key: the
-  // tasks are the durable output and must survive the investigation's deletion.
-  `CREATE TABLE IF NOT EXISTS investigations (
+    // A question written down before the investigating happens. Tasks point back
+    // at one by ref (tasks.investigation_ref) rather than by foreign key: the
+    // tasks are the durable output and must survive the investigation's deletion.
+    `CREATE TABLE IF NOT EXISTS investigations (
      id           INTEGER PRIMARY KEY AUTOINCREMENT,
      ref          TEXT    NOT NULL UNIQUE,
      title        TEXT    NOT NULL,
@@ -127,11 +127,11 @@ const SCHEMA = [
      completed_at TEXT
    )`,
 
-  // A named bundle of tasks. Membership is a column on `tasks`, not a join
-  // table, because a task belongs to at most one work package — expressing that in the
-  // schema is what keeps it true. Tasks point back by ref rather than by foreign
-  // key, matching investigations: deleting the organizing must not delete work.
-  `CREATE TABLE IF NOT EXISTS work_packages (
+    // A named bundle of tasks. Membership is a column on `tasks`, not a join
+    // table, because a task belongs to at most one work package — expressing that in the
+    // schema is what keeps it true. Tasks point back by ref rather than by foreign
+    // key, matching investigations: deleting the organizing must not delete work.
+    `CREATE TABLE IF NOT EXISTS work_packages (
      id                INTEGER PRIMARY KEY AUTOINCREMENT,
      ref               TEXT    NOT NULL UNIQUE,
      name              TEXT    NOT NULL,
@@ -148,14 +148,14 @@ const SCHEMA = [
      updated_at        TEXT    NOT NULL
    )`,
 
-  `CREATE INDEX IF NOT EXISTS idx_work_packages_investigation
+    `CREATE INDEX IF NOT EXISTS idx_work_packages_investigation
      ON work_packages(investigation_ref)`,
 
-  // Links from workflow records to Markdown notes. Notes themselves remain
-  // files in the separately versioned notes folder; only their relative path
-  // belongs in SQLite. A generic subject pair keeps task and work package behaviour
-  // identical without pretending an on-disk file can be a foreign key.
-  `CREATE TABLE IF NOT EXISTS note_links (
+    // Links from workflow records to Markdown notes. Notes themselves remain
+    // files in the separately versioned notes folder; only their relative path
+    // belongs in SQLite. A generic subject pair keeps task and work package behaviour
+    // identical without pretending an on-disk file can be a foreign key.
+    `CREATE TABLE IF NOT EXISTS note_links (
      subject_kind TEXT NOT NULL CHECK(subject_kind IN ('task', 'work-package')),
      subject_ref  TEXT NOT NULL,
      note_path    TEXT NOT NULL,
@@ -163,12 +163,12 @@ const SCHEMA = [
      PRIMARY KEY (subject_kind, subject_ref, note_path)
    )`,
 
-  `CREATE INDEX IF NOT EXISTS idx_note_links_path ON note_links(note_path)`,
+    `CREATE INDEX IF NOT EXISTS idx_note_links_path ON note_links(note_path)`,
 
-  // One row per delivery branch produced by combining task branches. Deliberately
-  // NOT a foreign key to tasks: combining usually closes the tasks, and a task
-  // may later be deleted, but the branch and its PR outlive both.
-  `CREATE TABLE IF NOT EXISTS combined_branches (
+    // One row per delivery branch produced by combining task branches. Deliberately
+    // NOT a foreign key to tasks: combining usually closes the tasks, and a task
+    // may later be deleted, but the branch and its PR outlive both.
+    `CREATE TABLE IF NOT EXISTS combined_branches (
      id          INTEGER PRIMARY KEY AUTOINCREMENT,
      branch_name TEXT    NOT NULL UNIQUE,
      base_branch TEXT,
@@ -185,12 +185,12 @@ const SCHEMA = [
      updated_at  TEXT    NOT NULL
    )`,
 
-  // One row per agent launched from the UI. Deliberately not a foreign key to
-  // anything: a run is about an issue as often as a task, and the record of
-  // "an agent was pointed at this" should outlive whatever it was pointed at.
-  // A `terminal` run's output belongs to the terminal; only `print` runs have a
-  // log, and the log lives on disk beside the database rather than inside it.
-  `CREATE TABLE IF NOT EXISTS agent_runs (
+    // One row per agent launched from the UI. Deliberately not a foreign key to
+    // anything: a run is about an issue as often as a task, and the record of
+    // "an agent was pointed at this" should outlive whatever it was pointed at.
+    // A `terminal` run's output belongs to the terminal; only `print` runs have a
+    // log, and the log lives on disk beside the database rather than inside it.
+    `CREATE TABLE IF NOT EXISTS agent_runs (
      id           INTEGER PRIMARY KEY AUTOINCREMENT,
      harness      TEXT    NOT NULL,
      model        TEXT    NOT NULL DEFAULT '',
@@ -211,14 +211,14 @@ const SCHEMA = [
      finished_at  TEXT
    )`,
 
-  `CREATE INDEX IF NOT EXISTS idx_agent_runs_subject ON agent_runs(subject_kind, subject_ref, id)`,
+    `CREATE INDEX IF NOT EXISTS idx_agent_runs_subject ON agent_runs(subject_kind, subject_ref, id)`,
 
-  // One row per unattended run of a whole work package. This is the loop's memory: the
-  // launch settings every task is worked with, which task is in flight, and what
-  // has already been carried to Dev Complete. Not a foreign key to `agent_runs`
-  // for the same reason that table has none — the record of what was attempted
-  // should outlive whatever it was attempted against.
-  `CREATE TABLE IF NOT EXISTS work_package_runs (
+    // One row per unattended run of a whole work package. This is the loop's memory: the
+    // launch settings every task is worked with, which task is in flight, and what
+    // has already been carried to Dev Complete. Not a foreign key to `agent_runs`
+    // for the same reason that table has none — the record of what was attempted
+    // should outlive whatever it was attempted against.
+    `CREATE TABLE IF NOT EXISTS work_package_runs (
      id              INTEGER PRIMARY KEY AUTOINCREMENT,
      work_package_ref       TEXT    NOT NULL,
      harness         TEXT    NOT NULL,
@@ -238,7 +238,7 @@ const SCHEMA = [
      finished_at     TEXT
    )`,
 
-  `CREATE INDEX IF NOT EXISTS idx_work_package_runs_work_package ON work_package_runs(work_package_ref, id)`,
+    `CREATE INDEX IF NOT EXISTS idx_work_package_runs_work_package ON work_package_runs(work_package_ref, id)`,
 ]
 
 /**
@@ -246,118 +246,120 @@ const SCHEMA = [
  * silently skips them on an older file, so add them explicitly.
  */
 const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
-  { table: "checkpoint_runs", column: "selection_json", definition: "TEXT" },
-  // Completed legacy tasks deliberately remain unassigned. Backlog and active
-  // legacy tasks are deterministically backfilled after this column is added.
-  { table: "tasks", column: "branch_name", definition: "TEXT" },
-  { table: "tasks", column: "closed_at", definition: "TEXT" },
-  // Tasks filed before Investigations existed simply have none.
-  { table: "tasks", column: "investigation_ref", definition: "TEXT" },
-  // Tasks filed before work packages existed are loose, which is exactly right: a
-  // work package is something a human or an investigation puts them into.
-  { table: "tasks", column: "work_package_ref", definition: "TEXT" },
-  // Manual list order. Existing rows all land on 0 and are backfilled below.
-  {
-    table: "tasks",
-    column: "position",
-    definition: "INTEGER NOT NULL DEFAULT 0",
-  },
-  // Plan duration. Existing rows land on one unit, which is what they would
-  // have been estimated at anyway.
-  {
-    table: "tasks",
-    column: "estimate_units",
-    definition: "INTEGER NOT NULL DEFAULT 1",
-  },
-  // Work packages created before they had branches are backfilled below, because a
-  // work package without a branch has nothing for its tasks to be cut from.
-  {
-    table: "work_packages",
-    column: "branch_name",
-    definition: "TEXT NOT NULL DEFAULT ''",
-  },
-  // Runs launched before sessions were tracked have none, and cannot be
-  // resumed — the id was the harness's to pick and it was never recorded.
-  { table: "agent_runs", column: "session_id", definition: "TEXT" },
-  {
-    table: "combined_branches",
-    column: "combine_state",
-    definition: "TEXT NOT NULL DEFAULT 'complete'",
-  },
-  {
-    table: "combined_branches",
-    column: "combine_pending_commits",
-    definition: "TEXT NOT NULL DEFAULT '[]'",
-  },
-  {
-    table: "combined_branches",
-    column: "combine_close_tasks",
-    definition: "INTEGER NOT NULL DEFAULT 0",
-  },
-  // The last pre-PR check run, as a ChecksReport JSON blob. One row, one report:
-  // only the latest matters, because an older one describes code that has moved.
-  { table: "combined_branches", column: "checks_json", definition: "TEXT" },
-  // Set by an investigation when it files a task; null on everything filed
-  // before this existed, and on any task nobody has judged.
-  { table: "tasks", column: "recommended_tier", definition: "TEXT" },
-  {
-    table: "tasks",
-    column: "use_git_workflow",
-    definition: "INTEGER NOT NULL DEFAULT 1",
-  },
-  // Null means push to origin under the same name as the local branch, which
-  // is the historical default.
-  { table: "combined_branches", column: "remote_branch", definition: "TEXT" },
-  // Older unattended runs included every queued task.
-  {
-    table: "work_package_runs",
-    column: "excluded_json",
-    definition: "TEXT NOT NULL DEFAULT '[]'",
-  },
+    { table: "checkpoint_runs", column: "selection_json", definition: "TEXT" },
+    // Completed legacy tasks deliberately remain unassigned. Backlog and active
+    // legacy tasks are deterministically backfilled after this column is added.
+    { table: "tasks", column: "branch_name", definition: "TEXT" },
+    { table: "tasks", column: "closed_at", definition: "TEXT" },
+    // Tasks filed before Investigations existed simply have none.
+    { table: "tasks", column: "investigation_ref", definition: "TEXT" },
+    // Tasks filed before work packages existed are loose, which is exactly right: a
+    // work package is something a human or an investigation puts them into.
+    { table: "tasks", column: "work_package_ref", definition: "TEXT" },
+    // Manual list order. Existing rows all land on 0 and are backfilled below.
+    {
+        table: "tasks",
+        column: "position",
+        definition: "INTEGER NOT NULL DEFAULT 0",
+    },
+    // Plan duration. Existing rows land on one unit, which is what they would
+    // have been estimated at anyway.
+    {
+        table: "tasks",
+        column: "estimate_units",
+        definition: "INTEGER NOT NULL DEFAULT 1",
+    },
+    // Work packages created before they had branches are backfilled below, because a
+    // work package without a branch has nothing for its tasks to be cut from.
+    {
+        table: "work_packages",
+        column: "branch_name",
+        definition: "TEXT NOT NULL DEFAULT ''",
+    },
+    // Runs launched before sessions were tracked have none, and cannot be
+    // resumed — the id was the harness's to pick and it was never recorded.
+    { table: "agent_runs", column: "session_id", definition: "TEXT" },
+    {
+        table: "combined_branches",
+        column: "combine_state",
+        definition: "TEXT NOT NULL DEFAULT 'complete'",
+    },
+    {
+        table: "combined_branches",
+        column: "combine_pending_commits",
+        definition: "TEXT NOT NULL DEFAULT '[]'",
+    },
+    {
+        table: "combined_branches",
+        column: "combine_close_tasks",
+        definition: "INTEGER NOT NULL DEFAULT 0",
+    },
+    // The last pre-PR check run, as a ChecksReport JSON blob. One row, one report:
+    // only the latest matters, because an older one describes code that has moved.
+    { table: "combined_branches", column: "checks_json", definition: "TEXT" },
+    // Set by an investigation when it files a task; null on everything filed
+    // before this existed, and on any task nobody has judged.
+    { table: "tasks", column: "recommended_tier", definition: "TEXT" },
+    {
+        table: "tasks",
+        column: "use_git_workflow",
+        definition: "INTEGER NOT NULL DEFAULT 1",
+    },
+    // Null means push to origin under the same name as the local branch, which
+    // is the historical default.
+    { table: "combined_branches", column: "remote_branch", definition: "TEXT" },
+    // Older unattended runs included every queued task.
+    {
+        table: "work_package_runs",
+        column: "excluded_json",
+        definition: "TEXT NOT NULL DEFAULT '[]'",
+    },
 ]
 
 /** Indexes over columns that ADDED_COLUMNS may have only just created, so they
  *  cannot live in SCHEMA — that runs before the migrations. */
 const POST_MIGRATION_INDEXES = [
-  "CREATE INDEX IF NOT EXISTS idx_tasks_investigation ON tasks(investigation_ref)",
-  "CREATE INDEX IF NOT EXISTS idx_tasks_work_package ON tasks(work_package_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_investigation ON tasks(investigation_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_work_package ON tasks(work_package_ref)",
 ]
 
 function applyColumnMigrations(database: Database): void {
-  for (const { table, column, definition } of ADDED_COLUMNS) {
-    const existing = database
-      .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
-      .all()
-      .map((row) => row.name)
+    for (const { table, column, definition } of ADDED_COLUMNS) {
+        const existing = database
+            .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+            .all()
+            .map((row) => row.name)
 
-    if (existing.length && !existing.includes(column)) {
-      database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+        if (existing.length && !existing.includes(column)) {
+            database.exec(
+                `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`,
+            )
+        }
     }
-  }
 
-  // Preserve historical completed records as-is, but make work still waiting
-  // to happen (backlog or in progress) branch-addressable on upgrade.
-  const unassigned = database
-    .query<{ ref: string; title: string }, []>(
-      "SELECT ref, title FROM tasks WHERE branch_name IS NULL AND use_git_workflow != 0 AND status IN ('backlog', 'in_progress')",
+    // Preserve historical completed records as-is, but make work still waiting
+    // to happen (backlog or in progress) branch-addressable on upgrade.
+    const unassigned = database
+        .query<{ ref: string; title: string }, []>(
+            "SELECT ref, title FROM tasks WHERE branch_name IS NULL AND use_git_workflow != 0 AND status IN ('backlog', 'in_progress')",
+        )
+        .all()
+    const backfill = database.query(
+        "UPDATE tasks SET branch_name = $branch WHERE ref = $ref",
     )
-    .all()
-  const backfill = database.query(
-    "UPDATE tasks SET branch_name = $branch WHERE ref = $ref",
-  )
-  for (const task of unassigned) {
-    backfill.run({
-      $ref: task.ref,
-      $branch: branchNameFor(
-        task.ref,
-        task.title,
-        workspace().config.branchPrefix,
-      ),
-    })
-  }
+    for (const task of unassigned) {
+        backfill.run({
+            $ref: task.ref,
+            $branch: branchNameFor(
+                task.ref,
+                task.title,
+                workspace().config.branchPrefix,
+            ),
+        })
+    }
 
-  backfillWorkPackageBranches(database)
-  backfillPositions(database)
+    backfillWorkPackageBranches(database)
+    backfillPositions(database)
 }
 
 /**
@@ -366,29 +368,29 @@ function applyColumnMigrations(database: Database): void {
  * somehow slipped in without one.
  */
 function backfillWorkPackageBranches(database: Database): void {
-  const rows = database
-    .query<{ ref: string; name: string }, []>(
-      "SELECT ref, name FROM work_packages WHERE branch_name = ''",
-    )
-    .all()
-  if (!rows.length) return
+    const rows = database
+        .query<{ ref: string; name: string }, []>(
+            "SELECT ref, name FROM work_packages WHERE branch_name = ''",
+        )
+        .all()
+    if (!rows.length) return
 
-  const prefix = workspace().config.workPackageBranchPrefix
-  const assign = database.query(
-    "UPDATE work_packages SET branch_name = $branch WHERE ref = $ref",
-  )
-  database.transaction(() => {
-    for (const workPackage of rows) {
-      assign.run({
-        $ref: workPackage.ref,
-        $branch: workPackageBranchNameFor(
-          workPackage.ref,
-          workPackage.name,
-          prefix,
-        ),
-      })
-    }
-  })()
+    const prefix = workspace().config.workPackageBranchPrefix
+    const assign = database.query(
+        "UPDATE work_packages SET branch_name = $branch WHERE ref = $ref",
+    )
+    database.transaction(() => {
+        for (const workPackage of rows) {
+            assign.run({
+                $ref: workPackage.ref,
+                $branch: workPackageBranchNameFor(
+                    workPackage.ref,
+                    workPackage.name,
+                    prefix,
+                ),
+            })
+        }
+    })()
 }
 
 /**
@@ -402,9 +404,9 @@ function backfillWorkPackageBranches(database: Database): void {
  * saw before it.
  */
 function backfillPositions(database: Database): void {
-  const pending = database
-    .query<{ id: number }, []>(
-      `SELECT id FROM tasks
+    const pending = database
+        .query<{ id: number }, []>(
+            `SELECT id FROM tasks
         WHERE position = 0
         ORDER BY CASE status
                    WHEN 'in_progress'  THEN 0
@@ -415,25 +417,25 @@ function backfillPositions(database: Database): void {
                  END,
                  CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
                  id DESC`,
+        )
+        .all()
+    if (!pending.length) return
+
+    const highest =
+        database
+            .query<{ top: number | null }, []>(
+                "SELECT MAX(position) AS top FROM tasks",
+            )
+            .get()?.top ?? 0
+
+    const assign = database.query(
+        "UPDATE tasks SET position = $position WHERE id = $id",
     )
-    .all()
-  if (!pending.length) return
-
-  const highest =
-    database
-      .query<{ top: number | null }, []>(
-        "SELECT MAX(position) AS top FROM tasks",
-      )
-      .get()?.top ?? 0
-
-  const assign = database.query(
-    "UPDATE tasks SET position = $position WHERE id = $id",
-  )
-  database.transaction(() => {
-    pending.forEach((task, index) => {
-      assign.run({ $id: task.id, $position: highest + index + 1 })
-    })
-  })()
+    database.transaction(() => {
+        pending.forEach((task, index) => {
+            assign.run({ $id: task.id, $position: highest + index + 1 })
+        })
+    })()
 }
 
 /**
@@ -444,90 +446,92 @@ function backfillPositions(database: Database): void {
  * cherry-picked in.
  */
 function backfillCombinedBranches(database: Database): void {
-  const rows = database
-    .query<{ ref: string; note: string; created_at: string }, []>(
-      `SELECT t.ref AS ref, e.note AS note, e.created_at AS created_at
+    const rows = database
+        .query<{ ref: string; note: string; created_at: string }, []>(
+            `SELECT t.ref AS ref, e.note AS note, e.created_at AS created_at
          FROM task_events e
          JOIN tasks t ON t.id = e.task_id
         WHERE e.type = 'note' AND e.note LIKE 'Included in combined branch %'
         ORDER BY e.id`,
-    )
-    .all()
+        )
+        .all()
 
-  const byBranch = new Map<string, { refs: string[]; at: string }>()
-  for (const row of rows) {
-    const name = /^Included in combined branch '(.+)'\.$/.exec(row.note)?.[1]
-    if (!name) continue
+    const byBranch = new Map<string, { refs: string[]; at: string }>()
+    for (const row of rows) {
+        const name = /^Included in combined branch '(.+)'\.$/.exec(
+            row.note,
+        )?.[1]
+        if (!name) continue
 
-    const entry = byBranch.get(name) ?? { refs: [], at: row.created_at }
-    if (!entry.refs.includes(row.ref)) entry.refs.push(row.ref)
-    byBranch.set(name, entry)
-  }
+        const entry = byBranch.get(name) ?? { refs: [], at: row.created_at }
+        if (!entry.refs.includes(row.ref)) entry.refs.push(row.ref)
+        byBranch.set(name, entry)
+    }
 
-  const insert = database.query(
-    `INSERT INTO combined_branches (branch_name, base_branch, task_refs, created_at, updated_at)
+    const insert = database.query(
+        `INSERT INTO combined_branches (branch_name, base_branch, task_refs, created_at, updated_at)
      VALUES ($name, NULL, $refs, $at, $at)
      ON CONFLICT(branch_name) DO NOTHING`,
-  )
-  for (const [name, entry] of byBranch) {
-    insert.run({
-      $name: name,
-      $refs: JSON.stringify(entry.refs),
-      $at: entry.at,
-    })
-  }
+    )
+    for (const [name, entry] of byBranch) {
+        insert.run({
+            $name: name,
+            $refs: JSON.stringify(entry.refs),
+            $at: entry.at,
+        })
+    }
 }
 
 export function getDb(): Database {
-  if (db) return db
+    if (db) return db
 
-  const { dbPath } = workspace()
-  mkdirSync(dirname(dbPath), { recursive: true })
+    const { dbPath } = workspace()
+    mkdirSync(dirname(dbPath), { recursive: true })
 
-  db = new Database(dbPath, { create: true })
-  db.exec("PRAGMA journal_mode = WAL")
-  db.exec("PRAGMA foreign_keys = ON")
-  const database = db
-  database.transaction(() => {
-    migrateWorkPackages(database)
-    for (const statement of SCHEMA) database.exec(statement)
-    applyColumnMigrations(database)
-    for (const statement of POST_MIGRATION_INDEXES) database.exec(statement)
-    backfillCombinedBranches(database)
-  })()
+    db = new Database(dbPath, { create: true })
+    db.exec("PRAGMA journal_mode = WAL")
+    db.exec("PRAGMA foreign_keys = ON")
+    const database = db
+    database.transaction(() => {
+        migrateWorkPackages(database)
+        for (const statement of SCHEMA) database.exec(statement)
+        applyColumnMigrations(database)
+        for (const statement of POST_MIGRATION_INDEXES) database.exec(statement)
+        backfillCombinedBranches(database)
+    })()
 
-  return db
+    return db
 }
 
 /** Bump one of the monotonic counters and return its new value. */
 function nextCounter(name: string): number {
-  const row = getDb()
-    .query<{ value: number }, { $name: string }>(
-      `INSERT INTO counters (name, value) VALUES ($name, 1)
+    const row = getDb()
+        .query<{ value: number }, { $name: string }>(
+            `INSERT INTO counters (name, value) VALUES ($name, 1)
        ON CONFLICT(name) DO UPDATE SET value = value + 1
        RETURNING value`,
-    )
-    .get({ $name: name })
+        )
+        .get({ $name: name })
 
-  return row!.value
+    return row!.value
 }
 
 /** Next task ref, e.g. `T-7`. */
 export function nextRef(): string {
-  return `T-${nextCounter("task")}`
+    return `T-${nextCounter("task")}`
 }
 
 /** Next investigation ref, e.g. `I-3`. Counted separately from tasks so the two
  *  sequences never interleave. */
 export function nextInvestigationRef(): string {
-  return `I-${nextCounter("investigation")}`
+    return `I-${nextCounter("investigation")}`
 }
 
 /** Next work package ref, e.g. `WP-2`. Its own counter for the same reason. */
 export function nextWorkPackageRef(): string {
-  return `WP-${nextCounter("work-package")}`
+    return `WP-${nextCounter("work-package")}`
 }
 
 export function nowIso(): string {
-  return new Date().toISOString()
+    return new Date().toISOString()
 }

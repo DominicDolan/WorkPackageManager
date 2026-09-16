@@ -1,205 +1,205 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "IBM Plex Sans", "Segoe UI Variable", "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", "Cascadia Code", monospace;
+    --font-sans: "IBM Plex Sans", "Segoe UI Variable", "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", "Cascadia Code", monospace;
 }
 
 :root {
-  color-scheme: dark;
-  --paper: #171c24;
-  --workbench: #0d1117;
-  --graphite: #f1f4f8;
-  --steel: #9aa5b5;
-  --cobalt: #6c8cff;
-  --cobalt-dark: #88a2ff;
-  --signal: #f2b84b;
-  --rail: #121720;
-  --line: #2a3442;
-  --line-strong: #3a4758;
-  --color-white: #171c24;
-  --color-slate-50: #12171e;
-  --color-slate-100: #1a2029;
-  --color-slate-200: #2a3442;
-  --color-slate-300: #3a4758;
-  --color-slate-400: #8190a3;
-  --color-slate-500: #9aa5b5;
-  --color-slate-600: #c0c9d6;
-  --color-slate-700: #d7dde5;
-  --color-slate-800: #e8edf4;
-  --color-slate-900: #f3f5f8;
-  --color-slate-950: #fff;
-  --color-blue-50: #172343;
-  --color-blue-100: #20335f;
-  --color-blue-200: #314b85;
-  --color-blue-500: #6c8cff;
-  --color-blue-600: #7a98ff;
-  --color-blue-700: #6c8cff;
-  --color-blue-800: #88a2ff;
-  --color-red-50: #321b24;
-  --color-red-200: #693644;
-  --color-red-700: #ff8591;
-  --color-amber-50: #302817;
-  --color-amber-200: #5f4e21;
-  --color-amber-700: #f0c766;
-  --color-amber-800: #f4d886;
-  --color-emerald-50: #132b27;
-  --color-emerald-200: #285648;
-  --color-emerald-700: #77d8b2;
-  --color-violet-50: #28213d;
-  --color-violet-700: #bea8ff;
+    color-scheme: dark;
+    --paper: #171c24;
+    --workbench: #0d1117;
+    --graphite: #f1f4f8;
+    --steel: #9aa5b5;
+    --cobalt: #6c8cff;
+    --cobalt-dark: #88a2ff;
+    --signal: #f2b84b;
+    --rail: #121720;
+    --line: #2a3442;
+    --line-strong: #3a4758;
+    --color-white: #171c24;
+    --color-slate-50: #12171e;
+    --color-slate-100: #1a2029;
+    --color-slate-200: #2a3442;
+    --color-slate-300: #3a4758;
+    --color-slate-400: #8190a3;
+    --color-slate-500: #9aa5b5;
+    --color-slate-600: #c0c9d6;
+    --color-slate-700: #d7dde5;
+    --color-slate-800: #e8edf4;
+    --color-slate-900: #f3f5f8;
+    --color-slate-950: #fff;
+    --color-blue-50: #172343;
+    --color-blue-100: #20335f;
+    --color-blue-200: #314b85;
+    --color-blue-500: #6c8cff;
+    --color-blue-600: #7a98ff;
+    --color-blue-700: #6c8cff;
+    --color-blue-800: #88a2ff;
+    --color-red-50: #321b24;
+    --color-red-200: #693644;
+    --color-red-700: #ff8591;
+    --color-amber-50: #302817;
+    --color-amber-200: #5f4e21;
+    --color-amber-700: #f0c766;
+    --color-amber-800: #f4d886;
+    --color-emerald-50: #132b27;
+    --color-emerald-200: #285648;
+    --color-emerald-700: #77d8b2;
+    --color-violet-50: #28213d;
+    --color-violet-700: #bea8ff;
 }
 
 * {
-  box-sizing: border-box;
+    box-sizing: border-box;
 }
 html {
-  background: var(--workbench);
+    background: var(--workbench);
 }
 body {
-  margin: 0;
-  min-width: 320px;
-  overflow-x: hidden;
-  background: var(--workbench);
-  color: var(--graphite);
-  font-family: var(--font-sans);
-  font-feature-settings: "ss01", "cv02";
-  -webkit-font-smoothing: antialiased;
+    margin: 0;
+    min-width: 320px;
+    overflow-x: hidden;
+    background: var(--workbench);
+    color: var(--graphite);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv02";
+    -webkit-font-smoothing: antialiased;
 }
 ::selection {
-  background: #3653a6;
-  color: #fff;
+    background: #3653a6;
+    color: #fff;
 }
 button,
 a,
 input,
 select,
 textarea {
-  font: inherit;
+    font: inherit;
 }
 button:not(:disabled),
 a {
-  cursor: pointer;
+    cursor: pointer;
 }
 button:disabled {
-  cursor: not-allowed;
-  opacity: 0.46;
+    cursor: not-allowed;
+    opacity: 0.46;
 }
 :where(button, a, input, select, textarea):focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--cobalt) 38%, transparent);
-  outline-offset: 2px;
+    outline: 3px solid color-mix(in srgb, var(--cobalt) 38%, transparent);
+    outline-offset: 2px;
 }
 
 .button,
 .button-primary {
-  display: inline-flex;
-  min-height: 2.5rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  border-radius: 0.35rem;
-  padding: 0.5rem 0.9rem;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: -0.005em;
-  transition:
-    border-color 130ms ease,
-    background-color 130ms ease,
-    color 130ms ease;
+    display: inline-flex;
+    min-height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    border-radius: 0.35rem;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    transition:
+        border-color 130ms ease,
+        background-color 130ms ease,
+        color 130ms ease;
 }
 .button {
-  border: 1px solid var(--line-strong);
-  background: var(--paper);
-  color: var(--color-slate-700);
+    border: 1px solid var(--line-strong);
+    background: var(--paper);
+    color: var(--color-slate-700);
 }
 .button:hover:not(:disabled) {
-  border-color: #637188;
-  background: #202833;
-  color: var(--graphite);
+    border-color: #637188;
+    background: #202833;
+    color: var(--graphite);
 }
 .button-primary {
-  border: 1px solid var(--cobalt);
-  background: var(--cobalt);
-  color: white;
+    border: 1px solid var(--cobalt);
+    background: var(--cobalt);
+    color: white;
 }
 .button-primary:hover:not(:disabled) {
-  border-color: var(--cobalt-dark);
-  background: var(--cobalt-dark);
+    border-color: var(--cobalt-dark);
+    background: var(--cobalt-dark);
 }
 .ui-icon {
-  width: 1.15rem;
-  height: 1.15rem;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: square;
-  stroke-linejoin: miter;
-  stroke-width: 1.7;
+    width: 1.15rem;
+    height: 1.15rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: square;
+    stroke-linejoin: miter;
+    stroke-width: 1.7;
 }
 
 .field {
-  display: grid;
-  gap: 0.45rem;
+    display: grid;
+    gap: 0.45rem;
 }
 .field > span,
 .field-label,
 .content-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--color-slate-600);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-slate-600);
 }
 .field input,
 .field select,
 .field textarea,
 .input {
-  width: 100%;
-  border: 1px solid var(--line-strong);
-  border-radius: 0.35rem;
-  background: var(--paper);
-  padding: 0.68rem 0.75rem;
-  color: var(--graphite);
-  outline: none;
+    width: 100%;
+    border: 1px solid var(--line-strong);
+    border-radius: 0.35rem;
+    background: var(--paper);
+    padding: 0.68rem 0.75rem;
+    color: var(--graphite);
+    outline: none;
 }
 .field textarea {
-  min-height: 7rem;
-  resize: vertical;
+    min-height: 7rem;
+    resize: vertical;
 }
 .field input:focus,
 .field select:focus,
 .field textarea:focus,
 .input:focus {
-  border-color: var(--cobalt);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cobalt) 12%, transparent);
+    border-color: var(--cobalt);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--cobalt) 12%, transparent);
 }
 
 .banner {
-  border: 1px solid var(--color-red-200);
-  border-left: 4px solid var(--color-red-700);
-  border-radius: 0.25rem;
-  background: var(--color-red-50);
-  padding: 0.8rem 1rem;
-  font-size: 0.8125rem;
-  color: var(--color-red-700);
+    border: 1px solid var(--color-red-200);
+    border-left: 4px solid var(--color-red-700);
+    border-radius: 0.25rem;
+    background: var(--color-red-50);
+    padding: 0.8rem 1rem;
+    font-size: 0.8125rem;
+    color: var(--color-red-700);
 }
 .empty-panel {
-  border: 1px dashed var(--line-strong);
-  border-radius: 0.35rem;
-  padding: 2.5rem;
-  background: rgb(255 255 255 / 0.48);
-  text-align: center;
-  font-size: 0.875rem;
-  color: var(--steel);
+    border: 1px dashed var(--line-strong);
+    border-radius: 0.35rem;
+    padding: 2.5rem;
+    background: rgb(255 255 255 / 0.48);
+    text-align: center;
+    font-size: 0.875rem;
+    color: var(--steel);
 }
 .text-white {
-  color: white;
+    color: white;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-  }
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
 }

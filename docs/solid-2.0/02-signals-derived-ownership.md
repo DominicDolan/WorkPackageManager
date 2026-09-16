@@ -20,12 +20,12 @@ In 2.0, a root created inside an existing owned scope is itself owned by that pa
 
 ```js
 function Widget() {
-  createRoot((dispose) => {
-    const [count, setCount] = createSignal(0)
-    const id = setInterval(() => setCount((c) => c + 1), 1000)
-    onCleanup(() => clearInterval(id))
-  })
-  return null
+    createRoot((dispose) => {
+        const [count, setCount] = createSignal(0)
+        const id = setInterval(() => setCount((c) => c + 1), 1000)
+        onCleanup(() => clearInterval(id))
+    })
+    return null
 }
 // When Widget is disposed, the nested root is disposed too.
 ```
@@ -37,8 +37,8 @@ If you really want “no owner” (module singletons, external integrations), de
 ```js
 // A truly detached singleton
 export const singleton = runWithOwner(null, () => {
-  const [value, setValue] = createSignal(0)
-  return { value, setValue }
+    const [value, setValue] = createSignal(0)
+    return { value, setValue }
 })
 ```
 
@@ -53,16 +53,16 @@ Context creation still looks the same, but usage becomes simpler: the context it
 const ThemeContext = createContext("light")
 
 function App() {
-  return (
-    <ThemeContext value="dark">
-      <Page />
-    </ThemeContext>
-  )
+    return (
+        <ThemeContext value="dark">
+            <Page />
+        </ThemeContext>
+    )
 }
 
 function Page() {
-  const theme = useContext(ThemeContext)
-  return <div class={theme}>...</div>
+    const theme = useContext(ThemeContext)
+    return <div class={theme}>...</div>
 }
 ```
 
@@ -74,9 +74,9 @@ In 2.0, `createContext<T>()` (no default) is typed `Context<T>` — `useContext`
 // 1.x boilerplate — the wrapper exists only to narrow the type
 const TodosContext = createContext<TodosCtx>()
 const useTodos = () => {
-  const ctx = useContext(TodosContext)
-  if (!ctx) throw new Error("missing TodosContext.Provider")
-  return ctx
+    const ctx = useContext(TodosContext)
+    if (!ctx) throw new Error("missing TodosContext.Provider")
+    return ctx
 }
 
 // 2.0 — direct call, no wrapper. Throws if no Provider; type is TodosCtx, not TodosCtx | undefined.
@@ -115,10 +115,10 @@ Unlike memo/effect `prev`, the second argument here is a real backing host objec
 ```js
 // Example: derived store that only flips the active key
 const [selected, setSelected] = createStore((draft) => {
-  const id = selectedId()
-  draft[id] = true
-  if (draft._prev != null) delete draft[draft._prev]
-  draft._prev = id
+    const id = selectedId()
+    draft[id] = true
+    if (draft._prev != null) delete draft[draft._prev]
+    draft._prev = id
 }, {})
 ```
 

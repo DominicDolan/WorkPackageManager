@@ -10,39 +10,39 @@ One-page reference for Solid 2.0. Every API exists in `solid-js` unless noted. D
 
 ```ts
 import {
-  createSignal,
-  createMemo,
-  createEffect,
-  createRoot,
-  For,
-  Show,
-  Switch,
-  Match,
-  Loading,
-  Errored,
-  Repeat,
-  Reveal,
-  createStore,
-  createProjection,
-  snapshot,
-  reconcile,
-  merge,
-  omit,
-  action,
-  createOptimistic,
-  createOptimisticStore,
-  isPending,
-  latest,
-  refresh,
-  affects,
-  untrack,
-  flush,
-  onSettled,
-  createContext,
-  useContext,
-  children,
-  lazy,
-  createUniqueId,
+    createSignal,
+    createMemo,
+    createEffect,
+    createRoot,
+    For,
+    Show,
+    Switch,
+    Match,
+    Loading,
+    Errored,
+    Repeat,
+    Reveal,
+    createStore,
+    createProjection,
+    snapshot,
+    reconcile,
+    merge,
+    omit,
+    action,
+    createOptimistic,
+    createOptimisticStore,
+    isPending,
+    latest,
+    refresh,
+    affects,
+    untrack,
+    flush,
+    onSettled,
+    createContext,
+    useContext,
+    children,
+    lazy,
+    createUniqueId,
 } from "solid-js"
 
 import { render, hydrate, Portal, dynamic, Dynamic } from "@solidjs/web"
@@ -95,35 +95,35 @@ count() // 1
 ```ts
 // Two-arg form is the only form. Compute tracks; apply runs side effects.
 createEffect(
-  () => count(), // compute (tracks)
-  (value, prev) => {
-    // apply (untracked)
-    el.title = value
-    return () => {
-      /* cleanup */
-    } // optional cleanup
-  },
+    () => count(), // compute (tracks)
+    (value, prev) => {
+        // apply (untracked)
+        el.title = value
+        return () => {
+            /* cleanup */
+        } // optional cleanup
+    },
 )
 
 // With error handling
 createEffect(() => fetchData(id()), {
-  effect: (data) => render(data),
-  error: (err, cleanup) => console.error(err),
+    effect: (data) => render(data),
+    error: (err, cleanup) => console.error(err),
 })
 
 // Run on next change only (skip initial)
 createEffect(
-  () => count(),
-  (v) => log(v),
-  { defer: true },
+    () => count(),
+    (v) => log(v),
+    { defer: true },
 )
 
 // Schedule once after the current activity settles — the canonical
 // "do this once and clean it up on dispose" primitive (replaces 1.x
 // onMount + onCleanup for component-level lifecycle).
 onSettled(() => {
-  const id = setInterval(tick, 1000)
-  return () => clearInterval(id)
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
 })
 ```
 
@@ -148,8 +148,8 @@ const [store, setStore] = createStore({ user: { name: "A" }, list: [] })
 
 // Draft-first setter (canonical)
 setStore((s) => {
-  s.user.name = "B"
-  s.list.push("x")
+    s.user.name = "B"
+    s.list.push("x")
 })
 
 // Return a value when mutation is awkward (filter/remove most often).
@@ -160,16 +160,16 @@ setStore((s) => ({ ...s, list: [] }))
 
 // Reconcile new data into a sub-tree (preserve identity)
 setStore((s) => {
-  reconcile(serverTodos, "id")(s.todos)
+    reconcile(serverTodos, "id")(s.todos)
 })
 
 // Derived stores (mirror signal/memo split)
 const items = createProjection(async () => api.list(), [], { key: "id" }) // readonly
 const [cache, setCache] = createStore(
-  (draft) => {
-    draft.x = compute()
-  },
-  { x: 0 },
+    (draft) => {
+        draft.x = compute()
+    },
+    { x: 0 },
 ) // writable
 ```
 
@@ -242,21 +242,21 @@ refresh(user);
 const [todos, setOptimisticTodos] = createOptimisticStore(() => api.list(), [])
 
 const addTodo = action(function* (todo) {
-  setOptimisticTodos((s) => {
-    s.push(todo)
-  }) // optimistic write — shows the expected value; never reads as pending itself
-  yield api.add(todo) // async work
-  refresh(todos) // reconcile with source of truth (quiet — same question)
+    setOptimisticTodos((s) => {
+        s.push(todo)
+    }) // optimistic write — shows the expected value; never reads as pending itself
+    yield api.add(todo) // async work
+    refresh(todos) // reconcile with source of truth (quiet — same question)
 })
 
 // Declare data the in-flight work WILL change (reads as pending until settle):
 const rename = action(function* (todo, text) {
-  setOptimisticTodos(() => {
-    todo.text = text
-  })
-  affects(todo, "updatedAt") // server changes this slot too — pend it
-  yield api.rename(todo.id, text)
-  refresh(todos)
+    setOptimisticTodos(() => {
+        todo.text = text
+    })
+    affects(todo, "updatedAt") // server changes this slot too — pend it
+    yield api.rename(todo.id, text)
+    refresh(todos)
 })
 
 // Optimistic signal
@@ -359,18 +359,18 @@ type TodosCtx = readonly [Store<Todo[]>, TodoActions]
 const TodosContext = createContext<TodosCtx>()
 
 function App() {
-  return (
-    <TodosContext value={createTodos()}>
-      {" "}
-      {/* the context IS the provider */}
-      <TodoList />
-    </TodosContext>
-  )
+    return (
+        <TodosContext value={createTodos()}>
+            {" "}
+            {/* the context IS the provider */}
+            <TodoList />
+        </TodosContext>
+    )
 }
 
 function TodoList() {
-  const [todos, { addTodo }] = useContext(TodosContext) // typed as TodosCtx
-  // ...
+    const [todos, { addTodo }] = useContext(TodosContext) // typed as TodosCtx
+    // ...
 }
 ```
 
@@ -380,8 +380,8 @@ function TodoList() {
 const Theme = createContext<"light" | "dark">("light")
 
 function Page() {
-  const theme = useContext(Theme) // "light" | "dark"
-  return <div class={theme}>...</div>
+    const theme = useContext(Theme) // "light" | "dark"
+    return <div class={theme}>...</div>
 }
 ```
 
@@ -439,16 +439,16 @@ Two-phase directive (recommended):
 
 ```ts
 function titleDirective(source) {
-  // Setup phase (owned): create primitives.
-  let el
-  createEffect(source, (value) => {
-    if (el) el.title = value
-  })
-  // Apply phase (unowned): DOM writes only.
-  return (nextEl) => {
-    el = nextEl
-    el.title = source()
-  }
+    // Setup phase (owned): create primitives.
+    let el
+    createEffect(source, (value) => {
+        if (el) el.title = value
+    })
+    // Apply phase (unowned): DOM writes only.
+    return (nextEl) => {
+        el = nextEl
+        el.title = source()
+    }
 }
 ```
 
@@ -466,7 +466,7 @@ For native listener options, use a ref callback:
 
 ```jsx
 const on = (type, handler, options) => (el) =>
-  el.addEventListener(type, handler, options)
+    el.addEventListener(type, handler, options)
 
 ;<button ref={on("click", handleClick, { capture: true })} />
 ```
@@ -487,12 +487,12 @@ Array entries are always-on (or further nested arrays/objects). Object entries t
 ;<li class={["todo", { completed: props.todo.completed, errored: !!err() }]} /> // ✅
 
 const cls = [
-  "todo", // ❌
-  props.todo.completed && "completed",
-  err() && "errored",
+    "todo", // ❌
+    props.todo.completed && "completed",
+    err() && "errored",
 ]
-  .filter(Boolean)
-  .join(" ")
+    .filter(Boolean)
+    .join(" ")
 return <li class={cls} />
 ```
 
@@ -535,8 +535,8 @@ onCleanup(() => disposeReactiveResource())
 // Deep tracking — only when an effect needs to react to *any* nested store change.
 // Default store tracking is property-level (preferred).
 createEffect(
-  () => deep(store),
-  (snap) => save(snap),
+    () => deep(store),
+    (snap) => save(snap),
 )
 
 // Plain (non-reactive) deep copy of a store. For serialization (JSON.stringify,
@@ -547,10 +547,10 @@ JSON.stringify(snapshot(store))
 // Render-phase synchronous effect — for DOM bindings that must run during render
 // (the runtime's own attribute/property bindings). For app code, use createEffect.
 createRenderEffect(
-  () => props.title,
-  (v) => {
-    el.title = v
-  },
+    () => props.title,
+    (v) => {
+        el.title = v
+    },
 )
 
 // Single-callback effect that may re-run in async situations.
@@ -565,21 +565,21 @@ track(() => count())
 // createRoot in tests, library setup, and other non-render entry points where
 // you need an owner so reactive primitives can dispose properly.
 createRoot((dispose) => {
-  const [count, setCount] = createSignal(0)
-  // ...
-  dispose()
+    const [count, setCount] = createSignal(0)
+    // ...
+    dispose()
 })
 
 // Detach a root from its parent (module singletons, external integrations only).
 runWithOwner(null, () => {
-  /* ... */
+    /* ... */
 })
 
 // Get the current owner. Mostly used to capture and restore an owner across an
 // async boundary inside library code.
 const owner = getOwner()
 runWithOwner(owner, () => {
-  /* ... */
+    /* ... */
 })
 
 // Wait for a reactive expression to settle (imperative code / tests).

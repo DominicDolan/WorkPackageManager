@@ -19,15 +19,15 @@ In a Vite app this is now one line: `serverFunctions: { components: true }` on `
 ```ts
 import { configureServerFunctionsServer } from "@solidjs/web/server-functions/server"
 import {
-  frameTransformResult,
-  frameTransformDirectResult,
-  frameTransformFlightResult,
+    frameTransformResult,
+    frameTransformDirectResult,
+    frameTransformFlightResult,
 } from "@solidjs/web/frames/server"
 
 configureServerFunctionsServer({
-  transformResult: frameTransformResult, // HTTP: function results stream as frames
-  transformDirectResult: frameTransformDirectResult, // document SSR: function results render inline
-  transformFlightResult: frameTransformFlightResult, // single-flight: invalidated markup rides as regions
+    transformResult: frameTransformResult, // HTTP: function results stream as frames
+    transformDirectResult: frameTransformDirectResult, // document SSR: function results render inline
+    transformFlightResult: frameTransformFlightResult, // single-flight: invalidated markup rides as regions
 })
 ```
 
@@ -73,22 +73,22 @@ A complete working setup (no Vite, no metaframework) is `examples/hackernews`; i
 
 ```tsx
 async function getStory(id: number) {
-  "use server"
-  const story = await db.stories.get(id)
-  return (props) => (
-    <article>
-      <h1>{story.title}</h1>
-      <section>
-        {story.comments.map((c) => (
-          <props.comment $key={c.id} cid={c.id}>
-            <p>{c.text}</p>
-            {c.replies.map(renderReply)}
-          </props.comment>
-        ))}
-      </section>
-      <footer>{props.children}</footer>
-    </article>
-  )
+    "use server"
+    const story = await db.stories.get(id)
+    return (props) => (
+        <article>
+            <h1>{story.title}</h1>
+            <section>
+                {story.comments.map((c) => (
+                    <props.comment $key={c.id} cid={c.id}>
+                        <p>{c.text}</p>
+                        {c.replies.map(renderReply)}
+                    </props.comment>
+                ))}
+            </section>
+            <footer>{props.children}</footer>
+        </article>
+    )
 }
 ```
 
@@ -102,16 +102,18 @@ async function getStory(id: number) {
 
 ```tsx
 function StoryPage(props) {
-  const Story = dynamic(() => getStory(props.storyId))
-  return (
-    <Story
-      comment={(p) => (
-        <CollapsibleComment cid={p.cid}>{p.children}</CollapsibleComment>
-      )}
-    >
-      <ShareBar />
-    </Story>
-  )
+    const Story = dynamic(() => getStory(props.storyId))
+    return (
+        <Story
+            comment={(p) => (
+                <CollapsibleComment cid={p.cid}>
+                    {p.children}
+                </CollapsibleComment>
+            )}
+        >
+            <ShareBar />
+        </Story>
+    )
 }
 ```
 

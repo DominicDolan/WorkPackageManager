@@ -10,10 +10,10 @@ For web apps, TypeScript should resolve JSX from `@solidjs/web`:
 
 ```json
 {
-  "compilerOptions": {
-    "jsx": "preserve",
-    "jsxImportSource": "@solidjs/web"
-  }
+    "compilerOptions": {
+        "jsx": "preserve",
+        "jsxImportSource": "@solidjs/web"
+    }
 }
 ```
 
@@ -64,10 +64,10 @@ Projects using the automatic JSX transform with hyperscript should point `jsxImp
 
 ```json
 {
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "jsxImportSource": "@solidjs/h"
-  }
+    "compilerOptions": {
+        "jsx": "react-jsx",
+        "jsxImportSource": "@solidjs/h"
+    }
 }
 ```
 

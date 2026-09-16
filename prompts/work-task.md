@@ -19,12 +19,12 @@ If that returns **any** task, work stops here — with one exception.
 - **Otherwise** — no ref given, or a ref naming a different task — **stop and
   warn.** Do not branch, do not capture, do not edit anything. Say which task is
   already in progress (ref and title), and give the user their options:
-  - resume it: a `work-task` run targeting that ref
-  - park it: `tasks edit <that-ref> --status backlog`
-  - finish it: `tasks done <that-ref>`
+    - resume it: a `work-task` run targeting that ref
+    - park it: `tasks edit <that-ref> --status backlog`
+    - finish it: `tasks done <that-ref>`
 
-  Then stop and wait. Only work a different task if the user, having been told,
-  says to anyway.
+    Then stop and wait. Only work a different task if the user, having been told,
+    says to anyway.
 
 One in-progress task at a time keeps visual checkpoints attributable: two tasks
 in flight can give one task a "before" state containing the other's half-finished
@@ -83,9 +83,9 @@ edit anything. Tell the user:
 - which task you were about to work, and which dependency is holding it up —
   ref, title and current status
 - their options:
-  - work the blocker first: a `work-task` run targeting the blocker
-  - drop the dependency if it is wrong: `tasks dep rm <ref> <blocker-ref>`
-  - work this task anyway, knowing the blocker's code will not be present
+    - work the blocker first: a `work-task` run targeting the blocker
+    - drop the dependency if it is wrong: `tasks dep rm <ref> <blocker-ref>`
+    - work this task anyway, knowing the blocker's code will not be present
 
 Then wait. Only carry on with a blocked task if the user, having been told,
 says to — and if they do, say plainly in your final report that it was worked
@@ -316,13 +316,13 @@ Read the result. For each scenario it reports `unchanged`, `changed` or
 - **`unchanged`** on a task that was supposed to change something visually.
   Something is wrong; find out which of two things it is before declaring
   success:
-  - **the change did not take effect** — a common cause is the frontend
-    container serving a stale build. Check the change is really live, then
-    re-run `after`.
-  - **the change is live but no scenario looks at it** — the scenario stops
-    short of the state you changed, or you decided in step 5 that the task was
-    invisible and it turned out not to be. Fix the coverage, per the next
-    section.
+    - **the change did not take effect** — a common cause is the frontend
+      container serving a stale build. Check the change is really live, then
+      re-run `after`.
+    - **the change is live but no scenario looks at it** — the scenario stops
+      short of the state you changed, or you decided in step 5 that the task was
+      invisible and it turned out not to be. Fix the coverage, per the next
+      section.
 
 ### When nothing captured the change
 
@@ -428,8 +428,8 @@ which happens either way:
   work conflicted; once they have rebased and resolved it, `tasks merge <ref>`
   registers the task.
 
-  A branch that has already been pushed is refused outright, because replaying it
-  would need a force-push afterwards. Report that and stop.
+    A branch that has already been pushed is refused outright, because replaying it
+    would need a force-push afterwards. Report that and stop.
 
 `tasks done <ref> --no-merge` skips the merge if the user has asked you to leave
 the work package branch alone.

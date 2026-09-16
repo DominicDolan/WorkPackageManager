@@ -24,21 +24,21 @@ Solid 2.0 introduces an `action()` wrapper for async mutations and a pair of opt
 
 ```js
 const [todos, setOptimisticTodos] = createOptimisticStore(
-  () => api.getTodos(),
-  [],
+    () => api.getTodos(),
+    [],
 )
 
 const saveTodo = action(function* (todo) {
-  // optimistic write
-  setOptimisticTodos((todos) => {
-    todos.push(todo)
-  })
+    // optimistic write
+    setOptimisticTodos((todos) => {
+        todos.push(todo)
+    })
 
-  // perform async work
-  yield api.addTodo(todo)
+    // perform async work
+    yield api.addTodo(todo)
 
-  // refresh reads (store/projection form)
-  refresh(todos)
+    // refresh reads (store/projection form)
+    refresh(todos)
 })
 ```
 
@@ -46,13 +46,13 @@ For better TS ergonomics, an async generator form is also viable:
 
 ```js
 const saveTodo = action(async function* (todo) {
-  setOptimisticTodos((todos) => {
-    todos.push(todo)
-  })
-  const res = await api.addTodo(todo)
-  yield // resume action in the same transition context
-  refresh(todos)
-  return res
+    setOptimisticTodos((todos) => {
+        todos.push(todo)
+    })
+    const res = await api.addTodo(todo)
+    yield // resume action in the same transition context
+    refresh(todos)
+    return res
 })
 ```
 
@@ -74,8 +74,8 @@ refresh(user)
 const [todos] = createStore(() => api.getTodos(), [])
 
 const addTodo = action(function* (todo) {
-  yield api.addTodo(todo)
-  refresh(todos)
+    yield api.addTodo(todo)
+    refresh(todos)
 })
 ```
 
@@ -89,11 +89,11 @@ const addTodo = action(function* (todo) {
 
 ```js
 const submit = action(async function* (order) {
-  setOptimisticOrder(order)
-  yield api.placeOrder(order)
-  // Wait for the refetch to actually land, then act on fresh server state.
-  const inv = yield refresh(inventory)
-  if (inv[order.sku] < threshold) yield api.flagRestock(order.sku)
+    setOptimisticOrder(order)
+    yield api.placeOrder(order)
+    // Wait for the refetch to actually land, then act on fresh server state.
+    const inv = yield refresh(inventory)
+    if (inv[order.sku] < threshold) yield api.flagRestock(order.sku)
 })
 ```
 
@@ -115,18 +115,18 @@ Targets mirror how you read: `affects(store)` marks a store record (root or nest
 
 ```js
 const reload = action(function* () {
-  affects(todos) // the whole store reads pending…
-  refresh(todos) // …over this otherwise-quiet re-ask
-  yield api.done()
+    affects(todos) // the whole store reads pending…
+    refresh(todos) // …over this otherwise-quiet re-ask
+    yield api.done()
 })
 
 const rename = action(function* (todo, text) {
-  setOptimisticTodos(() => {
-    todo.text = text
-  })
-  affects(todo, "updatedAt") // server will change this slot too
-  yield api.rename(todo.id, text)
-  refresh(todos)
+    setOptimisticTodos(() => {
+        todo.text = text
+    })
+    affects(todo, "updatedAt") // server will change this slot too
+    yield api.rename(todo.id, text)
+    refresh(todos)
 })
 ```
 
@@ -140,8 +140,8 @@ Note the division of labor: optimistic writes show the expected value (they are 
 const [name, setName] = createOptimistic("Alice")
 
 const updateName = action(function* (next) {
-  setName(next) // optimistic
-  yield api.saveName(next)
+    setName(next) // optimistic
+    yield api.saveName(next)
 })
 ```
 
@@ -151,17 +151,17 @@ const updateName = action(function* (next) {
 
 ```js
 const [todos, setOptimisticTodos] = createOptimisticStore(
-  () => api.getTodos(),
-  [],
+    () => api.getTodos(),
+    [],
 )
 
 const addTodo = action(function* (todo) {
-  setOptimisticTodos((todos) => {
-    todos.push(todo)
-  })
-  yield api.addTodo(todo)
-  // refresh store/projection form (object with [$REFRESH])
-  refresh(todos)
+    setOptimisticTodos((todos) => {
+        todos.push(todo)
+    })
+    yield api.addTodo(todo)
+    // refresh store/projection form (object with [$REFRESH])
+    refresh(todos)
 })
 ```
 
@@ -173,21 +173,21 @@ The flows above assume the mutation's own response confirms the write: await it,
 
 ```js
 const [messages, setMessages] = createOptimisticStore(
-  () => liveQuery("messages"),
-  [],
+    () => liveQuery("messages"),
+    [],
 )
 
 const send = action(async function* (text) {
-  const clientId = crypto.randomUUID()
-  setMessages((m) => {
-    m.push({ clientId, text, pending: true })
-  }) // optimistic
-  await socket.send({ clientId, text }) // fire-and-forget
-  // Hold until the live source echoes the write:
-  yield until(() => messages.some((m) => m.clientId === clientId), {
-    timeout: 10_000,
-  })
-  // settle → the override drops onto data that already contains the real row
+    const clientId = crypto.randomUUID()
+    setMessages((m) => {
+        m.push({ clientId, text, pending: true })
+    }) // optimistic
+    await socket.send({ clientId, text }) // fire-and-forget
+    // Hold until the live source echoes the write:
+    yield until(() => messages.some((m) => m.clientId === clientId), {
+        timeout: 10_000,
+    })
+    // settle → the override drops onto data that already contains the real row
 })
 ```
 

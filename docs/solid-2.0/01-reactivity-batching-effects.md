@@ -47,17 +47,17 @@ button.onclick = () => setCount((c) => c + 1)
 ```js
 // New: top-level read in component body warns unless wrapped
 function Title(props) {
-  const t = untrack(() => props.title) // intentional one-time read — no warn
-  return <h1>{t}</h1>
+    const t = untrack(() => props.title) // intentional one-time read — no warn
+    return <h1>{t}</h1>
 }
 function Bad(props) {
-  const t = props.title // warns: Untracked reactive read
-  return <h1>{t}</h1>
+    const t = props.title // warns: Untracked reactive read
+    return <h1>{t}</h1>
 }
 
 // Common pitfall: destructuring reactive props at top level (warns)
 function BadArgs({ title }) {
-  return <h1>{title}</h1>
+    return <h1>{title}</h1>
 }
 ```
 
@@ -86,9 +86,9 @@ Updates are applied on the next microtask by default. After calling a setter, re
 
 ```js
 function handleSubmit() {
-  setSubmitted(true)
-  flush() // apply updates now
-  inputRef.focus() // DOM is up to date
+    setSubmitted(true)
+    flush() // apply updates now
+    inputRef.focus() // DOM is up to date
 }
 ```
 
@@ -98,8 +98,8 @@ function handleSubmit() {
 
 ```js
 flush(() => {
-  setSubmitted(true)
-  setCount(count() + 1)
+    setSubmitted(true)
+    setCount(count() + 1)
 }) // callback updates are applied before flush returns
 ```
 
@@ -111,14 +111,14 @@ Effects have two phases: **compute** (reactive reads only; dependencies recorded
 
 ```js
 createEffect(
-  () => count(), // compute: only reads
-  (value, prev) => {
-    // effect: runs after flush
-    console.log(value)
-    return () => {
-      /* cleanup */
-    }
-  },
+    () => count(), // compute: only reads
+    (value, prev) => {
+        // effect: runs after flush
+        console.log(value)
+        return () => {
+            /* cleanup */
+        }
+    },
 )
 ```
 
@@ -156,16 +156,16 @@ Both `createSignal` and `createMemo` accept an `unobserved` callback that fires 
 
 ```js
 const data = createMemo(
-  () => {
-    const ws = new WebSocket(url())
-    onCleanup(() => ws.close())
-    return new Promise((resolve) => {
-      ws.onmessage = (e) => resolve(JSON.parse(e.data))
-    })
-  },
-  {
-    unobserved: () => console.log("no subscribers, resources cleaned up"),
-  },
+    () => {
+        const ws = new WebSocket(url())
+        onCleanup(() => ws.close())
+        return new Promise((resolve) => {
+            ws.onmessage = (e) => resolve(JSON.parse(e.data))
+        })
+    },
+    {
+        unobserved: () => console.log("no subscribers, resources cleaned up"),
+    },
 )
 ```
 
@@ -180,14 +180,14 @@ The effect callback (back half) runs in an **untracked scope**. If a store proxy
 ```js
 // Bad: passes store proxy through, reads in effect trigger warnings
 createEffect(
-  () => store.user,
-  (user) => sendAnalytics(user.name, user.age), // reads in untracked scope
+    () => store.user,
+    (user) => sendAnalytics(user.name, user.age), // reads in untracked scope
 )
 
 // Good: reads happen in compute, effect receives plain values
 createEffect(
-  () => ({ name: store.user.name, age: store.user.age }),
-  (value) => sendAnalytics(value.name, value.age),
+    () => ({ name: store.user.name, age: store.user.age }),
+    (value) => sendAnalytics(value.name, value.age),
 )
 ```
 
@@ -195,8 +195,8 @@ createEffect(
 
 ```js
 createEffect(
-  () => deep(store),
-  (snapshot) => saveToLocalStorage(JSON.stringify(snapshot)),
+    () => deep(store),
+    (snapshot) => saveToLocalStorage(JSON.stringify(snapshot)),
 )
 ```
 
@@ -204,11 +204,11 @@ createEffect(
 
 ```js
 createEffect(
-  () => saveFlag(),
-  () => {
-    const data = snapshot(store)
-    upload(data)
-  },
+    () => saveFlag(),
+    () => {
+        const data = snapshot(store)
+        upload(data)
+    },
 )
 ```
 
@@ -223,15 +223,15 @@ Use `createRenderEffect` for DOM-level work that must happen synchronously durin
 ```js
 // Synchronous render-phase binding
 createRenderEffect(
-  () => props.title, // compute: track the value
-  (value) => {
-    // apply: runs synchronously when value changes
-    el.title = value
-    return () => {
-      // cleanup
-      el.title = ""
-    }
-  },
+    () => props.title, // compute: track the value
+    (value) => {
+        // apply: runs synchronously when value changes
+        el.title = value
+        return () => {
+            // cleanup
+            el.title = ""
+        }
+    },
 )
 ```
 
@@ -241,13 +241,13 @@ createRenderEffect(
 
 ```js
 createEffect(() => fetchData(id()), {
-  effect: (data) => {
-    renderData(data)
-  },
-  error: (err, cleanup) => {
-    console.error("Fetch failed:", err)
-    cleanup()
-  },
+    effect: (data) => {
+        renderData(data)
+    },
+    error: (err, cleanup) => {
+        console.error("Fetch failed:", err)
+        cleanup()
+    },
 })
 ```
 
@@ -257,9 +257,9 @@ createEffect(() => fetchData(id()), {
 
 ```js
 onSettled(() => {
-  const value = count() // reactive read allowed here
-  doSomething(value)
-  return () => cleanup()
+    const value = count() // reactive read allowed here
+    doSomething(value)
+    return () => cleanup()
 })
 ```
 

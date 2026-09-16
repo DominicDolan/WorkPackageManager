@@ -124,19 +124,19 @@ after a model lineup changes. It maps each harness to its three tiers:
 
 ```json
 {
-  "modelTiers": {
-    "claude": { "fast": "haiku", "standard": "sonnet", "frontier": "opus" },
-    "codex": {
-      "fast": "gpt-5.6-luna",
-      "standard": "gpt-5.6-terra",
-      "frontier": "gpt-5.6-sol"
-    },
-    "pi": {
-      "fast": "openai/luna",
-      "standard": "openai/terra",
-      "frontier": "openai/sol"
+    "modelTiers": {
+        "claude": { "fast": "haiku", "standard": "sonnet", "frontier": "opus" },
+        "codex": {
+            "fast": "gpt-5.6-luna",
+            "standard": "gpt-5.6-terra",
+            "frontier": "gpt-5.6-sol"
+        },
+        "pi": {
+            "fast": "openai/luna",
+            "standard": "openai/terra",
+            "frontier": "openai/sol"
+        }
     }
-  }
 }
 ```
 
@@ -153,33 +153,33 @@ run it in, and optionally the paths it applies to.
 
 ```json
 {
-  "checks": [
-    {
-      "name": "frontend type-check",
-      "command": ["bun", "run", "type-check"],
-      "cwd": "frontend",
-      "paths": ["frontend"]
-    },
-    {
-      "name": "frontend lint",
-      "command": ["bun", "run", "lint"],
-      "cwd": "frontend",
-      "paths": ["frontend"]
-    },
-    {
-      "name": "backend build",
-      "command": [
-        "dotnet",
-        "build",
-        "Arcadis.Foundry.slnx",
-        "--configuration",
-        "Release"
-      ],
-      "cwd": "backend-modular",
-      "paths": ["backend-modular"],
-      "timeoutMs": 1500000
-    }
-  ]
+    "checks": [
+        {
+            "name": "frontend type-check",
+            "command": ["bun", "run", "type-check"],
+            "cwd": "frontend",
+            "paths": ["frontend"]
+        },
+        {
+            "name": "frontend lint",
+            "command": ["bun", "run", "lint"],
+            "cwd": "frontend",
+            "paths": ["frontend"]
+        },
+        {
+            "name": "backend build",
+            "command": [
+                "dotnet",
+                "build",
+                "Arcadis.Foundry.slnx",
+                "--configuration",
+                "Release"
+            ],
+            "cwd": "backend-modular",
+            "paths": ["backend-modular"],
+            "timeoutMs": 1500000
+        }
+    ]
 }
 ```
 
@@ -520,6 +520,12 @@ branch is where the work package's work adds up:
 The Git branch is created lazily, the first time a task in the work package is
 branched — filing tasks under a heading does not put branches in your
 repository. A task in no work package behaves exactly as before.
+
+The work package's **Branch** tab distinguishes the local and remote names.
+**Rename local branch** uses Git's branch rename, so the new name keeps the old
+branch's commits. **Remote branch name** controls the name used by the next push
+and pull request without changing the local branch. Leave it blank to use the
+local name remotely.
 
 #### Tasks without a Git workflow
 

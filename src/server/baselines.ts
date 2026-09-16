@@ -4,9 +4,9 @@ import { isAbsolute, join, relative, resolve } from "node:path"
 import { workspace } from "../config/paths"
 import { aioVrAvailable, spawnAioVr } from "./aiovr"
 import type {
-  BaselineReport,
-  BaselineScenario,
-  ComparisonStatus,
+    BaselineReport,
+    BaselineScenario,
+    ComparisonStatus,
 } from "../shared/types"
 
 /**
@@ -26,79 +26,81 @@ import type {
 
 /** aio-vr's own config, which is what decides where everything lives. */
 interface AioVrConfig {
-  baselinesDir?: string
-  runsDir?: string
-  resultsFile?: string
-  approvalsFile?: string
+    baselinesDir?: string
+    runsDir?: string
+    resultsFile?: string
+    approvalsFile?: string
 }
 
 interface ResultEntry {
-  name: string
-  description?: string
-  status?: string
-  percentChanged?: number
-  pixelDiffCount?: number
-  totalPixels?: number
-  threshold?: number
-  timestamp?: string
-  durationMs?: number
-  approved?: boolean
-  scenarioPath?: string
-  baselinePath?: string
-  actualPath?: string
-  diffPath?: string
-  browserLogStatus?: string
-  browserLogChangeCount?: number
-  browserLogDiffPath?: string
+    name: string
+    description?: string
+    status?: string
+    percentChanged?: number
+    pixelDiffCount?: number
+    totalPixels?: number
+    threshold?: number
+    timestamp?: string
+    durationMs?: number
+    approved?: boolean
+    scenarioPath?: string
+    baselinePath?: string
+    actualPath?: string
+    diffPath?: string
+    browserLogStatus?: string
+    browserLogChangeCount?: number
+    browserLogDiffPath?: string
 }
 
 interface ResultsFile {
-  generatedAt?: string
-  totals?: Record<string, number>
-  results?: ResultEntry[]
+    generatedAt?: string
+    totals?: Record<string, number>
+    results?: ResultEntry[]
 }
 
 interface ApprovalEntry {
-  approvedAt?: string
-  statusAtApproval?: string
+    approvedAt?: string
+    statusAtApproval?: string
 }
 
 interface ApprovalsFile {
-  approvals?: Record<string, ApprovalEntry>
+    approvals?: Record<string, ApprovalEntry>
 }
 
 const CONFIG_NAME = "aio-vr.config.json"
 
 /** Defaults matching aio-vr's own, for a workspace with no config file. */
 const DEFAULTS = {
-  resultsFile: "./runs/latest/results.json",
-  approvalsFile: "./runs/approvals.json",
+    resultsFile: "./runs/latest/results.json",
+    approvalsFile: "./runs/approvals.json",
 } as const
 
 async function readJson<T>(path: string): Promise<T | null> {
-  try {
-    return JSON.parse(await readFile(path, "utf8")) as T
-  } catch {
-    return null
-  }
+    try {
+        return JSON.parse(await readFile(path, "utf8")) as T
+    } catch {
+        return null
+    }
 }
 
 /** aio-vr's config paths are relative to its own directory. */
 function inWorkspace(value: string): string {
-  const { aioVrDir } = workspace()
-  return isAbsolute(value) ? value : resolve(aioVrDir, value)
+    const { aioVrDir } = workspace()
+    return isAbsolute(value) ? value : resolve(aioVrDir, value)
 }
 
 /** Everything is reported repo-root-relative, the same as checkpoint artefacts,
  *  because that is what `/api/image` accepts. */
 function repoRelative(absolute: string): string {
-  return relative(workspace().repoRoot, absolute)
+    return relative(workspace().repoRoot, absolute)
 }
 
 async function readAioVrConfig(): Promise<AioVrConfig> {
-  return (
-    (await readJson<AioVrConfig>(join(workspace().aioVrDir, CONFIG_NAME))) ?? {}
-  )
+    return (
+        (await readJson<AioVrConfig>(
+            join(workspace().aioVrDir, CONFIG_NAME),
+        )) ?? {}
+    )
 }
 
 /**
@@ -110,24 +112,24 @@ async function readAioVrConfig(): Promise<AioVrConfig> {
  * scenario that failed before it could render.
  */
 function artifact(value: string | undefined): string | null {
-  if (!value) return null
-  const absolute = isAbsolute(value)
-    ? value
-    : resolve(workspace().repoRoot, value)
-  return existsSync(absolute) ? repoRelative(absolute) : null
+    if (!value) return null
+    const absolute = isAbsolute(value)
+        ? value
+        : resolve(workspace().repoRoot, value)
+    return existsSync(absolute) ? repoRelative(absolute) : null
 }
 
 const STATUSES: ComparisonStatus[] = [
-  "unchanged",
-  "changed",
-  "failed",
-  "new-baseline",
+    "unchanged",
+    "changed",
+    "failed",
+    "new-baseline",
 ]
 
 function toStatus(value: string | undefined): ComparisonStatus {
-  return STATUSES.includes(value as ComparisonStatus)
-    ? (value as ComparisonStatus)
-    : "failed"
+    return STATUSES.includes(value as ComparisonStatus)
+        ? (value as ComparisonStatus)
+        : "failed"
 }
 
 /**
@@ -138,60 +140,60 @@ function toStatus(value: string | undefined): ComparisonStatus {
  * the run that prompted it.
  */
 export async function readBaselines(): Promise<BaselineReport> {
-  const config = await readAioVrConfig()
-  const resultsPath = inWorkspace(config.resultsFile ?? DEFAULTS.resultsFile)
-  const approvalsPath = inWorkspace(
-    config.approvalsFile ?? DEFAULTS.approvalsFile,
-  )
+    const config = await readAioVrConfig()
+    const resultsPath = inWorkspace(config.resultsFile ?? DEFAULTS.resultsFile)
+    const approvalsPath = inWorkspace(
+        config.approvalsFile ?? DEFAULTS.approvalsFile,
+    )
 
-  const results = await readJson<ResultsFile>(resultsPath)
-  const approvals =
-    (await readJson<ApprovalsFile>(approvalsPath))?.approvals ?? {}
+    const results = await readJson<ResultsFile>(resultsPath)
+    const approvals =
+        (await readJson<ApprovalsFile>(approvalsPath))?.approvals ?? {}
 
-  const scenarios: BaselineScenario[] = (results?.results ?? []).map(
-    (entry) => {
-      const approval = approvals[entry.name]
-      return {
-        scenario: entry.name,
-        description: entry.description ?? null,
-        status: toStatus(entry.status),
-        percentChanged: entry.percentChanged ?? null,
-        pixelDiffCount: entry.pixelDiffCount ?? null,
-        totalPixels: entry.totalPixels ?? null,
-        // The baseline is the reference, so it takes the "before" slot — which is
-        // what lets one comparison card draw both kinds of comparison.
-        beforePath: artifact(entry.baselinePath),
-        afterPath: artifact(entry.actualPath),
-        diffPath: artifact(entry.diffPath),
-        browserLogStatus: entry.browserLogStatus ?? null,
-        browserLogChangeCount: entry.browserLogChangeCount ?? null,
-        scenarioPath: entry.scenarioPath ?? null,
-        threshold: entry.threshold ?? null,
-        timestamp: entry.timestamp ?? null,
-        durationMs: entry.durationMs ?? null,
-        approved: Boolean(approval) || Boolean(entry.approved),
-        approvedAt: approval?.approvedAt ?? null,
-        statusAtApproval: approval?.statusAtApproval ?? null,
-        browserLogDiffPath: artifact(entry.browserLogDiffPath),
-      }
-    },
-  )
+    const scenarios: BaselineScenario[] = (results?.results ?? []).map(
+        (entry) => {
+            const approval = approvals[entry.name]
+            return {
+                scenario: entry.name,
+                description: entry.description ?? null,
+                status: toStatus(entry.status),
+                percentChanged: entry.percentChanged ?? null,
+                pixelDiffCount: entry.pixelDiffCount ?? null,
+                totalPixels: entry.totalPixels ?? null,
+                // The baseline is the reference, so it takes the "before" slot — which is
+                // what lets one comparison card draw both kinds of comparison.
+                beforePath: artifact(entry.baselinePath),
+                afterPath: artifact(entry.actualPath),
+                diffPath: artifact(entry.diffPath),
+                browserLogStatus: entry.browserLogStatus ?? null,
+                browserLogChangeCount: entry.browserLogChangeCount ?? null,
+                scenarioPath: entry.scenarioPath ?? null,
+                threshold: entry.threshold ?? null,
+                timestamp: entry.timestamp ?? null,
+                durationMs: entry.durationMs ?? null,
+                approved: Boolean(approval) || Boolean(entry.approved),
+                approvedAt: approval?.approvedAt ?? null,
+                statusAtApproval: approval?.statusAtApproval ?? null,
+                browserLogDiffPath: artifact(entry.browserLogDiffPath),
+            }
+        },
+    )
 
-  return {
-    hasRun: !!results,
-    generatedAt: results?.generatedAt ?? null,
-    totals: results?.totals ?? {},
-    scenarios,
-    resultsPath: repoRelative(resultsPath),
-    available: aioVrAvailable(),
-  }
+    return {
+        hasRun: !!results,
+        generatedAt: results?.generatedAt ?? null,
+        totals: results?.totals ?? {},
+        scenarios,
+        resultsPath: repoRelative(resultsPath),
+        available: aioVrAvailable(),
+    }
 }
 
 function requireAioVr(): void {
-  if (aioVrAvailable()) return
-  throw new Error(
-    "Could not find the 'aio-vr' executable on PATH. Install aio-visual-regression, or set AIO_VR_BIN.",
-  )
+    if (aioVrAvailable()) return
+    throw new Error(
+        "Could not find the 'aio-vr' executable on PATH. Install aio-visual-regression, or set AIO_VR_BIN.",
+    )
 }
 
 /**
@@ -208,17 +210,17 @@ function requireAioVr(): void {
  * output only travels with it for the failures worth reading.
  */
 export async function runBaselines(scenarios: string[] = []): Promise<{
-  report: BaselineReport
-  exitCode: number
-  output: string
+    report: BaselineReport
+    exitCode: number
+    output: string
 }> {
-  requireAioVr()
+    requireAioVr()
 
-  const args = ["run"]
-  for (const scenario of scenarios) args.push("--scenario", scenario)
+    const args = ["run"]
+    for (const scenario of scenarios) args.push("--scenario", scenario)
 
-  const { exitCode, output } = await spawnAioVr(args, false)
-  return { report: await readBaselines(), exitCode, output }
+    const { exitCode, output } = await spawnAioVr(args, false)
+    return { report: await readBaselines(), exitCode, output }
 }
 
 /**
@@ -231,16 +233,16 @@ export async function runBaselines(scenarios: string[] = []): Promise<{
  * through.
  */
 export async function approveBaseline(
-  scenario: string,
+    scenario: string,
 ): Promise<BaselineReport> {
-  requireAioVr()
-  if (!scenario.trim()) throw new Error("A scenario name is required.")
+    requireAioVr()
+    if (!scenario.trim()) throw new Error("A scenario name is required.")
 
-  const { exitCode, output } = await spawnAioVr(["approve", scenario], false)
-  if (exitCode !== 0) {
-    throw new Error(
-      `aio-vr approve ${scenario} failed.${output.trim() ? `\n\n${output.trim()}` : ""}`,
-    )
-  }
-  return readBaselines()
+    const { exitCode, output } = await spawnAioVr(["approve", scenario], false)
+    if (exitCode !== 0) {
+        throw new Error(
+            `aio-vr approve ${scenario} failed.${output.trim() ? `\n\n${output.trim()}` : ""}`,
+        )
+    }
+    return readBaselines()
 }

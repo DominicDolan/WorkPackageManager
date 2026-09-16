@@ -2,25 +2,25 @@ import { onRunSettled, startRun, stopRun } from "./agents"
 import { branchExists, isAncestor } from "./branches"
 import { getWorkPackageDetail, workPackageBranchOf } from "./workPackageBranch"
 import {
-  createWorkPackageRun,
-  findTask,
-  workPackageRunForAgentRun,
-  latestWorkPackageRun,
-  recordWorkPackageRunWorked,
-  requireWorkPackage,
-  requireWorkPackageRun,
-  runningWorkPackageRuns,
-  setWorkPackageRunCurrent,
-  settleWorkPackageRun,
+    createWorkPackageRun,
+    findTask,
+    workPackageRunForAgentRun,
+    latestWorkPackageRun,
+    recordWorkPackageRunWorked,
+    requireWorkPackage,
+    requireWorkPackageRun,
+    runningWorkPackageRuns,
+    setWorkPackageRunCurrent,
+    settleWorkPackageRun,
 } from "./repo"
 import {
-  workPackageRunActive,
-  nextWorkableTask,
-  type AgentPermissionMode,
-  type AgentRun,
-  type AgentRunStatus,
-  type WorkPackageRun,
-  type WorkPackageDetail,
+    workPackageRunActive,
+    nextWorkableTask,
+    type AgentPermissionMode,
+    type AgentRun,
+    type AgentRunStatus,
+    type WorkPackageRun,
+    type WorkPackageDetail,
 } from "../shared/types"
 
 /**
@@ -77,26 +77,28 @@ const MAX_TASKS_PER_RUN = 50
 /* ------------------------------------------------------------- launching */
 
 export interface StartWorkPackageRunInput {
-  workPackageRef: string
-  harness: string
-  model: string
-  permissionMode: AgentPermissionMode
-  /** Extra prompt text appended to every task in the loop, not just the first. */
-  extra: string
-  /** Unfinished tasks the user chose to leave out of this run. */
-  excluded: string[]
+    workPackageRef: string
+    harness: string
+    model: string
+    permissionMode: AgentPermissionMode
+    /** Extra prompt text appended to every task in the loop, not just the first. */
+    extra: string
+    /** Unfinished tasks the user chose to leave out of this run. */
+    excluded: string[]
 }
 
 function nextIncludedTask(
-  detail: WorkPackageDetail,
-  excluded: readonly string[],
+    detail: WorkPackageDetail,
+    excluded: readonly string[],
 ) {
-  const omitted = new Set(excluded.map((ref) => ref.toLowerCase()))
-  const eligible = {
-    ...detail,
-    queue: detail.queue.filter((task) => !omitted.has(task.ref.toLowerCase())),
-  }
-  return nextWorkableTask(eligible)
+    const omitted = new Set(excluded.map((ref) => ref.toLowerCase()))
+    const eligible = {
+        ...detail,
+        queue: detail.queue.filter(
+            (task) => !omitted.has(task.ref.toLowerCase()),
+        ),
+    }
+    return nextWorkableTask(eligible)
 }
 
 /**
@@ -109,124 +111,126 @@ function nextIncludedTask(
  * starting a second.
  */
 function whyNotWorkable(
-  detail: WorkPackageDetail,
-  allowRef: string | null,
-  excluded: readonly string[] = [],
+    detail: WorkPackageDetail,
+    allowRef: string | null,
+    excluded: readonly string[] = [],
 ): string | null {
-  const omitted = new Set(excluded.map((ref) => ref.toLowerCase()))
-  const included = detail.queue.filter(
-    (task) => !omitted.has(task.ref.toLowerCase()),
-  )
-  if (!included.length)
-    return "There are no included tasks left in this work package for an agent to work."
-
-  const next = nextIncludedTask(detail, excluded)
-  if (!next) {
-    return "Every included task is waiting on unfinished work this run will not do."
-  }
-
-  const foreign = detail.inProgress.find(
-    (task) => task.ref !== next.ref && task.ref !== allowRef,
-  )
-  if (foreign) {
-    return (
-      `${foreign.ref} (${foreign.title}) is already in progress. A task owns a branch and a ` +
-      "checkpoint, and two at once corrupts both — finish or park it first."
+    const omitted = new Set(excluded.map((ref) => ref.toLowerCase()))
+    const included = detail.queue.filter(
+        (task) => !omitted.has(task.ref.toLowerCase()),
     )
-  }
+    if (!included.length)
+        return "There are no included tasks left in this work package for an agent to work."
 
-  return null
+    const next = nextIncludedTask(detail, excluded)
+    if (!next) {
+        return "Every included task is waiting on unfinished work this run will not do."
+    }
+
+    const foreign = detail.inProgress.find(
+        (task) => task.ref !== next.ref && task.ref !== allowRef,
+    )
+    if (foreign) {
+        return (
+            `${foreign.ref} (${foreign.title}) is already in progress. A task owns a branch and a ` +
+            "checkpoint, and two at once corrupts both — finish or park it first."
+        )
+    }
+
+    return null
 }
 
 export function startWorkPackageRun(input: StartWorkPackageRunInput): {
-  workPackageRun: WorkPackageRun
-  run: AgentRun
+    workPackageRun: WorkPackageRun
+    run: AgentRun
 } {
-  const workPackage = requireWorkPackage(input.workPackageRef)
+    const workPackage = requireWorkPackage(input.workPackageRef)
 
-  const previous = latestWorkPackageRun(workPackage.ref)
-  if (workPackageRunActive(previous)) {
-    throw new Error(
-      `${workPackage.ref} already has a run in flight (work package run ${previous!.id}). Stop that one first.`,
+    const previous = latestWorkPackageRun(workPackage.ref)
+    if (workPackageRunActive(previous)) {
+        throw new Error(
+            `${workPackage.ref} already has a run in flight (work package run ${previous!.id}). Stop that one first.`,
+        )
+    }
+
+    // One loop at a time across the whole workspace, not just per work package. Two loops
+    // would be two agents on two branches with one working tree between them.
+    const elsewhere = runningWorkPackageRuns()
+    if (elsewhere.length) {
+        const other = elsewhere[0]!
+        throw new Error(
+            `${other.workPackageRef} is already being worked by work package run ${other.id}. Stop it first.`,
+        )
+    }
+
+    // `plan` can never finish a task by design — it reads and proposes and
+    // changes nothing — so a loop in it would stall on its first task forever.
+    if (input.permissionMode === "plan") {
+        throw new Error(
+            "A work package run cannot use Plan only: it changes nothing, so no task would ever complete.",
+        )
+    }
+
+    const detail = getWorkPackageDetail(workPackage.ref)
+    const queued = new Map(
+        detail.queue.map((task) => [task.ref.toLowerCase(), task.ref]),
     )
-  }
+    const excluded = [
+        ...new Set(input.excluded.map((ref) => ref.toLowerCase())),
+    ].map((ref) => {
+        const canonical = queued.get(ref)
+        if (!canonical)
+            throw new Error(
+                `${ref} is not an unfinished task in ${workPackage.ref}.`,
+            )
+        return canonical
+    })
+    const problem = whyNotWorkable(detail, null, excluded)
+    if (problem) throw new Error(problem)
 
-  // One loop at a time across the whole workspace, not just per work package. Two loops
-  // would be two agents on two branches with one working tree between them.
-  const elsewhere = runningWorkPackageRuns()
-  if (elsewhere.length) {
-    const other = elsewhere[0]!
-    throw new Error(
-      `${other.workPackageRef} is already being worked by work package run ${other.id}. Stop it first.`,
-    )
-  }
+    const next = nextIncludedTask(detail, excluded)!
+    const workPackageRun = createWorkPackageRun({
+        workPackageRef: workPackage.ref,
+        harness: input.harness as WorkPackageRun["harness"],
+        model: input.model,
+        permissionMode: input.permissionMode,
+        extra: input.extra,
+        excluded,
+    })
 
-  // `plan` can never finish a task by design — it reads and proposes and
-  // changes nothing — so a loop in it would stall on its first task forever.
-  if (input.permissionMode === "plan") {
-    throw new Error(
-      "A work package run cannot use Plan only: it changes nothing, so no task would ever complete.",
-    )
-  }
+    let run: AgentRun
+    try {
+        run = launch(workPackageRun, next.ref)
+    } catch (caught) {
+        // The row exists, so the failure is visible rather than being a start that
+        // silently did not happen.
+        settleWorkPackageRun(
+            workPackageRun.id,
+            "failed",
+            caught instanceof Error ? caught.message : String(caught),
+        )
+        throw caught
+    }
 
-  const detail = getWorkPackageDetail(workPackage.ref)
-  const queued = new Map(
-    detail.queue.map((task) => [task.ref.toLowerCase(), task.ref]),
-  )
-  const excluded = [
-    ...new Set(input.excluded.map((ref) => ref.toLowerCase())),
-  ].map((ref) => {
-    const canonical = queued.get(ref)
-    if (!canonical)
-      throw new Error(`${ref} is not an unfinished task in ${workPackage.ref}.`)
-    return canonical
-  })
-  const problem = whyNotWorkable(detail, null, excluded)
-  if (problem) throw new Error(problem)
-
-  const next = nextIncludedTask(detail, excluded)!
-  const workPackageRun = createWorkPackageRun({
-    workPackageRef: workPackage.ref,
-    harness: input.harness as WorkPackageRun["harness"],
-    model: input.model,
-    permissionMode: input.permissionMode,
-    extra: input.extra,
-    excluded,
-  })
-
-  let run: AgentRun
-  try {
-    run = launch(workPackageRun, next.ref)
-  } catch (caught) {
-    // The row exists, so the failure is visible rather than being a start that
-    // silently did not happen.
-    settleWorkPackageRun(
-      workPackageRun.id,
-      "failed",
-      caught instanceof Error ? caught.message : String(caught),
-    )
-    throw caught
-  }
-
-  return { workPackageRun: requireWorkPackageRun(workPackageRun.id), run }
+    return { workPackageRun: requireWorkPackageRun(workPackageRun.id), run }
 }
 
 /** Point a fresh headless `/work-task` at one ref and record it as in flight. */
 function launch(workPackageRun: WorkPackageRun, ref: string): AgentRun {
-  const run = startRun({
-    harness: workPackageRun.harness,
-    model: workPackageRun.model,
-    mode: "print",
-    command: "work-task",
-    target: ref,
-    extra: workPackageRun.extra,
-    subjectKind: "task",
-    subjectRef: ref,
-    permissionMode: workPackageRun.permissionMode,
-  })
+    const run = startRun({
+        harness: workPackageRun.harness,
+        model: workPackageRun.model,
+        mode: "print",
+        command: "work-task",
+        target: ref,
+        extra: workPackageRun.extra,
+        subjectKind: "task",
+        subjectRef: ref,
+        permissionMode: workPackageRun.permissionMode,
+    })
 
-  setWorkPackageRunCurrent(workPackageRun.id, run.id, ref)
-  return run
+    setWorkPackageRunCurrent(workPackageRun.id, run.id, ref)
+    return run
 }
 
 /* ---------------------------------------------------------------- the loop */
@@ -239,118 +243,118 @@ function launch(workPackageRun: WorkPackageRun, ref: string): AgentRun {
  * find no work package run and return, which is why this can be a blanket listener.
  */
 function advance(agentRunId: number, status: AgentRunStatus): void {
-  const workPackageRun = workPackageRunForAgentRun(agentRunId)
-  if (!workPackageRun) return
+    const workPackageRun = workPackageRunForAgentRun(agentRunId)
+    if (!workPackageRun) return
 
-  const ref = workPackageRun.currentRef
-  if (!ref) {
-    settleWorkPackageRun(
-      workPackageRun.id,
-      "failed",
-      "The run in flight had no task recorded against it.",
-    )
-    return
-  }
+    const ref = workPackageRun.currentRef
+    if (!ref) {
+        settleWorkPackageRun(
+            workPackageRun.id,
+            "failed",
+            "The run in flight had no task recorded against it.",
+        )
+        return
+    }
 
-  if (status === "stopped") {
-    settleWorkPackageRun(
-      workPackageRun.id,
-      "stopped",
-      `${ref}'s agent was stopped, so the loop stopped with it.`,
-    )
-    return
-  }
-  if (status !== "succeeded") {
-    settleWorkPackageRun(
-      workPackageRun.id,
-      "failed",
-      `${ref}'s agent exited with an error. Its log has the detail.`,
-    )
-    return
-  }
+    if (status === "stopped") {
+        settleWorkPackageRun(
+            workPackageRun.id,
+            "stopped",
+            `${ref}'s agent was stopped, so the loop stopped with it.`,
+        )
+        return
+    }
+    if (status !== "succeeded") {
+        settleWorkPackageRun(
+            workPackageRun.id,
+            "failed",
+            `${ref}'s agent exited with an error. Its log has the detail.`,
+        )
+        return
+    }
 
-  // Exiting cleanly is not the same as finishing the task — see the note at the
-  // top of this file. The database is what decides.
-  const task = findTask(ref)
-  if (!task) {
-    settleWorkPackageRun(
-      workPackageRun.id,
-      "blocked",
-      `${ref} no longer exists, so the loop cannot tell what happened to it.`,
-    )
-    return
-  }
-  if (task.status === "backlog" || task.status === "in_progress") {
-    settleWorkPackageRun(
-      workPackageRun.id,
-      "blocked",
-      `${ref} (${task.title}) finished without reaching Dev Complete, so its agent stopped for ` +
-        "something it wants a person for. Read its log, or resume its session, before carrying on.",
-    )
-    return
-  }
+    // Exiting cleanly is not the same as finishing the task — see the note at the
+    // top of this file. The database is what decides.
+    const task = findTask(ref)
+    if (!task) {
+        settleWorkPackageRun(
+            workPackageRun.id,
+            "blocked",
+            `${ref} no longer exists, so the loop cannot tell what happened to it.`,
+        )
+        return
+    }
+    if (task.status === "backlog" || task.status === "in_progress") {
+        settleWorkPackageRun(
+            workPackageRun.id,
+            "blocked",
+            `${ref} (${task.title}) finished without reaching Dev Complete, so its agent stopped for ` +
+                "something it wants a person for. Read its log, or resume its session, before carrying on.",
+        )
+        return
+    }
 
-  // Dev Complete is necessary but not sufficient. `tasks done` moves the status
-  // whatever became of the merge — a pushed branch is refused, a collision
-  // aborts — and it exits 0 either way, so a task can sit at Dev Complete with
-  // its work still only on its own branch. Waving that through would branch the
-  // next task from a tip that is missing it.
-  const unmerged = whyNotOnWorkPackageBranch(task)
-  if (unmerged) {
-    settleWorkPackageRun(workPackageRun.id, "blocked", unmerged)
-    return
-  }
+    // Dev Complete is necessary but not sufficient. `tasks done` moves the status
+    // whatever became of the merge — a pushed branch is refused, a collision
+    // aborts — and it exits 0 either way, so a task can sit at Dev Complete with
+    // its work still only on its own branch. Waving that through would branch the
+    // next task from a tip that is missing it.
+    const unmerged = whyNotOnWorkPackageBranch(task)
+    if (unmerged) {
+        settleWorkPackageRun(workPackageRun.id, "blocked", unmerged)
+        return
+    }
 
-  recordWorkPackageRunWorked(workPackageRun.id, ref)
-  const current = requireWorkPackageRun(workPackageRun.id)
+    recordWorkPackageRunWorked(workPackageRun.id, ref)
+    const current = requireWorkPackageRun(workPackageRun.id)
 
-  const detail = getWorkPackageDetail(current.workPackageRef)
-  if (
-    !detail.queue.some(
-      (task) =>
-        !current.excluded.some(
-          (ref) => ref.toLowerCase() === task.ref.toLowerCase(),
-        ),
-    )
-  ) {
-    settleWorkPackageRun(current.id, "finished", "")
-    return
-  }
+    const detail = getWorkPackageDetail(current.workPackageRef)
+    if (
+        !detail.queue.some(
+            (task) =>
+                !current.excluded.some(
+                    (ref) => ref.toLowerCase() === task.ref.toLowerCase(),
+                ),
+        )
+    ) {
+        settleWorkPackageRun(current.id, "finished", "")
+        return
+    }
 
-  const problem = whyNotWorkable(detail, null, current.excluded)
-  if (problem) {
-    settleWorkPackageRun(current.id, "blocked", problem)
-    return
-  }
+    const problem = whyNotWorkable(detail, null, current.excluded)
+    if (problem) {
+        settleWorkPackageRun(current.id, "blocked", problem)
+        return
+    }
 
-  const next = nextIncludedTask(detail, current.excluded)!
-  if (current.worked.includes(next.ref)) {
-    settleWorkPackageRun(
-      current.id,
-      "blocked",
-      `${next.ref} came back to the front of the queue after this run had already finished it. ` +
-        "Something is moving tasks backwards, and going round again would not help.",
-    )
-    return
-  }
-  if (current.worked.length >= MAX_TASKS_PER_RUN) {
-    settleWorkPackageRun(
-      current.id,
-      "blocked",
-      `Stopped after ${MAX_TASKS_PER_RUN} tasks, which is as far as one run goes.`,
-    )
-    return
-  }
+    const next = nextIncludedTask(detail, current.excluded)!
+    if (current.worked.includes(next.ref)) {
+        settleWorkPackageRun(
+            current.id,
+            "blocked",
+            `${next.ref} came back to the front of the queue after this run had already finished it. ` +
+                "Something is moving tasks backwards, and going round again would not help.",
+        )
+        return
+    }
+    if (current.worked.length >= MAX_TASKS_PER_RUN) {
+        settleWorkPackageRun(
+            current.id,
+            "blocked",
+            `Stopped after ${MAX_TASKS_PER_RUN} tasks, which is as far as one run goes.`,
+        )
+        return
+    }
 
-  try {
-    launch(current, next.ref)
-  } catch (caught) {
-    settleWorkPackageRun(
-      current.id,
-      "failed",
-      caught instanceof Error ? caught.message : String(caught),
-    )
-  }
+    try {
+        launch(current, next.ref)
+    } catch (caught) {
+        settleWorkPackageRun(
+            current.id,
+            "failed",
+            caught instanceof Error ? caught.message : String(caught),
+        )
+    }
 }
 
 onRunSettled(advance)
@@ -366,56 +370,56 @@ onRunSettled(advance)
  * always an ancestor and one that did not never is.
  */
 function whyNotOnWorkPackageBranch(task: {
-  ref: string
-  title: string
-  useGitWorkflow: boolean
-  branchName: string | null
-  workPackageRef: string | null
+    ref: string
+    title: string
+    useGitWorkflow: boolean
+    branchName: string | null
+    workPackageRef: string | null
 }): string | null {
-  if (!task.useGitWorkflow) return null
-  const resolved = workPackageBranchOf(
-    task as Parameters<typeof workPackageBranchOf>[0],
-  )
-  if (!resolved) return null
-
-  if (!task.branchName) {
-    return `${task.ref} (${task.title}) reached Dev Complete with no branch assigned, so there is nothing to merge into '${resolved.branch}'.`
-  }
-  if (
-    !branchExists(resolved.branch) ||
-    !isAncestor(task.branchName, resolved.branch)
-  ) {
-    return (
-      `${task.ref} (${task.title}) reached Dev Complete but '${task.branchName}' is not on ` +
-      `'${resolved.branch}', so the merge did not happen — its branch may have been pushed, or its ` +
-      "commits may collide with work already there. Carrying on would branch the next task from a " +
-      "tip that is missing this one."
+    if (!task.useGitWorkflow) return null
+    const resolved = workPackageBranchOf(
+        task as Parameters<typeof workPackageBranchOf>[0],
     )
-  }
+    if (!resolved) return null
 
-  return null
+    if (!task.branchName) {
+        return `${task.ref} (${task.title}) reached Dev Complete with no branch assigned, so there is nothing to merge into '${resolved.branch}'.`
+    }
+    if (
+        !branchExists(resolved.branch) ||
+        !isAncestor(task.branchName, resolved.branch)
+    ) {
+        return (
+            `${task.ref} (${task.title}) reached Dev Complete but '${task.branchName}' is not on ` +
+            `'${resolved.branch}', so the merge did not happen — its branch may have been pushed, or its ` +
+            "commits may collide with work already there. Carrying on would branch the next task from a " +
+            "tip that is missing this one."
+        )
+    }
+
+    return null
 }
 
 /* ------------------------------------------------------------- stop, reset */
 
 export function stopWorkPackageRun(id: number): WorkPackageRun {
-  const workPackageRun = requireWorkPackageRun(id)
-  if (workPackageRun.status !== "running")
-    throw new Error(`Work package run ${id} is not running.`)
+    const workPackageRun = requireWorkPackageRun(id)
+    if (workPackageRun.status !== "running")
+        throw new Error(`Work package run ${id} is not running.`)
 
-  // Settled first, so the agent's own exit finds a loop that has already
-  // stopped rather than one asking it what to do next.
-  const settled = settleWorkPackageRun(id, "stopped", "Stopped by hand.")
+    // Settled first, so the agent's own exit finds a loop that has already
+    // stopped rather than one asking it what to do next.
+    const settled = settleWorkPackageRun(id, "stopped", "Stopped by hand.")
 
-  if (workPackageRun.currentRunId !== null) {
-    try {
-      stopRun(workPackageRun.currentRunId)
-    } catch {
-      // Already finished on its own between the two lines. Nothing to kill.
+    if (workPackageRun.currentRunId !== null) {
+        try {
+            stopRun(workPackageRun.currentRunId)
+        } catch {
+            // Already finished on its own between the two lines. Nothing to kill.
+        }
     }
-  }
 
-  return settled
+    return settled
 }
 
 /**
@@ -427,11 +431,11 @@ export function stopWorkPackageRun(id: number): WorkPackageRun {
  * `running` is not something a restart should do on its own.
  */
 export function reconcileWorkPackageRuns(): void {
-  for (const workPackageRun of runningWorkPackageRuns()) {
-    settleWorkPackageRun(
-      workPackageRun.id,
-      "stopped",
-      "The server restarted, which ended the agent it was running.",
-    )
-  }
+    for (const workPackageRun of runningWorkPackageRuns()) {
+        settleWorkPackageRun(
+            workPackageRun.id,
+            "stopped",
+            "The server restarted, which ended the agent it was running.",
+        )
+    }
 }

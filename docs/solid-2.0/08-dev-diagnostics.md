@@ -48,13 +48,13 @@ Reading an async value that hasn't resolved yet outside a tracked scope (e.g. in
 ```jsx
 // Throws if user() is async and pending
 function Bad() {
-  const name = user().name
-  return <div>{name}</div>
+    const name = user().name
+    return <div>{name}</div>
 }
 
 // Fix: read in JSX (tracked by the compiler)
 function Good() {
-  return <div>{user().name}</div>
+    return <div>{user().name}</div>
 }
 ```
 
@@ -75,12 +75,12 @@ render(() => <Profile user={asyncUser()} />, root)
 
 // Explicit fallback UI: wrap in Loading
 render(
-  () => (
-    <Loading fallback={<Spinner />}>
-      <Profile user={asyncUser()} />
-    </Loading>
-  ),
-  root,
+    () => (
+        <Loading fallback={<Spinner />}>
+            <Profile user={asyncUser()} />
+        </Loading>
+    ),
+    root,
 )
 ```
 
@@ -117,7 +117,7 @@ A returned cleanup is only honored when `onSettled` runs in an **owned** scope (
 // Throws (in dev): the inner onSettled fires out of band, so its cleanup
 // has no owner lifecycle to attach to.
 onSettled(() => {
-  useSubscription() // internally: onSettled(() => { sub(); return unsub; })
+    useSubscription() // internally: onSettled(() => { sub(); return unsub; })
 })
 
 // Fix: call setup-with-teardown directly from an owned scope. A plain owned
@@ -126,8 +126,8 @@ useSubscription()
 
 // Out-of-band, one-shot work (no cleanup) stays fine:
 const handleClick = () => {
-  save()
-  onSettled(() => toast("Saved!"))
+    save()
+    onSettled(() => toast("Saved!"))
 }
 ```
 
@@ -140,13 +140,13 @@ const handleClick = () => {
 ```js
 // Throws
 onSettled(() => {
-  const [s, setS] = createSignal(0)
+    const [s, setS] = createSignal(0)
 })
 
 // Fix: create primitives in the component body, use them in onSettled
 const [s, setS] = createSignal(0)
 onSettled(() => {
-  console.log(s())
+    console.log(s())
 })
 ```
 
@@ -159,19 +159,19 @@ Effect, tracked effect, reaction, and `onSettled` callbacks must return either a
 ```js
 // Throws
 createEffect(
-  () => count(),
-  (value) => {
-    return value // not a function!
-  },
+    () => count(),
+    (value) => {
+        return value // not a function!
+    },
 )
 
 // Fix: return a function or nothing
 createEffect(
-  () => count(),
-  (value) => {
-    console.log(value)
-    return () => {} // cleanup function
-  },
+    () => count(),
+    (value) => {
+        console.log(value)
+        return () => {} // cleanup function
+    },
 )
 ```
 
@@ -200,19 +200,19 @@ Reading a signal, signal-backed prop, or store property at the top level of a co
 ```jsx
 // Warns: top-level read won't track
 function Bad(props) {
-  const n = props.count
-  return <div>{n}</div>
+    const n = props.count
+    return <div>{n}</div>
 }
 
 // Fix: read in JSX
 function Good(props) {
-  return <div>{props.count}</div>
+    return <div>{props.count}</div>
 }
 
 // Fix: explicit one-time read
 function AlsoGood(props) {
-  const n = untrack(() => props.count)
-  return <div>{n}</div>
+    const n = untrack(() => props.count)
+    return <div>{n}</div>
 }
 ```
 
@@ -233,16 +233,16 @@ An effect (`createEffect` or `createTrackedEffect`) was created without a parent
 ```js
 // Warns: no owner
 createEffect(
-  () => count(),
-  (v) => console.log(v),
+    () => count(),
+    (v) => console.log(v),
 )
 
 // Fix: create inside a component or createRoot
 createRoot(() => {
-  createEffect(
-    () => count(),
-    (v) => console.log(v),
-  )
+    createEffect(
+        () => count(),
+        (v) => console.log(v),
+    )
 })
 ```
 
@@ -330,7 +330,7 @@ Registers a callback that fires for every diagnostic event. Returns an unsubscri
 import { DEV } from "solid-js"
 
 const unsub = DEV.diagnostics.subscribe((event) => {
-  console.log(`[${event.severity}] ${event.code}: ${event.message}`)
+    console.log(`[${event.severity}] ${event.code}: ${event.message}`)
 })
 // later: unsub();
 ```

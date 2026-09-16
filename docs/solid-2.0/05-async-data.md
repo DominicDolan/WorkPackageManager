@@ -22,12 +22,12 @@ Any computation may return a Promise (or AsyncIterable) to represent pending wor
 const user = createMemo(() => fetchUser(params.id))
 
 function Profile() {
-  // user() is not ready at first — wrap in <Loading>
-  return <div>{user().name}</div>
+    // user() is not ready at first — wrap in <Loading>
+    return <div>{user().name}</div>
 }
 
 ;<Loading fallback={<Spinner />}>
-  <Profile />
+    <Profile />
 </Loading>
 ```
 
@@ -41,7 +41,7 @@ Importantly, `Loading` is intended to cover **branch readiness**: it handles a s
 
 ```jsx
 <Loading fallback={<Spinner />}>
-  <UserProfile id={id()} />
+    <UserProfile id={id()} />
 </Loading>
 ```
 
@@ -80,12 +80,12 @@ const posts = createMemo(() => fetchPosts(query()))
 const listPending = () => isPending(() => users() || posts())
 
 return (
-  <Loading fallback={<Spinner />}>
-    <Show when={listPending()}>
-      {/* subtle "updating…" indicator while a new query loads */}
-    </Show>
-    <List users={users()} posts={posts()} />
-  </Loading>
+    <Loading fallback={<Spinner />}>
+        <Show when={listPending()}>
+            {/* subtle "updating…" indicator while a new query loads */}
+        </Show>
+        <List users={users()} posts={posts()} />
+    </Loading>
 )
 ```
 
@@ -95,7 +95,7 @@ The intent is to replace `.loading`-style flags that belong to a specific primit
 
 ```jsx
 <Loading fallback={<button disabled>Loading...</button>}>
-  <button disabled={isPending(user)}>Save</button>
+    <button disabled={isPending(user)}>Save</button>
 </Loading>
 ```
 
@@ -140,7 +140,7 @@ The primary pattern for first-load UI is structural: wrap the branch in `Loading
 
 ```js
 const feed = createMemo(() => fetchFeed(id()), {
-  loadingValue: { provisional: true, items: placeholderItems },
+    loadingValue: { provisional: true, items: placeholderItems },
 })
 ```
 
@@ -165,8 +165,8 @@ Because async lives in ordinary computations, SSR/hydration policy is a per-prim
 - `"server"` _(default)_ — the client uses the serialized server value as its initial state. The compute does **not** re-run for the initial value; the serialized result is authoritative. Choose this when the compute is deterministic from server-available inputs — the common data-fetch case, where it means no duplicate fetch on load.
 - `"hybrid"` — the client seeds from the serialized server value, then re-runs the compute to take over. Choose this for computes that mix server data with client-only signals (window size, user locale).
 - `"client"` — skip the server value entirely. On the server the compute never runs (an owner is still created so hydration ids stay aligned); on the client it is deferred until hydration completes, then runs as if first-mounted. Choose this for client-only state where serialization is meaningless. What the server renders in the compute's place is the author's choice of channel:
-  - **Bare (structural)** — with no declaration, the source is a hole the server can never fill. Reads suspend _finally_: the nearest `Loading` boundary flushes its fallback into the HTML and hands the position to the client, which renders the content fresh after hydration. Read outside a `Loading` boundary this is a render error (the stream would otherwise hang), so bare client sources must sit under a boundary.
-  - **Declared (`loadingValue` / `seedLoadingValue`, above)** — the server renders the declared first paint instead of suspending; the client serves the same value while hydrating, then runs the compute. `loadingValue: undefined` is a valid declaration — put the `undefined` in the type and branch on it; store-family sources declare `seedLoadingValue: true` (the seed is what the pre-compute window renders).
+    - **Bare (structural)** — with no declaration, the source is a hole the server can never fill. Reads suspend _finally_: the nearest `Loading` boundary flushes its fallback into the HTML and hands the position to the client, which renders the content fresh after hydration. Read outside a `Loading` boundary this is a render error (the stream would otherwise hang), so bare client sources must sit under a boundary.
+    - **Declared (`loadingValue` / `seedLoadingValue`, above)** — the server renders the declared first paint instead of suspending; the client serves the same value while hydrating, then runs the compute. `loadingValue: undefined` is a valid declaration — put the `undefined` in the type and branch on it; store-family sources declare `seedLoadingValue: true` (the seed is what the pre-compute window renders).
 
 ```js
 // Default ("server"): serialized value is authoritative; no client refetch on load.
@@ -174,14 +174,14 @@ const user = createMemo(() => fetchUser(id()))
 
 // Server renders from the signal's default; client re-runs with the live viewport.
 const columns = createMemo(() => Math.ceil(viewportWidth() / 240), {
-  ssrSource: "hybrid",
+    ssrSource: "hybrid",
 })
 
 // Never serialized; computed fresh once hydration completes. The declared
 // commit #0 (null) is what renders until then.
 const draft = createMemo(() => readDraftFromStorage(key()) ?? null, {
-  ssrSource: "client",
-  loadingValue: null,
+    ssrSource: "client",
+    loadingValue: null,
 })
 
 // Bare form: the server flushes the surrounding <Loading> fallback and the
@@ -221,8 +221,8 @@ const [user] = createResource(id, fetchUser)
 // 2.0
 const user = createMemo(() => fetchUser(id()))
 ;<Loading fallback={<UserSkeleton />}>
-  <Show when={isPending(() => user())}>Updating...</Show>
-  <UserDetails user={user()} />
+    <Show when={isPending(() => user())}>Updating...</Show>
+    <UserDetails user={user()} />
 </Loading>
 ```
 
@@ -278,11 +278,11 @@ In 2.0, `createOptimisticStore` + `action` addresses all three: store-backed gra
 const [todos, setOptimisticTodos] = createOptimisticStore(fetchTodos, [])
 
 const addTodo = action(function* (todo) {
-  setOptimisticTodos((s) => {
-    s.push(todo)
-  })
-  yield saveTodo(todo)
-  refresh(todos)
+    setOptimisticTodos((s) => {
+        s.push(todo)
+    })
+    yield saveTodo(todo)
+    refresh(todos)
 })
 ```
 
@@ -312,7 +312,7 @@ In 2.0, there's one path: async errors propagate through the reactive graph and 
 ```jsx
 // 2.0 — one error path, composable with SSR
 <Errored fallback={(err) => <p>{err().message}</p>}>
-  <Profile user={user()} />
+    <Profile user={user()} />
 </Errored>
 ```
 

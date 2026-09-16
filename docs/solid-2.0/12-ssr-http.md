@@ -40,10 +40,10 @@ For hydration, the document needs the hydration script ahead of the app markup: 
 import { renderToStream } from "@solidjs/web"
 
 export function handler(request: Request): Response {
-  const stream = renderToStream(() => <App />)
-  return new Response(stream.readable, {
-    headers: { "content-type": "text/html" },
-  })
+    const stream = renderToStream(() => <App />)
+    return new Response(stream.readable, {
+        headers: { "content-type": "text/html" },
+    })
 }
 ```
 
@@ -55,12 +55,12 @@ The per-request context on the server is the **request event**: the incoming `Re
 
 ```ts
 export interface RequestEventLocals {
-  [key: string | number | symbol]: any
+    [key: string | number | symbol]: any
 }
 
 export interface RequestEvent {
-  request: Request
-  locals: RequestEventLocals
+    request: Request
+    locals: RequestEventLocals
 }
 ```
 
@@ -68,9 +68,9 @@ export interface RequestEvent {
 
 ```ts
 declare module "@solidjs/web" {
-  interface RequestEventLocals {
-    user: User
-  }
+    interface RequestEventLocals {
+        user: User
+    }
 }
 ```
 
@@ -93,9 +93,9 @@ import { provideRequestEvent } from "@solidjs/web/storage"
 import { renderToStream } from "@solidjs/web"
 
 async function handleRequest(request: Request) {
-  return provideRequestEvent({ request, locals: {} }, () =>
-    renderToStream(() => <App />),
-  )
+    return provideRequestEvent({ request, locals: {} }, () =>
+        renderToStream(() => <App />),
+    )
 }
 ```
 
@@ -103,12 +103,12 @@ Frameworks extend the event shape with richer fields via module augmentation. Th
 
 ```ts
 export interface ResponseStub {
-  status?: number
-  statusText?: string
-  headers: Headers
-  /** Set by the integration once the response head has been derived/sent —
+    status?: number
+    statusText?: string
+    headers: Headers
+    /** Set by the integration once the response head has been derived/sent —
       status and headers can no longer change. */
-  committed?: boolean
+    committed?: boolean
 }
 ```
 
@@ -120,9 +120,9 @@ export interface ResponseStub {
 import { httpStatus, httpHeader } from "@solidjs/web"
 
 function NotFound() {
-  httpStatus(404)
-  httpHeader("cache-control", "no-store")
-  return <h1>Not found</h1>
+    httpStatus(404)
+    httpHeader("cache-control", "no-store")
+    return <h1>Not found</h1>
 }
 ```
 
@@ -140,9 +140,9 @@ Said plainly, `httpHeader` is a **shell-time API**. Headers declared by streamed
 
 ```ts
 import {
-  parseCookieHeader,
-  serializeCookie,
-  getRequestEvent,
+    parseCookieHeader,
+    serializeCookie,
+    getRequestEvent,
 } from "@solidjs/web"
 
 // inside a server function, loader, or handler:
@@ -152,19 +152,19 @@ const cookies = parseCookieHeader(event.request.headers.get("cookie"))
 const theme = cookies.theme // string | undefined
 
 event.response.headers.append(
-  "set-cookie",
-  serializeCookie("session", token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 7,
-  }),
+    "set-cookie",
+    serializeCookie("session", token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        maxAge: 60 * 60 * 24 * 7,
+    }),
 )
 
 // deleting = expiring: empty value + Max-Age=0, matching the path/domain it was set under
 event.response.headers.append(
-  "set-cookie",
-  serializeCookie("session", "", { maxAge: 0 }),
+    "set-cookie",
+    serializeCookie("session", "", { maxAge: 0 }),
 )
 ```
 
@@ -191,49 +191,49 @@ import { getRequestEvent } from "@solidjs/web"
 import { createCookie } from "@remix-run/cookie"
 
 export interface SessionData {
-  userId?: string
+    userId?: string
 }
 
 const MAX_AGE = 60 * 60 * 24 * 7 // seconds — drives the cookie AND the enforced expiry
 
 const cookie = createCookie("session", {
-  // secrets[0] signs; every entry verifies. Rotation = prepend the new
-  // secret and keep old ones until outstanding cookies expire.
-  secrets: process.env.SESSION_SECRET!.split(","),
-  httpOnly: true, // set explicitly — the package defaults httpOnly/secure to false
-  secure: true,
-  sameSite: "Lax",
-  maxAge: MAX_AGE,
+    // secrets[0] signs; every entry verifies. Rotation = prepend the new
+    // secret and keep old ones until outstanding cookies expire.
+    secrets: process.env.SESSION_SECRET!.split(","),
+    httpOnly: true, // set explicitly — the package defaults httpOnly/secure to false
+    secure: true,
+    sameSite: "Lax",
+    maxAge: MAX_AGE,
 })
 
 export async function getSession(): Promise<SessionData | null> {
-  const raw = await cookie.parse(
-    getRequestEvent()!.request.headers.get("cookie"),
-  )
-  if (!raw) return null // absent, tampered, or signed by a rotated-out secret
-  try {
-    const { data, exp } = JSON.parse(raw)
-    return typeof exp === "number" && Date.now() < exp * 1000
-      ? (data as SessionData)
-      : null
-  } catch {
-    return null
-  }
+    const raw = await cookie.parse(
+        getRequestEvent()!.request.headers.get("cookie"),
+    )
+    if (!raw) return null // absent, tampered, or signed by a rotated-out secret
+    try {
+        const { data, exp } = JSON.parse(raw)
+        return typeof exp === "number" && Date.now() < exp * 1000
+            ? (data as SessionData)
+            : null
+    } catch {
+        return null
+    }
 }
 
 export async function setSession(data: SessionData): Promise<void> {
-  const exp = Math.floor(Date.now() / 1000) + MAX_AGE
-  getRequestEvent()!.response.headers.append(
-    "set-cookie",
-    await cookie.serialize(JSON.stringify({ data, exp })),
-  )
+    const exp = Math.floor(Date.now() / 1000) + MAX_AGE
+    getRequestEvent()!.response.headers.append(
+        "set-cookie",
+        await cookie.serialize(JSON.stringify({ data, exp })),
+    )
 }
 
 export async function clearSession(): Promise<void> {
-  getRequestEvent()!.response.headers.append(
-    "set-cookie",
-    await cookie.serialize("", { maxAge: 0 }),
-  )
+    getRequestEvent()!.response.headers.append(
+        "set-cookie",
+        await cookie.serialize("", { maxAge: 0 }),
+    )
 }
 ```
 
@@ -250,31 +250,31 @@ The stub only means something if a handler actually runs the lifecycle: build th
 
 ```tsx
 import {
-  renderToStream,
-  createRequestEvent,
-  createSSRResponse,
+    renderToStream,
+    createRequestEvent,
+    createSSRResponse,
 } from "@solidjs/web"
 import { provideRequestEvent } from "@solidjs/web/storage"
 
 export function handleRequest(request: Request): Promise<Response> {
-  const event = createRequestEvent(request)
-  return provideRequestEvent(event, () =>
-    createSSRResponse(
-      renderToStream(() => <App />),
-      event,
-    ),
-  )
+    const event = createRequestEvent(request)
+    return provideRequestEvent(event, () =>
+        createSSRResponse(
+            renderToStream(() => <App />),
+            event,
+        ),
+    )
 }
 ```
 
 - `createRequestEvent(request, init?)` builds the canonical event: `request`, `locals`, and a fresh uncommitted `response` stub (`createResponseStub()` is exported separately). `init` spreads over the defaults, so a framework extends the shape — or substitutes its own structurally-compatible `response` — while every event still looks the same to code reading it.
 - `createSSRResponse(result, event, options?)` accepts a string (from `renderToString`, or an awaited stream) or a `renderToStream` result, and runs the head lifecycle against `event.response`:
-  - **At shell flush** — the moment the head freezes — the stub is `committed` and its status/headers are merged over `options.responseInit` (`Set-Cookie` values survive as separate entries; `content-type` defaults to `text/html; charset=utf-8`).
-  - **A `Location` present before the flush** becomes a real redirect instead of an HTML response: bodyless, carrying the stub’s cookies, with the status from `getExpectedRedirectStatus` (also exported — the stub’s own status when it is a redirect status, `302` otherwise, because a status set for the page render doesn’t describe the redirect that preempts it).
-  - **A `Location` set after the flush** can only be honored client-side: stream completion appends `<script>window.location=…</script>` before closing, carrying `options.nonce` so a strict `script-src` CSP doesn’t block it.
-  - `options.transformChunk(chunk)` rewrites each outgoing HTML chunk — the seam handlers use for entry-script injection and doctype prefixes.
+    - **At shell flush** — the moment the head freezes — the stub is `committed` and its status/headers are merged over `options.responseInit` (`Set-Cookie` values survive as separate entries; `content-type` defaults to `text/html; charset=utf-8`).
+    - **A `Location` present before the flush** becomes a real redirect instead of an HTML response: bodyless, carrying the stub’s cookies, with the status from `getExpectedRedirectStatus` (also exported — the stub’s own status when it is a redirect status, `302` otherwise, because a status set for the page render doesn’t describe the redirect that preempts it).
+    - **A `Location` set after the flush** can only be honored client-side: stream completion appends `<script>window.location=…</script>` before closing, carrying `options.nonce` so a strict `script-src` CSP doesn’t block it.
+    - `options.transformChunk(chunk)` rewrites each outgoing HTML chunk — the seam handlers use for entry-script injection and doctype prefixes.
 
-  String results return a `Response` synchronously; stream results return a promise that resolves at shell flush, so returning it from a fetch handler sends the head at the right moment by construction.
+    String results return a `Response` synchronously; stream results return a promise that resolves at shell flush, so returning it from a fetch handler sends the head at the right moment by construction.
 
 - `commitEventResponse(response, event?)` is the **other exit** — handler-lifecycle plumbing for a `Response` that did not go through `createSSRResponse` (a middleware early return, an API result), the same fold the server-function handler's own responses take. It folds the event's stub onto the response — `Set-Cookie` appends entry-by-entry alongside the response's own, other stub headers fill gaps only (never the wire-protocol family the handlers own, never `Content-Type`/`Content-Length` on a bodiless response), the status is never taken from the stub — then commits the stub, so later writes fail loudly. `event` defaults to the ambient `getRequestEvent()`. It is **idempotent at the handler edge**: an already-committed stub passes the response through untouched, so a handler applies it unconditionally after its middleware chain fully unwinds — page responses come back from `createSSRResponse` committed and do not double-fold. Like `createResponseStub` and `getExpectedRedirectStatus`, this is an integrator-tier export: application middleware never calls it — writes to `event.response` inside the request scope are the application surface; the handler edge runs the fold once.
 
@@ -284,12 +284,12 @@ Handlers compose request middleware with the same web-standard shape everything 
 import { composeMiddleware, getRequestEvent } from "@solidjs/web"
 
 const run = composeMiddleware([
-  async (request, next) => {
-    getRequestEvent()!.locals.user = await authenticate(request)
-    const response = await next()
-    response.headers.set("x-served-by", "solid")
-    return response
-  },
+    async (request, next) => {
+        getRequestEvent()!.locals.user = await authenticate(request)
+        const response = await next()
+        response.headers.set("x-served-by", "solid")
+        return response
+    },
 ])
 ```
 

@@ -42,28 +42,28 @@ const revisions: Record<ChangeChannel, number> = { tasks: 0, notes: 0 }
 const timers: Partial<Record<ChangeChannel, ReturnType<typeof setTimeout>>> = {}
 
 export function currentRevisions(): Record<ChangeChannel, number> {
-  return { ...revisions }
+    return { ...revisions }
 }
 
 /** Record a change and tell every open stream, at most once per window. */
 function bump(channel: ChangeChannel): void {
-  if (timers[channel]) return
-  timers[channel] = setTimeout(() => {
-    delete timers[channel]
-    revisions[channel] += 1
-    const event: ChangeEvent = {
-      channel,
-      revision: revisions[channel],
-      at: new Date().toISOString(),
-    }
-    for (const listener of listeners) {
-      try {
-        listener(event)
-      } catch {
-        // A stream that has gone away must not take the others with it.
-      }
-    }
-  }, DEBOUNCE_MS)
+    if (timers[channel]) return
+    timers[channel] = setTimeout(() => {
+        delete timers[channel]
+        revisions[channel] += 1
+        const event: ChangeEvent = {
+            channel,
+            revision: revisions[channel],
+            at: new Date().toISOString(),
+        }
+        for (const listener of listeners) {
+            try {
+                listener(event)
+            } catch {
+                // A stream that has gone away must not take the others with it.
+            }
+        }
+    }, DEBOUNCE_MS)
 }
 
 /**
@@ -75,7 +75,7 @@ function bump(channel: ChangeChannel): void {
  * on some machines is worse than one that never does.
  */
 export function announceChange(channel: ChangeChannel): void {
-  bump(channel)
+    bump(channel)
 }
 
 /* --------------------------------------------------------------- watchers */
@@ -83,31 +83,31 @@ export function announceChange(channel: ChangeChannel): void {
 const watchers = new Map<string, FSWatcher>()
 
 function attach(
-  path: string,
-  recursive: boolean,
-  handler: (filename: string) => void,
+    path: string,
+    recursive: boolean,
+    handler: (filename: string) => void,
 ): void {
-  if (watchers.has(path) || !existsSync(path)) return
+    if (watchers.has(path) || !existsSync(path)) return
 
-  try {
-    const watcher = watch(
-      path,
-      { recursive, persistent: false },
-      (_event, filename) => {
-        handler(typeof filename === "string" ? filename : "")
-      },
-    )
-    // A watched folder that is deleted or replaced (a notes folder re-cloned,
-    // say) must not leave a dead watcher blocking a later re-attach.
-    watcher.on("error", () => {
-      watcher.close()
-      watchers.delete(path)
-    })
-    watchers.set(path, watcher)
-  } catch {
-    // Recursive watching is not available everywhere. Without it the folder
-    // simply goes unwatched; `announceChange` still covers writes made here.
-  }
+    try {
+        const watcher = watch(
+            path,
+            { recursive, persistent: false },
+            (_event, filename) => {
+                handler(typeof filename === "string" ? filename : "")
+            },
+        )
+        // A watched folder that is deleted or replaced (a notes folder re-cloned,
+        // say) must not leave a dead watcher blocking a later re-attach.
+        watcher.on("error", () => {
+            watcher.close()
+            watchers.delete(path)
+        })
+        watchers.set(path, watcher)
+    } catch {
+        // Recursive watching is not available everywhere. Without it the folder
+        // simply goes unwatched; `announceChange` still covers writes made here.
+    }
 }
 
 /** How often to look for a folder that did not exist last time. */
@@ -124,55 +124,56 @@ let retry: ReturnType<typeof setInterval> | undefined
  * folder is actually missing and somebody is listening.
  */
 export function ensureWatchers(): void {
-  const dataDir = dirname(ws.dbPath)
-  const dbName = basename(ws.dbPath)
+    const dataDir = dirname(ws.dbPath)
+    const dbName = basename(ws.dbPath)
 
-  attach(dataDir, false, (filename) => {
-    // `tasks.db`, `tasks.db-wal`, `tasks.db-shm` — and nothing else in there,
-    // which is also where PR bodies and agent logs are staged.
-    if (filename.startsWith(dbName)) bump("tasks")
-  })
+    attach(dataDir, false, (filename) => {
+        // `tasks.db`, `tasks.db-wal`, `tasks.db-shm` — and nothing else in there,
+        // which is also where PR bodies and agent logs are staged.
+        if (filename.startsWith(dbName)) bump("tasks")
+    })
 
-  attach(ws.notesDir, true, (filename) => {
-    // Notes are `.md`, issues are `.json`, attachments are whatever was dropped.
-    // Git's own churn inside `.git/` is not a change to anything on screen.
-    if (filename.startsWith(".git/") || filename.startsWith(".git\\")) return
-    bump("notes")
-  })
+    attach(ws.notesDir, true, (filename) => {
+        // Notes are `.md`, issues are `.json`, attachments are whatever was dropped.
+        // Git's own churn inside `.git/` is not a change to anything on screen.
+        if (filename.startsWith(".git/") || filename.startsWith(".git\\"))
+            return
+        bump("notes")
+    })
 
-  const complete = watchers.has(dataDir) && watchers.has(ws.notesDir)
-  if (complete || !listeners.size) {
-    if (retry) {
-      clearInterval(retry)
-      retry = undefined
+    const complete = watchers.has(dataDir) && watchers.has(ws.notesDir)
+    if (complete || !listeners.size) {
+        if (retry) {
+            clearInterval(retry)
+            retry = undefined
+        }
+        return
     }
-    return
-  }
 
-  if (!retry) {
-    retry = setInterval(ensureWatchers, RETRY_MS)
-    // Two `existsSync` calls every ten seconds is not a reason to keep a process
-    // alive on its own.
-    retry.unref?.()
-  }
+    if (!retry) {
+        retry = setInterval(ensureWatchers, RETRY_MS)
+        // Two `existsSync` calls every ten seconds is not a reason to keep a process
+        // alive on its own.
+        retry.unref?.()
+    }
 }
 
 /** Subscribe to changes. The returned function unsubscribes. */
 export function onChange(listener: Listener): () => void {
-  // Added first: `ensureWatchers` only schedules its retry while somebody is
-  // listening, and this listener is the reason to start looking again.
-  listeners.add(listener)
-  ensureWatchers()
-  return () => listeners.delete(listener)
+    // Added first: `ensureWatchers` only schedules its retry while somebody is
+    // listening, and this listener is the reason to start looking again.
+    listeners.add(listener)
+    ensureWatchers()
+    return () => listeners.delete(listener)
 }
 
 /** How many streams are currently attached — reported by `/api/meta`. */
 export function listenerCount(): number {
-  return listeners.size
+    return listeners.size
 }
 
 /** Where the notes watcher points, for diagnostics. */
 export const watchedPaths = (): string[] => [
-  dirname(ws.dbPath),
-  join(ws.notesDir),
+    dirname(ws.dbPath),
+    join(ws.notesDir),
 ]

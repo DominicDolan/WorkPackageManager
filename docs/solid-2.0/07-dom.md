@@ -18,8 +18,8 @@ DOM behavior in Solid 2.0 follows HTML standards by default: attributes over pro
 
 - **Attributes over properties:** Prefer setting attributes rather than properties in almost all cases. Aligns with web components and SSR.
 - **Lowercasing:** Use HTML lowercase for built-in attribute names (no camelCase for attributes). Exceptions:
-  - **Event handlers** remain camelCase (e.g. `onClick`) to keep the `on` modifier clear.
-  - **Default to attributes** But attributes such as `input.value`, `input.defaultValue`, `input.checked`, `input.defaultChecked`, `select.value`, `option.value`, `option.selected`, `option.defaultSelected`, `textarea.value`, `textarea.defaultValue`, `video.muted`, `video.defaultMuted`, `audio.muted`, `audio.defaultMuted` continue to be handled as props where that avoids confusion. Unfortunately, this leads to all form fields be special cased. For example: `<input value={dynamicCurrentValue()} defaultValue={dynamicDefaultValue()}/>` either can be dynamic or static, and in the absense of `defaultValue`, then, `value` is SSRed.
+    - **Event handlers** remain camelCase (e.g. `onClick`) to keep the `on` modifier clear.
+    - **Default to attributes** But attributes such as `input.value`, `input.defaultValue`, `input.checked`, `input.defaultChecked`, `select.value`, `option.value`, `option.selected`, `option.defaultSelected`, `textarea.value`, `textarea.defaultValue`, `video.muted`, `video.defaultMuted`, `audio.muted`, `audio.defaultMuted` continue to be handled as props where that avoids confusion. Unfortunately, this leads to all form fields be special cased. For example: `<input value={dynamicCurrentValue()} defaultValue={dynamicDefaultValue()}/>` either can be dynamic or static, and in the absense of `defaultValue`, then, `value` is SSRed.
 - **Namespaces:** `attr:`, `bool:`, and `on:` namespaces are removed; the single standard behavior makes the model consistent. The compiler also no longer gives special handling to previously tolerated `class:` / `style:` namespace syntax. Use `class` object/array values for class toggles, `style` object values for style properties, and standard attributes/properties for everything else.
 - **XML Namespaces:** `svg` and `math` work as expected, however when using XML partials, an `xmlns` attribute is required for the browser to create the elements with the correct namespace. Solid adds these automatically to the tags that can recognize as SVG/MathML. For example an `a` tag returned from a partial to be used in XML need `xmlns` added by the user.
 
@@ -94,21 +94,21 @@ The recommended directive pattern is **two-phase**, similar in spirit to “spli
 
 ```js
 function titleDirective(source) {
-  // Setup phase (owned): create primitives/subscriptions here
-  // but avoid imperative DOM mutation at top level.
-  let el
+    // Setup phase (owned): create primitives/subscriptions here
+    // but avoid imperative DOM mutation at top level.
+    let el
 
-  createEffect(source, (value) => {
-    // Effect can run before the element is available
-    if (el) el.title = value
-  })
+    createEffect(source, (value) => {
+        // Effect can run before the element is available
+        if (el) el.title = value
+    })
 
-  // Apply phase (unowned): DOM writes happen here.
-  // No new primitives should be created in this callback.
-  return (nextEl) => {
-    el = nextEl
-    el.title = source()
-  }
+    // Apply phase (unowned): DOM writes happen here.
+    // No new primitives should be created in this callback.
+    return (nextEl) => {
+        el = nextEl
+        el.title = source()
+    }
 }
 ```
 

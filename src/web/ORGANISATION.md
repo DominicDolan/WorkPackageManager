@@ -72,7 +72,7 @@ that component.
 import styles from "./UserPage.module.css"
 
 export function UserPage() {
-  return <main class={styles.page}>...</main>
+    return <main class={styles.page}>...</main>
 }
 ```
 

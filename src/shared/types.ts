@@ -1,20 +1,20 @@
 /** Types shared by the CLI, the bun server and the Solid app. */
 
 export const STATUSES = [
-  "backlog",
-  "in_progress",
-  "dev_complete",
-  "verified",
-  "closed",
+    "backlog",
+    "in_progress",
+    "dev_complete",
+    "verified",
+    "closed",
 ] as const
 export type Status = (typeof STATUSES)[number]
 
 export const STATUS_LABELS: Record<Status, string> = {
-  backlog: "Backlog",
-  in_progress: "In Progress",
-  dev_complete: "Dev Complete",
-  verified: "Verified",
-  closed: "Closed",
+    backlog: "Backlog",
+    in_progress: "In Progress",
+    dev_complete: "Dev Complete",
+    verified: "Verified",
+    closed: "Closed",
 }
 
 export const PRIORITIES = ["low", "medium", "high"] as const
@@ -32,9 +32,9 @@ export const MODEL_TIERS = ["fast", "standard", "frontier"] as const
 export type ModelTier = (typeof MODEL_TIERS)[number]
 
 export const MODEL_TIER_LABELS: Record<ModelTier, string> = {
-  fast: "Fast",
-  standard: "Standard",
-  frontier: "Frontier",
+    fast: "Fast",
+    standard: "Standard",
+    frontier: "Frontier",
 }
 
 /** Which checkpoint phase a capture belongs to. */
@@ -42,72 +42,72 @@ export type Phase = "before" | "after"
 
 /** Per-scenario outcome, mirroring aio-vr's own vocabulary. */
 export type ComparisonStatus =
-  "unchanged" | "changed" | "failed" | "new-baseline"
+    "unchanged" | "changed" | "failed" | "new-baseline"
 
 export const INVESTIGATION_STATUSES = [
-  "draft",
-  "investigating",
-  "complete",
+    "draft",
+    "investigating",
+    "complete",
 ] as const
 export type InvestigationStatus = (typeof INVESTIGATION_STATUSES)[number]
 
 export const INVESTIGATION_STATUS_LABELS: Record<InvestigationStatus, string> =
-  {
-    draft: "Draft",
-    investigating: "Investigating",
-    complete: "Complete",
-  }
+    {
+        draft: "Draft",
+        investigating: "Investigating",
+        complete: "Complete",
+    }
 
 export interface Task {
-  id: number
-  ref: string
-  title: string
-  description: string
-  status: Status
-  priority: Priority
-  /** Where the task sits in the manually ordered list — lower is nearer the top.
-   *  The top of the list is what `/work-task` picks up when given no ref, so this
-   *  is the work queue, not a cosmetic preference. Dense but not guaranteed
-   *  contiguous: a reorder only permutes the positions it was handed. */
-  position: number
-  tags: string[]
-  /** How long the task takes on the plan, in abstract units — see
-   *  `DEFAULT_ESTIMATE_UNITS`. Deliberately not hours: the schedule view orders
-   *  work, it does not date it. */
-  estimateUnits: number
-  /** The investigation that filed this task, when one did. Plain ref, not a
-   *  foreign key — a task outlives the investigation that produced it. */
-  investigationRef: string | null
-  /** The capability tier an investigating agent thinks this task needs, or null
-   *  when nobody has judged it. A hint for the model dropdown in
-   *  `AgentRunDialog`, not a constraint — the person running the task can
-   *  always pick something else. */
-  recommendedTier: ModelTier | null
-  /** The work package this task belongs to, or null when it is loose. A plain ref for
-   *  the same reason as `investigationRef`: the work package is a way of reading the
-   *  list, and deleting one must not take its tasks with it. */
-  workPackageRef: string | null
-  /** Refs of the tasks this one waits on, nearest the top of the list first.
-   *  Plain refs rather than ids, so the shape matches how everything else here
-   *  addresses a task. */
-  dependsOn: string[]
-  /** Refs of the tasks waiting on this one — the other side of `dependsOn`,
-   *  materialised so a list view can mark a blocker without a second request. */
-  blocks: string[]
-  /** Whether work on this task gets its own branch and is merged into its
-   *  work package's branch. False is useful for ignored workspace files such as
-   *  visual-regression scenarios, while checkpoints remain available. */
-  useGitWorkflow: boolean
-  /** The assigned Git branch. Null when the Git workflow is disabled, and on
-   *  some legacy completed tasks. */
-  branchName: string | null
-  checkpointName: string | null
-  createdAt: string
-  updatedAt: string
-  startedAt: string | null
-  devCompletedAt: string | null
-  verifiedAt: string | null
-  closedAt: string | null
+    id: number
+    ref: string
+    title: string
+    description: string
+    status: Status
+    priority: Priority
+    /** Where the task sits in the manually ordered list — lower is nearer the top.
+     *  The top of the list is what `/work-task` picks up when given no ref, so this
+     *  is the work queue, not a cosmetic preference. Dense but not guaranteed
+     *  contiguous: a reorder only permutes the positions it was handed. */
+    position: number
+    tags: string[]
+    /** How long the task takes on the plan, in abstract units — see
+     *  `DEFAULT_ESTIMATE_UNITS`. Deliberately not hours: the schedule view orders
+     *  work, it does not date it. */
+    estimateUnits: number
+    /** The investigation that filed this task, when one did. Plain ref, not a
+     *  foreign key — a task outlives the investigation that produced it. */
+    investigationRef: string | null
+    /** The capability tier an investigating agent thinks this task needs, or null
+     *  when nobody has judged it. A hint for the model dropdown in
+     *  `AgentRunDialog`, not a constraint — the person running the task can
+     *  always pick something else. */
+    recommendedTier: ModelTier | null
+    /** The work package this task belongs to, or null when it is loose. A plain ref for
+     *  the same reason as `investigationRef`: the work package is a way of reading the
+     *  list, and deleting one must not take its tasks with it. */
+    workPackageRef: string | null
+    /** Refs of the tasks this one waits on, nearest the top of the list first.
+     *  Plain refs rather than ids, so the shape matches how everything else here
+     *  addresses a task. */
+    dependsOn: string[]
+    /** Refs of the tasks waiting on this one — the other side of `dependsOn`,
+     *  materialised so a list view can mark a blocker without a second request. */
+    blocks: string[]
+    /** Whether work on this task gets its own branch and is merged into its
+     *  work package's branch. False is useful for ignored workspace files such as
+     *  visual-regression scenarios, while checkpoints remain available. */
+    useGitWorkflow: boolean
+    /** The assigned Git branch. Null when the Git workflow is disabled, and on
+     *  some legacy completed tasks. */
+    branchName: string | null
+    checkpointName: string | null
+    createdAt: string
+    updatedAt: string
+    startedAt: string | null
+    devCompletedAt: string | null
+    verifiedAt: string | null
+    closedAt: string | null
 }
 
 /**
@@ -125,18 +125,18 @@ export const MAX_ESTIMATE_UNITS = 999
 
 /** Coerce anything into a usable estimate, or throw saying why it is not one. */
 export function parseEstimateUnits(value: unknown): number {
-  const units = typeof value === "string" ? Number(value.trim()) : value
-  if (
-    typeof units !== "number" ||
-    !Number.isInteger(units) ||
-    units < 1 ||
-    units > MAX_ESTIMATE_UNITS
-  ) {
-    throw new Error(
-      `An estimate must be a whole number of units between 1 and ${MAX_ESTIMATE_UNITS}.`,
-    )
-  }
-  return units
+    const units = typeof value === "string" ? Number(value.trim()) : value
+    if (
+        typeof units !== "number" ||
+        !Number.isInteger(units) ||
+        units < 1 ||
+        units > MAX_ESTIMATE_UNITS
+    ) {
+        throw new Error(
+            `An estimate must be a whole number of units between 1 and ${MAX_ESTIMATE_UNITS}.`,
+        )
+    }
+    return units
 }
 
 /**
@@ -147,14 +147,14 @@ export function parseEstimateUnits(value: unknown): number {
  * `verified` would mean a human sign-off gates work that is already unblocked.
  */
 export const DEPENDENCY_SATISFIED_STATUSES: readonly Status[] = [
-  "dev_complete",
-  "verified",
-  "closed",
+    "dev_complete",
+    "verified",
+    "closed",
 ]
 
 /** Whether a blocker's status still holds up the tasks that depend on it. */
 export function satisfiesDependency(status: Status): boolean {
-  return DEPENDENCY_SATISFIED_STATUSES.includes(status)
+    return DEPENDENCY_SATISFIED_STATUSES.includes(status)
 }
 
 /**
@@ -163,16 +163,16 @@ export function satisfiesDependency(status: Status): boolean {
  * a filtered list is a partial view, not evidence that a task is gone.
  */
 export function unmetDependencies(task: Task, known: Iterable<Task>): Task[] {
-  if (!task.dependsOn.length) return []
-  const byRef = new Map<string, Task>()
-  for (const one of known) byRef.set(one.ref.toLowerCase(), one)
+    if (!task.dependsOn.length) return []
+    const byRef = new Map<string, Task>()
+    for (const one of known) byRef.set(one.ref.toLowerCase(), one)
 
-  return task.dependsOn
-    .map((ref) => byRef.get(ref.toLowerCase()))
-    .filter(
-      (blocker): blocker is Task =>
-        !!blocker && !satisfiesDependency(blocker.status),
-    )
+    return task.dependsOn
+        .map((ref) => byRef.get(ref.toLowerCase()))
+        .filter(
+            (blocker): blocker is Task =>
+                !!blocker && !satisfiesDependency(blocker.status),
+        )
 }
 
 /**
@@ -190,36 +190,36 @@ export function unmetDependencies(task: Task, known: Iterable<Task>): Task[] {
  * task that closes it in queue order.
  */
 export function dependencyOrder(tasks: Task[]): Task[] {
-  const inSet = new Map(tasks.map((task) => [task.ref.toLowerCase(), task]))
-  const emitted = new Set<string>()
-  const visiting = new Set<string>()
-  const ordered: Task[] = []
+    const inSet = new Map(tasks.map((task) => [task.ref.toLowerCase(), task]))
+    const emitted = new Set<string>()
+    const visiting = new Set<string>()
+    const ordered: Task[] = []
 
-  const visit = (task: Task): void => {
-    const key = task.ref.toLowerCase()
-    if (emitted.has(key) || visiting.has(key)) return
-    visiting.add(key)
-    for (const ref of task.dependsOn) {
-      const blocker = inSet.get(ref.toLowerCase())
-      if (blocker) visit(blocker)
+    const visit = (task: Task): void => {
+        const key = task.ref.toLowerCase()
+        if (emitted.has(key) || visiting.has(key)) return
+        visiting.add(key)
+        for (const ref of task.dependsOn) {
+            const blocker = inSet.get(ref.toLowerCase())
+            if (blocker) visit(blocker)
+        }
+        visiting.delete(key)
+        emitted.add(key)
+        ordered.push(task)
     }
-    visiting.delete(key)
-    emitted.add(key)
-    ordered.push(task)
-  }
 
-  for (const task of tasks) visit(task)
-  return ordered
+    for (const task of tasks) visit(task)
+    return ordered
 }
 
 export interface TaskEvent {
-  id: number
-  taskId: number
-  type: "created" | "status" | "edited" | "note" | "checkpoint"
-  fromStatus: Status | null
-  toStatus: Status | null
-  note: string | null
-  createdAt: string
+    id: number
+    taskId: number
+    type: "created" | "status" | "edited" | "note" | "checkpoint"
+    fromStatus: Status | null
+    toStatus: Status | null
+    note: string | null
+    createdAt: string
 }
 
 /**
@@ -232,38 +232,38 @@ export interface TaskEvent {
  * and a baseline run compares it against the last approved state.
  */
 export interface VisualComparison {
-  scenario: string
-  description: string | null
-  status: ComparisonStatus
-  percentChanged: number | null
-  pixelDiffCount: number | null
-  totalPixels: number | null
-  /** Repo-root-relative paths; the server streams them through /api/image. */
-  beforePath: string | null
-  afterPath: string | null
-  diffPath: string | null
-  browserLogStatus: string | null
-  browserLogChangeCount: number | null
+    scenario: string
+    description: string | null
+    status: ComparisonStatus
+    percentChanged: number | null
+    pixelDiffCount: number | null
+    totalPixels: number | null
+    /** Repo-root-relative paths; the server streams them through /api/image. */
+    beforePath: string | null
+    afterPath: string | null
+    diffPath: string | null
+    browserLogStatus: string | null
+    browserLogChangeCount: number | null
 }
 
 export interface Comparison extends VisualComparison {
-  id: number
-  runId: number
+    id: number
+    runId: number
 }
 
 export interface CheckpointRun {
-  id: number
-  taskId: number
-  checkpointName: string
-  phase: Phase
-  exitCode: number
-  gitHead: string | null
-  gitDirty: number | null
-  scenarioCount: number
-  /** The --scenario / --folder filters this run used, if any. */
-  selection: { scenarios?: string[]; folders?: string[] } | null
-  createdAt: string
-  comparisons: Comparison[]
+    id: number
+    taskId: number
+    checkpointName: string
+    phase: Phase
+    exitCode: number
+    gitHead: string | null
+    gitDirty: number | null
+    scenarioCount: number
+    /** The --scenario / --folder filters this run used, if any. */
+    selection: { scenarios?: string[]; folders?: string[] } | null
+    createdAt: string
+    comparisons: Comparison[]
 }
 
 /**
@@ -275,22 +275,22 @@ export interface CheckpointRun {
  * verbatim for exactly that reason.
  */
 export interface TaskAttachment {
-  name: string
-  /** Path relative to the attachments root, as the server serves it. */
-  path: string
-  /** Absolute path on disk — the only field an agent's Read tool needs. */
-  absolutePath: string
-  size: number
-  isImage: boolean
+    name: string
+    /** Path relative to the attachments root, as the server serves it. */
+    path: string
+    /** Absolute path on disk — the only field an agent's Read tool needs. */
+    absolutePath: string
+    size: number
+    isImage: boolean
 }
 
 /** A task plus everything the detail view needs. */
 export interface TaskDetail extends Task {
-  events: TaskEvent[]
-  runs: CheckpointRun[]
-  attachments: TaskAttachment[]
-  /** Reusable Markdown notes attached as reference material. */
-  notes: NoteSummary[]
+    events: TaskEvent[]
+    runs: CheckpointRun[]
+    attachments: TaskAttachment[]
+    /** Reusable Markdown notes attached as reference material. */
+    notes: NoteSummary[]
 }
 
 /* ------------------------------------------------------------------ work packages */
@@ -307,41 +307,41 @@ export interface TaskDetail extends Task {
  * something has to enforce.
  */
 export interface WorkPackage {
-  id: number
-  /** `WP-<n>`, counted separately from tasks and investigations. */
-  ref: string
-  name: string
-  description: string
-  /** `#rrggbb`, used for the band on the plan and the dot in the list. Assigned
-   *  from `WORK_PACKAGE_COLORS` when nobody picks one. */
-  color: string
-  /**
-   * The branch this work package's work is built on. Every work package has one: members are
-   * cut from it rather than from the base branch, and `tasks done` merges each
-   * member back into it, so the work package is deliverable as a single PR.
-   */
-  branchName: string
-  /** Where the work package sits among the others. Only decides the order of *empty*
-   *  work packages and ties — a work package with tasks in it is ordered by the first of them
-   *  in the queue, so the grouped list reads in the same order as the flat one. */
-  position: number
-  /** The investigation whose tasks this work package collects, when it was created for
-   *  one. Set by the auto-organizing in `createTask`, and what makes that
-   *  idempotent — a second run of the same investigation refills the same work package. */
-  investigationRef: string | null
-  createdAt: string
-  updatedAt: string
+    id: number
+    /** `WP-<n>`, counted separately from tasks and investigations. */
+    ref: string
+    name: string
+    description: string
+    /** `#rrggbb`, used for the band on the plan and the dot in the list. Assigned
+     *  from `WORK_PACKAGE_COLORS` when nobody picks one. */
+    color: string
+    /**
+     * The branch this work package's work is built on. Every work package has one: members are
+     * cut from it rather than from the base branch, and `tasks done` merges each
+     * member back into it, so the work package is deliverable as a single PR.
+     */
+    branchName: string
+    /** Where the work package sits among the others. Only decides the order of *empty*
+     *  work packages and ties — a work package with tasks in it is ordered by the first of them
+     *  in the queue, so the grouped list reads in the same order as the flat one. */
+    position: number
+    /** The investigation whose tasks this work package collects, when it was created for
+     *  one. Set by the auto-organizing in `createTask`, and what makes that
+     *  idempotent — a second run of the same investigation refills the same work package. */
+    investigationRef: string | null
+    createdAt: string
+    updatedAt: string
 }
 
 /** A work package plus how much is in it — what a list of work packages actually needs. */
 export interface WorkPackageSummary extends WorkPackage {
-  taskCount: number
-  /** Members whose implementation is finished. This includes tasks that have
-   *  subsequently moved on to verification or closure. */
-  devCompleteCount: number
-  /** Members that are not closed. The count worth showing: a work package whose work
-   *  is finished should not read as a work package with ten open tasks in it. */
-  openCount: number
+    taskCount: number
+    /** Members whose implementation is finished. This includes tasks that have
+     *  subsequently moved on to verification or closure. */
+    devCompleteCount: number
+    /** Members that are not closed. The count worth showing: a work package whose work
+     *  is finished should not read as a work package with ten open tasks in it. */
+    openCount: number
 }
 
 /**
@@ -352,30 +352,30 @@ export interface WorkPackageSummary extends WorkPackage {
  * people learn it.
  */
 export const WORK_PACKAGE_COLORS = [
-  "#5b9dff",
-  "#4ec98a",
-  "#e0a03a",
-  "#c678dd",
-  "#f2555a",
-  "#3fb8c4",
-  "#e58f65",
-  "#8b93f8",
+    "#5b9dff",
+    "#4ec98a",
+    "#e0a03a",
+    "#c678dd",
+    "#f2555a",
+    "#3fb8c4",
+    "#e58f65",
+    "#8b93f8",
 ] as const
 
 /** The next colour to hand out, given what is already taken. Falls back to
  *  cycling once every colour is in use — a repeat is better than a blank. */
 export function nextWorkPackageColor(taken: Iterable<string>): string {
-  const used = new Set([...taken].map((color) => color.toLowerCase()))
-  return (
-    WORK_PACKAGE_COLORS.find((color) => !used.has(color)) ??
-    WORK_PACKAGE_COLORS[used.size % WORK_PACKAGE_COLORS.length]!
-  )
+    const used = new Set([...taken].map((color) => color.toLowerCase()))
+    return (
+        WORK_PACKAGE_COLORS.find((color) => !used.has(color)) ??
+        WORK_PACKAGE_COLORS[used.size % WORK_PACKAGE_COLORS.length]!
+    )
 }
 
 /** Whether a string is a colour this app will store. Hex only, so a value read
  *  back can go straight into a style attribute. */
 export function isWorkPackageColor(value: string): boolean {
-  return /^#[0-9a-fA-F]{6}$/.test(value)
+    return /^#[0-9a-fA-F]{6}$/.test(value)
 }
 
 /**
@@ -393,49 +393,52 @@ export function isWorkPackageColor(value: string): boolean {
  * Work packages with nothing in them have no first member, so they come after.
  */
 export interface WorkPackageSection<T> {
-  workPackage: WorkPackage | null
-  items: T[]
+    workPackage: WorkPackage | null
+    items: T[]
 }
 
 export function workPackageTasks<T>(
-  items: T[],
-  workPackages: WorkPackage[],
-  taskOf: (item: T) => Task,
+    items: T[],
+    workPackages: WorkPackage[],
+    taskOf: (item: T) => Task,
 ): WorkPackageSection<T>[] {
-  const byRef = new Map(
-    workPackages.map((workPackage) => [
-      workPackage.ref.toLowerCase(),
-      workPackage,
-    ]),
-  )
-  const buckets = new Map<string, T[]>()
-  // Insertion order *is* the answer for a section with something in it: its
-  // first task decides where it sits. `''` keys the loose one.
-  const seen: string[] = []
+    const byRef = new Map(
+        workPackages.map((workPackage) => [
+            workPackage.ref.toLowerCase(),
+            workPackage,
+        ]),
+    )
+    const buckets = new Map<string, T[]>()
+    // Insertion order *is* the answer for a section with something in it: its
+    // first task decides where it sits. `''` keys the loose one.
+    const seen: string[] = []
 
-  for (const item of items) {
-    const ref = taskOf(item).workPackageRef?.toLowerCase()
-    // A ref pointing at a work package this view was not handed reads as loose rather
-    // than inventing a section nothing can name.
-    const key = ref && byRef.has(ref) ? ref : ""
-    if (!buckets.has(key)) {
-      buckets.set(key, [])
-      seen.push(key)
+    for (const item of items) {
+        const ref = taskOf(item).workPackageRef?.toLowerCase()
+        // A ref pointing at a work package this view was not handed reads as loose rather
+        // than inventing a section nothing can name.
+        const key = ref && byRef.has(ref) ? ref : ""
+        if (!buckets.has(key)) {
+            buckets.set(key, [])
+            seen.push(key)
+        }
+        buckets.get(key)!.push(item)
     }
-    buckets.get(key)!.push(item)
-  }
 
-  const result: WorkPackageSection<T>[] = seen.map((key) => ({
-    workPackage: key ? byRef.get(key)! : null,
-    items: buckets.get(key)!,
-  }))
+    const result: WorkPackageSection<T>[] = seen.map((key) => ({
+        workPackage: key ? byRef.get(key)! : null,
+        items: buckets.get(key)!,
+    }))
 
-  const empty = workPackages
-    .filter((workPackage) => !buckets.has(workPackage.ref.toLowerCase()))
-    .sort((left, right) => left.position - right.position || left.id - right.id)
-  for (const workPackage of empty) result.push({ workPackage, items: [] })
+    const empty = workPackages
+        .filter((workPackage) => !buckets.has(workPackage.ref.toLowerCase()))
+        .sort(
+            (left, right) =>
+                left.position - right.position || left.id - right.id,
+        )
+    for (const workPackage of empty) result.push({ workPackage, items: [] })
 
-  return result
+    return result
 }
 
 /* ------------------------------------------------------------ investigations */
@@ -446,25 +449,25 @@ export function workPackageTasks<T>(
  * it turned up as tasks pointing at this ref.
  */
 export interface Investigation {
-  id: number
-  ref: string
-  title: string
-  /** What to investigate — the human's input, free-form Markdown. */
-  brief: string
-  /** What the agent concluded. Empty until an investigation has been run. */
-  findings: string
-  status: InvestigationStatus
-  createdAt: string
-  updatedAt: string
-  startedAt: string | null
-  completedAt: string | null
+    id: number
+    ref: string
+    title: string
+    /** What to investigate — the human's input, free-form Markdown. */
+    brief: string
+    /** What the agent concluded. Empty until an investigation has been run. */
+    findings: string
+    status: InvestigationStatus
+    createdAt: string
+    updatedAt: string
+    startedAt: string | null
+    completedAt: string | null
 }
 
 /** An investigation plus the tasks it produced. */
 export interface InvestigationDetail extends Investigation {
-  tasks: Task[]
-  /** Notes attached to the work package that owns this investigation. */
-  notes: NoteSummary[]
+    tasks: Task[]
+    /** Notes attached to the work package that owns this investigation. */
+    notes: NoteSummary[]
 }
 
 /* -------------------------------------------------------------- notes */
@@ -478,71 +481,71 @@ export interface InvestigationDetail extends Investigation {
  * out of it rather than mirrored alongside it.
  */
 export interface NoteSummary {
-  /** Path relative to the notes root, always ending `.md` — e.g. `ideas/gantt.md`.
-   *  This is the note's identity: there is no id, because renaming the file in
-   *  another editor must not orphan anything. */
-  path: string
-  /** Frontmatter `title`, falling back to the filename. */
-  title: string
-  tags: string[]
-  /** Directory the note sits in, `''` at the root. */
-  folder: string
-  /** First couple of lines of prose, for the list column. */
-  excerpt: string
-  createdAt: string
-  updatedAt: string
+    /** Path relative to the notes root, always ending `.md` — e.g. `ideas/gantt.md`.
+     *  This is the note's identity: there is no id, because renaming the file in
+     *  another editor must not orphan anything. */
+    path: string
+    /** Frontmatter `title`, falling back to the filename. */
+    title: string
+    tags: string[]
+    /** Directory the note sits in, `''` at the root. */
+    folder: string
+    /** First couple of lines of prose, for the list column. */
+    excerpt: string
+    createdAt: string
+    updatedAt: string
 }
 
 /** A file stored alongside a note — an image, a PDF, a dropped screenshot. */
 export interface NoteAttachment {
-  name: string
-  /** Path relative to the notes root, as the server serves it. */
-  path: string
-  /** Path as it is written in the Markdown, relative to the note itself. */
-  href: string
-  size: number
-  isImage: boolean
-  /**
-   * True when this app put the file under `attachments/`, false when it was
-   * simply found sitting beside the note.
-   *
-   * The difference is who owns the file. An upload belongs to the note and can
-   * be removed with it; an image someone dropped into the folder by hand may be
-   * referenced by a second note, synced from Obsidian, or the reason the folder
-   * exists — so the UI shows it without offering to delete it.
-   */
-  uploaded: boolean
+    name: string
+    /** Path relative to the notes root, as the server serves it. */
+    path: string
+    /** Path as it is written in the Markdown, relative to the note itself. */
+    href: string
+    size: number
+    isImage: boolean
+    /**
+     * True when this app put the file under `attachments/`, false when it was
+     * simply found sitting beside the note.
+     *
+     * The difference is who owns the file. An upload belongs to the note and can
+     * be removed with it; an image someone dropped into the folder by hand may be
+     * referenced by a second note, synced from Obsidian, or the reason the folder
+     * exists — so the UI shows it without offering to delete it.
+     */
+    uploaded: boolean
 }
 
 /** A note plus its body and attachments — what the detail view edits. */
 export interface Note extends NoteSummary {
-  /** The Markdown below the frontmatter. */
-  body: string
-  attachments: NoteAttachment[]
+    /** The Markdown below the frontmatter. */
+    body: string
+    attachments: NoteAttachment[]
 }
 
 /** Live Git state of the notes folder. Read fresh per request: it is an ordinary
  *  repository somebody may commit to, pull or push from outside this app. */
 export interface NotesGitInfo {
-  /** False when the folder exists but was never `git init`ed. */
-  repo: boolean
-  branch: string | null
-  /** Paths with uncommitted changes. */
-  dirty: number
-  lastCommit: { shortSha: string; subject: string; date: string } | null
-  upstream: string | null
-  /** Commits not yet pushed. Null when there is no upstream to compare with. */
-  unpushed: number | null
+    /** False when the folder exists but was never `git init`ed. */
+    repo: boolean
+    branch: string | null
+    /** Paths with uncommitted changes. */
+    dirty: number
+    lastCommit: { shortSha: string; subject: string; date: string } | null
+    upstream: string | null
+    /** Commits not yet pushed. Null when there is no upstream to compare with. */
+    unpushed: number | null
 }
 
 /** Where the notes live and what state that folder is in. */
 export interface NotesWorkspaceInfo {
-  /** Absolute path to the notes folder. */
-  dir: string
-  exists: boolean
-  /** Whether a write commits automatically (`notesAutoCommit`). */
-  autoCommit: boolean
-  git: NotesGitInfo
+    /** Absolute path to the notes folder. */
+    dir: string
+    exists: boolean
+    /** Whether a write commits automatically (`notesAutoCommit`). */
+    autoCommit: boolean
+    git: NotesGitInfo
 }
 
 /* -------------------------------------------------------------- issues */
@@ -563,63 +566,63 @@ export const ISSUE_SOURCES = ["github", "azure-devops"] as const
 export type IssueSource = (typeof ISSUE_SOURCES)[number]
 
 export const ISSUE_SOURCE_LABELS: Record<string, string> = {
-  github: "GitHub",
-  "azure-devops": "Azure DevOps",
+    github: "GitHub",
+    "azure-devops": "Azure DevOps",
 }
 
 export interface IssueLabel {
-  name: string
-  /** `#rrggbb`, when the provider has an opinion. Azure DevOps tags do not. */
-  color: string | null
-  description: string | null
+    name: string
+    /** `#rrggbb`, when the provider has an opinion. Azure DevOps tags do not. */
+    color: string | null
+    description: string | null
 }
 
 export interface IssuePerson {
-  name: string
-  avatarUrl: string | null
-  url: string | null
+    name: string
+    avatarUrl: string | null
+    url: string | null
 }
 
 export interface IssueSummary {
-  /** Identity: the file's path relative to the notes root, plus `#<index>` when
-   *  one file holds several issues. */
-  id: string
-  /** The file it came from. */
-  path: string
-  /** `github`, `azure-devops`, or whatever the file called itself. */
-  source: string
-  /** The provider's own reference, e.g. `#677`. */
-  key: string
-  title: string
-  /** Normalised for filtering. */
-  state: IssueState
-  /** The provider's own wording — `open`, `Active`, `Resolved`, `not_planned`. */
-  stateLabel: string
-  /** Where to open it in a browser. */
-  url: string | null
-  /** The repository or project it belongs to. */
-  container: string | null
-  /** Bug, Feature, User Story — whatever the provider calls its types. */
-  kind: string | null
-  labels: IssueLabel[]
-  author: IssuePerson | null
-  assignees: IssuePerson[]
-  createdAt: string | null
-  updatedAt: string | null
-  closedAt: string | null
-  commentCount: number | null
-  milestone: string | null
-  /** When the file was written, if it says. */
-  fetchedAt: string | null
-  excerpt: string
+    /** Identity: the file's path relative to the notes root, plus `#<index>` when
+     *  one file holds several issues. */
+    id: string
+    /** The file it came from. */
+    path: string
+    /** `github`, `azure-devops`, or whatever the file called itself. */
+    source: string
+    /** The provider's own reference, e.g. `#677`. */
+    key: string
+    title: string
+    /** Normalised for filtering. */
+    state: IssueState
+    /** The provider's own wording — `open`, `Active`, `Resolved`, `not_planned`. */
+    stateLabel: string
+    /** Where to open it in a browser. */
+    url: string | null
+    /** The repository or project it belongs to. */
+    container: string | null
+    /** Bug, Feature, User Story — whatever the provider calls its types. */
+    kind: string | null
+    labels: IssueLabel[]
+    author: IssuePerson | null
+    assignees: IssuePerson[]
+    createdAt: string | null
+    updatedAt: string | null
+    closedAt: string | null
+    commentCount: number | null
+    milestone: string | null
+    /** When the file was written, if it says. */
+    fetchedAt: string | null
+    excerpt: string
 }
 
 export interface IssueDetail extends IssueSummary {
-  /** GitHub bodies are Markdown; Azure DevOps descriptions are HTML. */
-  bodyFormat: "markdown" | "html"
-  body: string
-  /** The provider's untouched object, for the raw view. */
-  raw: unknown
+    /** GitHub bodies are Markdown; Azure DevOps descriptions are HTML. */
+    bodyFormat: "markdown" | "html"
+    body: string
+    /** The provider's untouched object, for the raw view. */
+    raw: unknown
 }
 
 /* -------------------------------------------------------------- baselines */
@@ -635,40 +638,40 @@ export interface IssueDetail extends IssueSummary {
  * working on it.
  */
 export interface BaselineScenario extends VisualComparison {
-  /** Where the scenario is defined, so the page can name the file to edit. */
-  scenarioPath: string | null
-  /** The percentage below which aio-vr calls a difference nothing. */
-  threshold: number | null
-  /** When this scenario last ran. */
-  timestamp: string | null
-  durationMs: number | null
-  /** Whether the current difference has already been signed off. Read from
-   *  aio-vr's approvals file, which is what `aio-vr approve` writes. */
-  approved: boolean
-  approvedAt: string | null
-  /** What the scenario looked like when it was approved — a scenario approved
-   *  while `changed` was a deliberate acceptance, not a clean run. */
-  statusAtApproval: string | null
-  /** The browser console log's own diff, when one was written. */
-  browserLogDiffPath: string | null
+    /** Where the scenario is defined, so the page can name the file to edit. */
+    scenarioPath: string | null
+    /** The percentage below which aio-vr calls a difference nothing. */
+    threshold: number | null
+    /** When this scenario last ran. */
+    timestamp: string | null
+    durationMs: number | null
+    /** Whether the current difference has already been signed off. Read from
+     *  aio-vr's approvals file, which is what `aio-vr approve` writes. */
+    approved: boolean
+    approvedAt: string | null
+    /** What the scenario looked like when it was approved — a scenario approved
+     *  while `changed` was a deliberate acceptance, not a clean run. */
+    statusAtApproval: string | null
+    /** The browser console log's own diff, when one was written. */
+    browserLogDiffPath: string | null
 }
 
 /** Everything the Baselines view draws: the last full run, and what it found. */
 export interface BaselineReport {
-  /** False when aio-vr has never run here — the view says so rather than
-   *  showing an empty list that looks like "nothing has drifted". */
-  hasRun: boolean
-  /** When the results file was written. */
-  generatedAt: string | null
-  /** aio-vr's own tally, by status. */
-  totals: Record<string, number>
-  scenarios: BaselineScenario[]
-  /** Repo-root-relative path of the results file, as configured in
-   *  `aio-vr.config.json`. Shown so a surprising report can be traced. */
-  resultsPath: string
-  /** False when the `aio-vr` executable is not on PATH — running and approving
-   *  are unavailable, but a previous run's results still read fine. */
-  available: boolean
+    /** False when aio-vr has never run here — the view says so rather than
+     *  showing an empty list that looks like "nothing has drifted". */
+    hasRun: boolean
+    /** When the results file was written. */
+    generatedAt: string | null
+    /** aio-vr's own tally, by status. */
+    totals: Record<string, number>
+    scenarios: BaselineScenario[]
+    /** Repo-root-relative path of the results file, as configured in
+     *  `aio-vr.config.json`. Shown so a surprising report can be traced. */
+    resultsPath: string
+    /** False when the `aio-vr` executable is not on PATH — running and approving
+     *  are unavailable, but a previous run's results still read fine. */
+    available: boolean
 }
 
 /* ------------------------------------------------------ combined branches */
@@ -684,99 +687,99 @@ export interface BaselineReport {
  *  all (a cwd that does not exist), and a check nobody can run must never be
  *  mistaken for a check with nothing to say. */
 export interface CheckRun {
-  name: string
-  command: string[]
-  /** Repo-root-relative working directory it ran in. */
-  cwd: string
-  status: "passed" | "failed" | "skipped" | "timed_out" | "error"
-  /** Why it was skipped, or what is wrong with its configuration. */
-  reason?: string
-  exitCode: number | null
-  durationMs: number
-  /** Combined stdout and stderr, truncated from the front when long. */
-  output: string
+    name: string
+    command: string[]
+    /** Repo-root-relative working directory it ran in. */
+    cwd: string
+    status: "passed" | "failed" | "skipped" | "timed_out" | "error"
+    /** Why it was skipped, or what is wrong with its configuration. */
+    reason?: string
+    exitCode: number | null
+    durationMs: number
+    /** Combined stdout and stderr, truncated from the front when long. */
+    output: string
 }
 
 /** A run currently in flight. Checks outlive the request that starts them, so
  *  this is how a page follows one that is still going. */
 export interface ChecksProgress {
-  branch: string
-  base: string
-  startedAt: string
-  /** The check being run right now, or null before the first one starts. */
-  current: string | null
-  done: number
-  total: number
+    branch: string
+    base: string
+    startedAt: string
+    /** The check being run right now, or null before the first one starts. */
+    current: string | null
+    done: number
+    total: number
 }
 
 /** One run of the whole suite against one branch — what gates the PR button. */
 export interface ChecksReport {
-  branch: string
-  base: string
-  /** The commit the branch was on. New commits since make this report stale. */
-  headSha: string | null
-  ranAt: string
-  passed: boolean
-  /** The branch actually checked out while the commands ran. Checks read the
-   *  working tree, so a different branch here means the report describes that
-   *  tree, not this branch. */
-  ranOnBranch: string | null
-  checks: CheckRun[]
+    branch: string
+    base: string
+    /** The commit the branch was on. New commits since make this report stale. */
+    headSha: string | null
+    ranAt: string
+    passed: boolean
+    /** The branch actually checked out while the commands ran. Checks read the
+     *  working tree, so a different branch here means the report describes that
+     *  tree, not this branch. */
+    ranOnBranch: string | null
+    checks: CheckRun[]
 }
 
 export interface CombinedBranch {
-  id: number
-  branchName: string
-  /** The branch the combine was cut from — the PR's base by default. */
-  baseBranch: string | null
-  /** The name to push and open the PR's head under. Null means push under
-   *  `branchName` itself, the historical default. */
-  remoteBranch: string | null
-  /** Refs of the tasks cherry-picked in, in combine order. */
-  taskRefs: string[]
-  prTitle: string | null
-  prBody: string | null
-  prUrl: string | null
-  prNumber: number | null
-  /** A combine stopped on a Git conflict and needs `git cherry-pick --continue`. */
-  combineState: "complete" | "conflict"
-  /** Commits still to cherry-pick after a conflict is resolved. */
-  combinePendingCommits: string[]
-  /** Whether tasks should be closed when this combine finishes. */
-  combineCloseTasks: boolean
-  /** The last pre-PR check run, or null if none has been run here. */
-  checks: ChecksReport | null
-  createdAt: string
-  updatedAt: string
+    id: number
+    branchName: string
+    /** The branch the combine was cut from — the PR's base by default. */
+    baseBranch: string | null
+    /** The name to push and open the PR's head under. Null means push under
+     *  `branchName` itself, the historical default. */
+    remoteBranch: string | null
+    /** Refs of the tasks cherry-picked in, in combine order. */
+    taskRefs: string[]
+    prTitle: string | null
+    prBody: string | null
+    prUrl: string | null
+    prNumber: number | null
+    /** A combine stopped on a Git conflict and needs `git cherry-pick --continue`. */
+    combineState: "complete" | "conflict"
+    /** Commits still to cherry-pick after a conflict is resolved. */
+    combinePendingCommits: string[]
+    /** Whether tasks should be closed when this combine finishes. */
+    combineCloseTasks: boolean
+    /** The last pre-PR check run, or null if none has been run here. */
+    checks: ChecksReport | null
+    createdAt: string
+    updatedAt: string
 }
 
 export interface BranchCommit {
-  sha: string
-  shortSha: string
-  subject: string
-  author: string
-  date: string
+    sha: string
+    shortSha: string
+    subject: string
+    author: string
+    date: string
 }
 
 /** Live Git state for a branch. Read fresh on every request — a branch can be
  *  deleted, pushed or advanced from outside this app at any time. */
 export interface BranchGitInfo {
-  exists: boolean
-  /** Set when the branch has a configured upstream, e.g. `origin/feature/x`. */
-  upstream: string | null
-  /** Commits unique to this branch relative to its base, oldest first. */
-  commits: BranchCommit[]
-  filesChanged: number
-  /** Null when the base branch cannot be resolved (deleted, renamed). */
-  aheadOfBase: number | null
+    exists: boolean
+    /** Set when the branch has a configured upstream, e.g. `origin/feature/x`. */
+    upstream: string | null
+    /** Commits unique to this branch relative to its base, oldest first. */
+    commits: BranchCommit[]
+    filesChanged: number
+    /** Null when the base branch cannot be resolved (deleted, renamed). */
+    aheadOfBase: number | null
 }
 
 /** A combined branch plus its live Git state and the tasks it carries. */
 export interface CombinedBranchDetail extends CombinedBranch {
-  git: BranchGitInfo
-  tasks: Task[]
-  /** Set while a check run is in flight for this branch. */
-  checksRunning: ChecksProgress | null
+    git: BranchGitInfo
+    tasks: Task[]
+    /** Set while a check run is in flight for this branch. */
+    checksRunning: ChecksProgress | null
 }
 
 /* ------------------------------------------------------------ work package detail */
@@ -790,46 +793,46 @@ export interface CombinedBranchDetail extends CombinedBranch {
  * of one fact rather than two sources of truth.
  */
 export interface WorkPackageDetail extends WorkPackageSummary {
-  tasks: Task[]
-  /** Investigation and reference notes attached to this work package. */
-  notes: NoteSummary[]
-  /** The unfinished tasks, in dependency order — what an agent works through. */
-  queue: Task[]
-  /**
-   * Blockers of the queued tasks that live outside this work package and are **not
-   * finished**. Only unmet ones: a closed or dev-complete dependency is work
-   * that already exists, so it is nothing for the work package to wait on.
-   *
-   * Resolved on the server because it is the only place every task is visible —
-   * the page is handed this work package's tasks and could not otherwise tell a
-   * finished outside dependency from an unfinished one.
-   */
-  outsideBlockers: Task[]
-  /**
-   * Tasks anywhere in the workspace that are currently `in_progress` — not just
-   * this work package's.
-   *
-   * `/work-task` refuses to start a second task while one is in flight, because
-   * each task owns a branch and a visual checkpoint and two at once corrupts
-   * both. The page has to apply the same rule to say honestly whether the next
-   * task can be started, and a task in another work package blocks it just as much.
-   */
-  inProgress: Task[]
-  /** What the work package branch is cut from, and what its PR would target. */
-  baseBranch: string
-  git: BranchGitInfo
-  /** Null until the branch has commits. Existing branches attached to a work package
-   *  are registered even when no task merge created them. */
-  delivery: CombinedBranch | null
-  /**
-   * The unattended run working through this work package right now, or the last one to
-   * have tried — null when the work package has never been run that way.
-   *
-   * Read with the rest of the work package because it is not a detail of the run
-   * history: a work package with a loop in flight is in a different state, and every
-   * button on the page has to know that before it offers to start anything.
-   */
-  run: WorkPackageRun | null
+    tasks: Task[]
+    /** Investigation and reference notes attached to this work package. */
+    notes: NoteSummary[]
+    /** The unfinished tasks, in dependency order — what an agent works through. */
+    queue: Task[]
+    /**
+     * Blockers of the queued tasks that live outside this work package and are **not
+     * finished**. Only unmet ones: a closed or dev-complete dependency is work
+     * that already exists, so it is nothing for the work package to wait on.
+     *
+     * Resolved on the server because it is the only place every task is visible —
+     * the page is handed this work package's tasks and could not otherwise tell a
+     * finished outside dependency from an unfinished one.
+     */
+    outsideBlockers: Task[]
+    /**
+     * Tasks anywhere in the workspace that are currently `in_progress` — not just
+     * this work package's.
+     *
+     * `/work-task` refuses to start a second task while one is in flight, because
+     * each task owns a branch and a visual checkpoint and two at once corrupts
+     * both. The page has to apply the same rule to say honestly whether the next
+     * task can be started, and a task in another work package blocks it just as much.
+     */
+    inProgress: Task[]
+    /** What the work package branch is cut from, and what its PR would target. */
+    baseBranch: string
+    git: BranchGitInfo
+    /** Null until the branch has commits. Existing branches attached to a work package
+     *  are registered even when no task merge created them. */
+    delivery: CombinedBranch | null
+    /**
+     * The unattended run working through this work package right now, or the last one to
+     * have tried — null when the work package has never been run that way.
+     *
+     * Read with the rest of the work package because it is not a detail of the run
+     * history: a work package with a loop in flight is in a different state, and every
+     * button on the page has to know that before it offers to start anything.
+     */
+    run: WorkPackageRun | null
 }
 
 /**
@@ -840,28 +843,28 @@ export interface WorkPackageDetail extends WorkPackageSummary {
  * about every member rather than just handed a count.
  */
 export interface WorkPackageAdvanceOutcome {
-  ref: string
-  title: string
-  from: Status
-  /** Where it ended up, or null when it did not move at all. */
-  to: Status | null
-  /** Why nothing was attempted for it. */
-  skipped?: string
-  /** Why what was attempted did not land. */
-  error?: string
+    ref: string
+    title: string
+    from: Status
+    /** Where it ended up, or null when it did not move at all. */
+    to: Status | null
+    /** Why nothing was attempted for it. */
+    skipped?: string
+    /** Why what was attempted did not land. */
+    error?: string
 }
 
 /** Which external CLIs the Branches view can use, and what they are called. */
 export interface ToolAvailability {
-  /** The configured PR-description agent, or null when the feature is off. */
-  prAgent: string | null
-  prAgentAvailable: boolean
-  /** How many pre-PR checks this repository configures. 0 leaves PRs ungated. */
-  checkCount: number
-  /** Names of the configured checks, used to offer individual run actions. */
-  checkNames: string[]
-  gh: boolean
-  ghAuthed: boolean
+    /** The configured PR-description agent, or null when the feature is off. */
+    prAgent: string | null
+    prAgentAvailable: boolean
+    /** How many pre-PR checks this repository configures. 0 leaves PRs ungated. */
+    checkCount: number
+    /** Names of the configured checks, used to offer individual run actions. */
+    checkNames: string[]
+    gh: boolean
+    ghAuthed: boolean
 }
 
 /* ---------------------------------------------------------- live updates */
@@ -880,10 +883,10 @@ export const CHANGE_CHANNELS = ["tasks", "notes"] as const
 export type ChangeChannel = (typeof CHANGE_CHANNELS)[number]
 
 export interface ChangeEvent {
-  channel: ChangeChannel
-  /** Monotonic per channel, so a reconnecting client can tell it missed one. */
-  revision: number
-  at: string
+    channel: ChangeChannel
+    /** Monotonic per channel, so a reconnecting client can tell it missed one. */
+    revision: number
+    at: string
 }
 
 /* ------------------------------------------------------------ agent runs */
@@ -902,10 +905,10 @@ export type AgentHarnessId = (typeof AGENT_HARNESSES)[number]
 
 /** Which in-repo prompt file (`prompts/<name>.md`) a run drives. */
 export const AGENT_COMMANDS = [
-  "plan-tasks",
-  "work-task",
-  "work-package",
-  "resolve-checks",
+    "plan-tasks",
+    "work-task",
+    "work-package",
+    "resolve-checks",
 ] as const
 export type AgentCommand = (typeof AGENT_COMMANDS)[number]
 
@@ -931,94 +934,94 @@ export type AgentRunMode = (typeof AGENT_RUN_MODES)[number]
  * any one CLI's option names.
  */
 export const AGENT_PERMISSION_MODES = [
-  "manual",
-  "auto",
-  "plan",
-  "bypassPermissions",
+    "manual",
+    "auto",
+    "plan",
+    "bypassPermissions",
 ] as const
 export type AgentPermissionMode = (typeof AGENT_PERMISSION_MODES)[number]
 
 export const AGENT_PERMISSION_MODE_LABELS: Record<AgentPermissionMode, string> =
-  {
-    manual: "Ask every time",
-    auto: "Auto",
-    plan: "Plan only",
-    bypassPermissions: "Never ask",
-  }
+    {
+        manual: "Ask every time",
+        auto: "Auto",
+        plan: "Plan only",
+        bypassPermissions: "Never ask",
+    }
 
 export type AgentRunStatus =
-  "launched" | "running" | "succeeded" | "failed" | "stopped"
+    "launched" | "running" | "succeeded" | "failed" | "stopped"
 
 export interface AgentModel {
-  /** Passed to the harness as `--model`. */
-  id: string
-  label: string
-  /** Provider, or whatever groups the list — used for `<optgroup>`. */
-  group: string | null
+    /** Passed to the harness as `--model`. */
+    id: string
+    label: string
+    /** Provider, or whatever groups the list — used for `<optgroup>`. */
+    group: string | null
 }
 
 /** One harness, as the dialog needs to render it. */
 export interface AgentHarnessInfo {
-  id: AgentHarnessId
-  label: string
-  /** The executable, e.g. `claude`. */
-  bin: string
-  /** Whether that executable is on PATH. */
-  available: boolean
-  /** True when models have to be fetched separately (the list is slow/large). */
-  modelsLazy: boolean
+    id: AgentHarnessId
+    label: string
+    /** The executable, e.g. `claude`. */
+    bin: string
+    /** Whether that executable is on PATH. */
+    available: boolean
+    /** True when models have to be fetched separately (the list is slow/large). */
+    modelsLazy: boolean
 }
 
 /** What the Investigate / Work buttons need before they can offer a run. */
 export interface AgentEnvironment {
-  harnesses: AgentHarnessInfo[]
-  /** The terminal emulator that `terminal` mode will use, if one was found. */
-  terminal: string | null
-  /** Whether the whole terminal mode is available at all. */
-  terminalAvailable: boolean
-  /** Each harness's tier → model mapping, from `tasks.config.json`. A harness
-   *  with no entry (or a tier with no entry within it) has nothing to
-   *  recommend for that tier, so the dialog falls back to its own default. */
-  modelTiers: Partial<
-    Record<AgentHarnessId, Partial<Record<ModelTier, string>>>
-  >
+    harnesses: AgentHarnessInfo[]
+    /** The terminal emulator that `terminal` mode will use, if one was found. */
+    terminal: string | null
+    /** Whether the whole terminal mode is available at all. */
+    terminalAvailable: boolean
+    /** Each harness's tier → model mapping, from `tasks.config.json`. A harness
+     *  with no entry (or a tier with no entry within it) has nothing to
+     *  recommend for that tier, so the dialog falls back to its own default. */
+    modelTiers: Partial<
+        Record<AgentHarnessId, Partial<Record<ModelTier, string>>>
+    >
 }
 
 /** One launch of an agent, recorded so a run outlives the tab that started it. */
 export interface AgentRun {
-  id: number
-  harness: AgentHarnessId
-  /** Empty when the harness default was used. */
-  model: string
-  mode: AgentRunMode
-  command: AgentCommand
-  /** What the run is about — `issue`, `task` or `investigation` plus its ref. */
-  subjectKind: string
-  subjectRef: string
-  /** The prompt actually sent, inlined command instructions and all. */
-  prompt: string
-  /** The argv spawned, for when a run does something surprising. */
-  argv: string[]
-  pid: number | null
-  /**
-   * The harness conversation this run created, so it can be reopened.
-   *
-   * Claude Code and pi accept the id generated by this app. Codex creates its
-   * own, so headless runs capture the id it reports; terminal Codex runs cannot
-   * expose one to this process. Null when no reliable id is available.
-   */
-  sessionId: string | null
-  status: AgentRunStatus
-  exitCode: number | null
-  createdAt: string
-  finishedAt: string | null
+    id: number
+    harness: AgentHarnessId
+    /** Empty when the harness default was used. */
+    model: string
+    mode: AgentRunMode
+    command: AgentCommand
+    /** What the run is about — `issue`, `task` or `investigation` plus its ref. */
+    subjectKind: string
+    subjectRef: string
+    /** The prompt actually sent, inlined command instructions and all. */
+    prompt: string
+    /** The argv spawned, for when a run does something surprising. */
+    argv: string[]
+    pid: number | null
+    /**
+     * The harness conversation this run created, so it can be reopened.
+     *
+     * Claude Code and pi accept the id generated by this app. Codex creates its
+     * own, so headless runs capture the id it reports; terminal Codex runs cannot
+     * expose one to this process. Null when no reliable id is available.
+     */
+    sessionId: string | null
+    status: AgentRunStatus
+    exitCode: number | null
+    createdAt: string
+    finishedAt: string | null
 }
 
 /** A run plus whatever its log holds. Only `print` runs have output. */
 export interface AgentRunDetail extends AgentRun {
-  output: string
-  /** True when `output` is the tail of a longer log. */
-  truncated: boolean
+    output: string
+    /** True when `output` is the tail of a longer log. */
+    truncated: boolean
 }
 
 /* ------------------------------------------------------------ work package runs */
@@ -1041,56 +1044,56 @@ export interface AgentRunDetail extends AgentRun {
  * which is `tasks done` having actually run. Anything else stops the loop.
  */
 export const WORK_PACKAGE_RUN_STATUSES = [
-  "running",
-  "finished",
-  "stopped",
-  "blocked",
-  "failed",
+    "running",
+    "finished",
+    "stopped",
+    "blocked",
+    "failed",
 ] as const
 export type WorkPackageRunStatus = (typeof WORK_PACKAGE_RUN_STATUSES)[number]
 
 export const WORK_PACKAGE_RUN_STATUS_LABELS: Record<
-  WorkPackageRunStatus,
-  string
+    WorkPackageRunStatus,
+    string
 > = {
-  running: "Running",
-  finished: "Finished",
-  stopped: "Stopped",
-  blocked: "Needs attention",
-  failed: "Failed",
+    running: "Running",
+    finished: "Finished",
+    stopped: "Stopped",
+    blocked: "Needs attention",
+    failed: "Failed",
 }
 
 export interface WorkPackageRun {
-  id: number
-  workPackageRef: string
-  /** The launch settings every task in the loop is worked with. Chosen once, at
-   *  the start, because changing harness halfway through a work package would make the
-   *  run mean two different things. */
-  harness: AgentHarnessId
-  model: string
-  permissionMode: AgentPermissionMode
-  /** Extra prompt text appended to every task's `/work-task`. */
-  extra: string
-  status: WorkPackageRunStatus
-  /** The `agent_runs` row working right now, or the last one that worked. */
-  currentRunId: number | null
-  /** What that run is pointed at. */
-  currentRef: string | null
-  /** Task refs this loop has carried to Dev Complete, in the order it did. */
-  worked: string[]
-  /** Tasks deliberately left out when this run was started. */
-  excluded: string[]
-  /** Why it is no longer running. Empty while it still is. */
-  stopReason: string
-  createdAt: string
-  finishedAt: string | null
+    id: number
+    workPackageRef: string
+    /** The launch settings every task in the loop is worked with. Chosen once, at
+     *  the start, because changing harness halfway through a work package would make the
+     *  run mean two different things. */
+    harness: AgentHarnessId
+    model: string
+    permissionMode: AgentPermissionMode
+    /** Extra prompt text appended to every task's `/work-task`. */
+    extra: string
+    status: WorkPackageRunStatus
+    /** The `agent_runs` row working right now, or the last one that worked. */
+    currentRunId: number | null
+    /** What that run is pointed at. */
+    currentRef: string | null
+    /** Task refs this loop has carried to Dev Complete, in the order it did. */
+    worked: string[]
+    /** Tasks deliberately left out when this run was started. */
+    excluded: string[]
+    /** Why it is no longer running. Empty while it still is. */
+    stopReason: string
+    createdAt: string
+    finishedAt: string | null
 }
 
 /** True while the loop still owns the work package — nothing else should start a task. */
 export function workPackageRunActive(
-  run: WorkPackageRun | null | undefined,
+    run: WorkPackageRun | null | undefined,
 ): boolean {
-  return !!run && run.status === "running"
+    return !!run && run.status === "running"
 }
 
 /* ----------------------------------------------------------- queue choice */
@@ -1104,15 +1107,15 @@ export function workPackageRunActive(
  * exactly right for that reason.
  */
 export function workPackageQueueBlockers(
-  detail: Pick<WorkPackageDetail, "tasks" | "queue" | "outsideBlockers">,
+    detail: Pick<WorkPackageDetail, "tasks" | "queue" | "outsideBlockers">,
 ): Map<string, Task[]> {
-  const known = [...detail.tasks, ...detail.outsideBlockers]
-  const map = new Map<string, Task[]>()
-  for (const task of detail.queue) {
-    const waiting = unmetDependencies(task, known)
-    if (waiting.length) map.set(task.ref, waiting)
-  }
-  return map
+    const known = [...detail.tasks, ...detail.outsideBlockers]
+    const map = new Map<string, Task[]>()
+    for (const task of detail.queue) {
+        const waiting = unmetDependencies(task, known)
+        if (waiting.length) map.set(task.ref, waiting)
+    }
+    return map
 }
 
 /**
@@ -1128,44 +1131,46 @@ export function workPackageQueueBlockers(
  * agreeing.
  */
 export function nextWorkableTask(
-  detail: Pick<WorkPackageDetail, "tasks" | "queue" | "outsideBlockers">,
+    detail: Pick<WorkPackageDetail, "tasks" | "queue" | "outsideBlockers">,
 ): Task | null {
-  const blocked = workPackageQueueBlockers(detail)
-  return detail.queue.find((task) => !blocked.has(task.ref)) ?? null
+    const blocked = workPackageQueueBlockers(detail)
+    return detail.queue.find((task) => !blocked.has(task.ref)) ?? null
 }
 
 /** Whether a task's before/after screenshots are ready to look at. */
 export function hasVisualEvidence(
-  task: Pick<Task, "status">,
-  runs: CheckpointRun[],
+    task: Pick<Task, "status">,
+    runs: CheckpointRun[],
 ): boolean {
-  return runs.some((run) => run.phase === "after" && run.comparisons.length > 0)
+    return runs.some(
+        (run) => run.phase === "after" && run.comparisons.length > 0,
+    )
 }
 
 /** Checkpoint name derived from a task ref. Kept in one place so the CLI, the
  *  server and the UI never disagree about which checkpoint belongs to a task. */
 export function checkpointNameFor(ref: string, prefix = "task-"): string {
-  return `${prefix}${ref.toLowerCase()}`
+    return `${prefix}${ref.toLowerCase()}`
 }
 
 /** The `some-title-here` half of a generated branch name. */
 function branchSlug(title: string, fallback: string): string {
-  return (
-    title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || fallback
-  )
+    return (
+        title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .slice(0, 60) || fallback
+    )
 }
 
 /** A deterministic, Git-friendly default branch for a task. */
 export function branchNameFor(
-  ref: string,
-  title: string,
-  prefix = "feature/",
+    ref: string,
+    title: string,
+    prefix = "feature/",
 ): string {
-  return `${prefix}${ref.toLowerCase()}-${branchSlug(title, "task")}`
+    return `${prefix}${ref.toLowerCase()}-${branchSlug(title, "task")}`
 }
 
 /**
@@ -1177,9 +1182,9 @@ export function branchNameFor(
  * kind of branch it is.
  */
 export function workPackageBranchNameFor(
-  ref: string,
-  name: string,
-  prefix = "feature/",
+    ref: string,
+    name: string,
+    prefix = "feature/",
 ): string {
-  return `${prefix}${ref.toLowerCase()}-${branchSlug(name, "work-package")}`
+    return `${prefix}${ref.toLowerCase()}-${branchSlug(name, "work-package")}`
 }

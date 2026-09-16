@@ -1,15 +1,15 @@
 :global(.back-link) {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  border: 0;
-  background: transparent;
-  color: var(--steel);
-  font-size: 0.8rem;
-  font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 0;
+    background: transparent;
+    color: var(--steel);
+    font-size: 0.8rem;
+    font-weight: 500;
 }
 :global(.back-link):hover {
-  color: var(--graphite);
+    color: var(--graphite);
 }
 .scope {
 }

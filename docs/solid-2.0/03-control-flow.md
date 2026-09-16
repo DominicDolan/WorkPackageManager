@@ -60,7 +60,7 @@ This is primarily intended for use with **stores**, where the data at each index
 ```jsx
 // Store-backed list: index is stable, store handles granular updates
 <Repeat count={store.items.length}>
-  {(i) => <Row name={store.items[i].name} status={store.items[i].status} />}
+    {(i) => <Row name={store.items[i].name} status={store.items[i].status} />}
 </Repeat>
 ```
 
@@ -100,12 +100,12 @@ This is primarily intended for use with **stores**, where the data at each index
 
 ```jsx
 <Switch fallback={<NotFound />}>
-  <Match when={route() === "home"}>
-    <Home />
-  </Match>
-  <Match when={route() === "profile"}>
-    <Profile />
-  </Match>
+    <Match when={route() === "home"}>
+        <Home />
+    </Match>
+    <Match when={route() === "profile"}>
+        <Profile />
+    </Match>
 </Switch>
 ```
 
@@ -115,7 +115,7 @@ This is primarily intended for use with **stores**, where the data at each index
 
 ```jsx
 <Loading fallback={<Spinner />}>
-  <UserProfile id={params.id} />
+    <UserProfile id={params.id} />
 </Loading>
 ```
 
@@ -131,15 +131,15 @@ The reset function is an action: pass it to event handlers or other imperative c
 
 ```jsx
 <Errored
-  fallback={(err, reset) => (
-    <div>
-      <p>Something went wrong.</p>
-      <pre>{String(err())}</pre>
-      <button onClick={reset}>Retry</button>
-    </div>
-  )}
+    fallback={(err, reset) => (
+        <div>
+            <p>Something went wrong.</p>
+            <pre>{String(err())}</pre>
+            <button onClick={reset}>Retry</button>
+        </div>
+    )}
 >
-  <Page />
+    <Page />
 </Errored>
 ```
 
@@ -200,9 +200,9 @@ Bundler integrations sharpen the load path further: the compiler's module-URL pa
 #### Props
 
 - `order` — `"sequential" | "together" | "natural"`, defaults to `"sequential"`.
-  - `"sequential"` — boundaries reveal in DOM order. Later boundaries stay on their fallbacks until every earlier one has resolved.
-  - `"together"` — all boundaries keep their fallbacks until the whole group is ready, then the whole group reveals at once.
-  - `"natural"` — each boundary reveals as soon as its own data resolves; there is no frontier inside the group. At the top level this is equivalent to not using a `Reveal` at all — its purpose is [nesting](#nesting) (see below), where it marks "this subtree is one composite slot to my parent, but its children don't coordinate with each other".
+    - `"sequential"` — boundaries reveal in DOM order. Later boundaries stay on their fallbacks until every earlier one has resolved.
+    - `"together"` — all boundaries keep their fallbacks until the whole group is ready, then the whole group reveals at once.
+    - `"natural"` — each boundary reveals as soon as its own data resolves; there is no frontier inside the group. At the top level this is equivalent to not using a `Reveal` at all — its purpose is [nesting](#nesting) (see below), where it marks "this subtree is one composite slot to my parent, but its children don't coordinate with each other".
 - `collapsed` — `boolean`. Only consulted when `order="sequential"` (ignored under `"together"` and `"natural"`). When set, boundaries past the current frontier render nothing instead of their own fallback; only the frontier fallback is visible.
 
 ```jsx
@@ -263,23 +263,23 @@ For a leaf `<Loading>`, "minimally ready" and "fully ready" are the same thing: 
 
 ```jsx
 <Reveal>
-  <Loading fallback={<Skeleton />}>
-    <Header />
-  </Loading>
-  <Reveal order="natural">
-    <Loading fallback={<CardSkel />}>
-      <Card id={1} />
+    <Loading fallback={<Skeleton />}>
+        <Header />
     </Loading>
-    <Loading fallback={<CardSkel />}>
-      <Card id={2} />
+    <Reveal order="natural">
+        <Loading fallback={<CardSkel />}>
+            <Card id={1} />
+        </Loading>
+        <Loading fallback={<CardSkel />}>
+            <Card id={2} />
+        </Loading>
+        <Loading fallback={<CardSkel />}>
+            <Card id={3} />
+        </Loading>
+    </Reveal>
+    <Loading fallback={<Skeleton />}>
+        <Footer />
     </Loading>
-    <Loading fallback={<CardSkel />}>
-      <Card id={3} />
-    </Loading>
-  </Reveal>
-  <Loading fallback={<Skeleton />}>
-    <Footer />
-  </Loading>
 </Reveal>
 ```
 
@@ -365,8 +365,8 @@ return <Active value={value()} />
 
 // 2.0 — manual composition, if you really want a one-shot call
 createComponent(
-  dynamic(() => current()),
-  { value: value() },
+    dynamic(() => current()),
+    { value: value() },
 )
 ```
 

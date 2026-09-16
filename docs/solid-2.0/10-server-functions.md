@@ -25,9 +25,9 @@ A function-level `"use server"` directive extracts the function to the server bu
 
 ```ts
 export async function addTodo(title: string) {
-  "use server"
-  await db.insert(title)
-  return reload({ revalidate: "todos" })
+    "use server"
+    await db.insert(title)
+    return reload({ revalidate: "todos" })
 }
 ```
 
@@ -54,7 +54,7 @@ import "virtual:solid-server-function-manifest"
 
 // in the server's request handling:
 if (url.pathname.startsWith("/_server")) {
-  return handleServerFunctionRequest(request)
+    return handleServerFunctionRequest(request)
 }
 ```
 
@@ -150,8 +150,8 @@ Per-function _server_ concerns have no slot here because they are not transport:
 import { GET } from "@solidjs/web/server-functions"
 
 export const getUser = GET(async (id: string) => {
-  "use server"
-  return db.users.find(id)
+    "use server"
+    return db.users.find(id)
 })
 ```
 
@@ -163,18 +163,18 @@ Under the sugar sits a symbol-branded metadata channel (`Symbol.for`, surviving 
 
 ```ts
 export interface ServerFunctionMetadata {
-  /** The declared HTTP method. Undeclared references call over POST. */
-  readonly method?: "GET" | "POST"
-  /** User-declared transport metadata attached with `withMeta`. */
-  readonly [key: string]: unknown
+    /** The declared HTTP method. Undeclared references call over POST. */
+    readonly method?: "GET" | "POST"
+    /** User-declared transport metadata attached with `withMeta`. */
+    readonly [key: string]: unknown
 }
 export function getServerFunctionMetadata(
-  fn: unknown,
+    fn: unknown,
 ): ServerFunctionMetadata | undefined
 export function isServerFunction(fn: unknown): fn is ServerFunction
 export function withMeta<F extends (...args: any[]) => any>(
-  fn: F,
-  meta: ServerFunctionMetadata,
+    fn: F,
+    meta: ServerFunctionMetadata,
 ): F
 ```
 
@@ -202,12 +202,15 @@ The motivating case is OAuth bearer tokens: dynamic credentials that rotate duri
 
 ```ts
 configureServerFunctionsClient({
-  prepareRequest(init, { id, meta }) {
-    return {
-      ...init,
-      headers: { ...init.headers, Authorization: `Bearer ${session.token()}` },
-    }
-  },
+    prepareRequest(init, { id, meta }) {
+        return {
+            ...init,
+            headers: {
+                ...init.headers,
+                Authorization: `Bearer ${session.token()}`,
+            },
+        }
+    },
 })
 ```
 

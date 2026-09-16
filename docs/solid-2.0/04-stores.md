@@ -22,8 +22,8 @@ The primary store update form is a setter that receives a mutable draft.
 const [store, setStore] = createStore({ greeting: "hi", list: [] })
 
 setStore((s) => {
-  s.greeting = "hello"
-  s.list.push("value")
+    s.greeting = "hello"
+    s.list.push("value")
 })
 ```
 
@@ -35,8 +35,8 @@ When you need to replace a top-level array/object in one go, return a value from
 const [store, setStore] = createStore({ list: ["a", "b"] })
 
 setStore((s) => {
-  // Replace the top-level list (shallow diff)
-  return { ...s, list: [] }
+    // Replace the top-level list (shallow diff)
+    return { ...s, list: [] }
 })
 ```
 
@@ -47,7 +47,7 @@ Solid 2.0’s default store setter is draft-first (produce-style). For teams mig
 ```js
 // 2.0 preferred: draft-first setter
 setStore((s) => {
-  s.user.address.city = "Paris"
+    s.user.address.city = "Paris"
 })
 
 // Optional compat: 1.x-style path setter via storePath
@@ -103,21 +103,21 @@ Just as `createMemo` returns only a getter and `createSignal(fn)` returns `[gett
 const [selectedId, setSelectedId] = createSignal("a")
 
 const selected = createProjection((s) => {
-  const id = selectedId()
-  s[id] = true
-  if (s._prev != null) delete s[s._prev]
-  s._prev = id
+    const id = selectedId()
+    s[id] = true
+    if (s._prev != null) delete s[s._prev]
+    s._prev = id
 }, {})
 ```
 
 ```js
 // Reconcile returned list data into a projection (keyed reconciliation)
 const users = createProjection(
-  async () => {
-    return await api.listUsers()
-  },
-  [],
-  { key: "id" },
+    async () => {
+        return await api.listUsers()
+    },
+    [],
+    { key: "id" },
 )
 ```
 
@@ -127,15 +127,15 @@ const users = createProjection(
 
 ```js
 const [cache, setCache] = createStore(
-  (draft) => {
-    draft.value = expensive(selector())
-  },
-  { value: 0 },
+    (draft) => {
+        draft.value = expensive(selector())
+    },
+    { value: 0 },
 )
 
 // Can also write imperatively
 setCache((s) => {
-  s.override = true
+    s.override = true
 })
 ```
 
@@ -151,7 +151,7 @@ setStore("todos", reconcile(serverTodos))
 
 // 2.0 (draft-first setter)
 setStore((s) => {
-  reconcile(serverTodos, "id")(s.todos)
+    reconcile(serverTodos, "id")(s.todos)
 })
 ```
 
@@ -180,7 +180,7 @@ The contract, stated once: **records are replaced, never edited.**
 
 ```js
 <For each={rows} keyed={(row) => row.id}>
-  {(row) => <tr>...{row().name}...</tr>}
+    {(row) => <tr>...{row().name}...</tr>}
 </For>
 ```
 
@@ -211,11 +211,11 @@ This matters because the effect callback runs in an untracked scope — if you p
 
 ```js
 createEffect(
-  () => deep(store),
-  (snapshot) => {
-    // snapshot is a plain object — safe to read, serialize, diff
-    saveToLocalStorage(JSON.stringify(snapshot))
-  },
+    () => deep(store),
+    (snapshot) => {
+        // snapshot is a plain object — safe to read, serialize, diff
+        saveToLocalStorage(JSON.stringify(snapshot))
+    },
 )
 ```
 
