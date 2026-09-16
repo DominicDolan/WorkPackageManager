@@ -17,11 +17,11 @@ import { captureBeforeRetro, resolveRetroTarget } from "./retro"
 import {
   addDependency,
   addNote,
-  createGroup,
-  createInvestigatedGroup,
+  createWorkPackage,
+  createInvestigatedWorkPackage,
   createInvestigation,
   createTask,
-  deleteGroup,
+  deleteWorkPackage,
   deleteInvestigation,
   deleteTask,
   deleteCombinedBranch,
@@ -32,32 +32,37 @@ import {
   isModelTier,
   isPriority,
   isStatus,
-  ensureGroupInvestigation,
+  ensureWorkPackageInvestigation,
   listCombinedBranches,
-  listGroups,
+  listWorkPackages,
   listInvestigations,
   listTasks,
   moveTask,
   recordCombine,
   removeDependency,
   renameCombinedBranch,
-  listGroupRuns,
-  reorderGroups,
+  listWorkPackageRuns,
+  reorderWorkPackages,
   reorderTasks,
   requireCombinedBranch,
+  requireWorkPackage,
   requireTask,
   recordCombinedBranch,
   setInvestigationStatus,
-  setTaskGroup,
+  setWorkPackage,
   updateCombinedBranch,
-  updateGroup,
+  updateWorkPackage,
   updateInvestigation,
   updateTask,
   updateTaskBranchName,
   setStatus,
 } from "./repo"
 import { issueFacets, listIssues, readIssue } from "./issues"
-import { reconcileGroupRuns, startGroupRun, stopGroupRun } from "./groupRuns"
+import {
+  reconcileWorkPackageRuns,
+  startWorkPackageRun,
+  stopWorkPackageRun,
+} from "./workPackageRuns"
 import {
   agentEnvironment,
   getRun,
@@ -93,6 +98,12 @@ import {
   updateNote,
 } from "./notes"
 import {
+  attachNote,
+  detachDeletedNote,
+  detachNote,
+  renameNoteLinks,
+} from "./noteLinks"
+import {
   branchExists,
   builtOnTopOf,
   createPullRequest,
@@ -124,17 +135,17 @@ import {
   type AgentPermissionMode,
   type AgentRunMode,
   type CombinedBranchDetail,
-  type GroupAdvanceOutcome,
+  type WorkPackageAdvanceOutcome,
   type InvestigationStatus,
   type Status,
   type Task,
 } from "../shared/types"
 import { validateBranchName } from "./repo"
 import {
-  getGroupDetail,
-  groupBranchOf,
-  mergeTaskIntoGroupBranch,
-} from "./groupBranch"
+  getWorkPackageDetail,
+  workPackageBranchOf,
+  mergeTaskIntoWorkPackageBranch,
+} from "./workPackageBranch"
 import { approveBaseline, readBaselines, runBaselines } from "./baselines"
 
 const ws = workspace()
@@ -157,7 +168,7 @@ function errorResponse(error: unknown): Response {
   const message = error instanceof Error ? error.message : String(error)
   const missing =
     /^No (task|investigation) with ref/.test(message) ||
-    /^No group with ref or name/.test(message) ||
+    /^No work package with ref or name/.test(message) ||
     /^No agent run with id/.test(message) ||
     /^No (note|issue) at /.test(message)
   return fail(message, missing ? 404 : 400)
@@ -204,14 +215,14 @@ function git(args: string[]): { code: number; stdout: string; stderr: string } {
 }
 
 /**
- * Merge a task into its group's branch, flattened to "what went wrong, if
- * anything". A task in no group is not a problem — there is simply nothing to
+ * Merge a task into its work package's branch, flattened to "what went wrong, if
+ * anything". A task in no work package is not a problem — there is simply nothing to
  * merge into — so that reads as success.
  */
-function mergeIntoGroupBranch(ref: string): string | null {
+function mergeIntoWorkPackageBranch(ref: string): string | null {
   try {
-    const result = mergeTaskIntoGroupBranch(ref)
-    if (!result.group || result.merged) return null
+    const result = mergeTaskIntoWorkPackageBranch(ref)
+    if (!result.workPackage || result.merged) return null
     return (
       `${ref}'s commits do not replay onto '${result.branch}' — they collide with work already there. ` +
       `Nothing was changed: the rebase was aborted and both branches are as they were. Resolve it by ` +
@@ -232,10 +243,10 @@ function cherryPickInProgress(): boolean {
 }
 
 /**
- * Take a whole group to Verified, or all the way to Closed.
+ * Take a whole work package to Verified, or all the way to Closed.
  *
- * Groups are worked as one piece and they finish as one piece, so signing each
- * member off by hand is busywork the moment a group has more than a couple of
+ * Work packages are worked as one piece and they finish as one piece, so signing each
+ * member off by hand is busywork the moment a work package has more than a couple of
  * tasks. Closing implies verifying: a task sitting at Dev Complete is walked
  * through Verified on its way out, which is exactly what doing it by hand would
  * have done.
@@ -245,19 +256,19 @@ function cherryPickInProgress(): boolean {
  * Every task comes back with what happened to it, because "some of them moved"
  * is the honest answer and the caller has to be able to show it.
  */
-async function advanceGroup(
+async function advanceWorkPackage(
   refOrName: string,
   target: "verified" | "closed",
 ): Promise<{
-  group: ReturnType<typeof getGroupDetail>
-  outcomes: GroupAdvanceOutcome[]
+  workPackage: ReturnType<typeof getWorkPackageDetail>
+  outcomes: WorkPackageAdvanceOutcome[]
 }> {
-  const group = getGroupDetail(refOrName)
-  const outcomes: GroupAdvanceOutcome[] = []
+  const workPackage = getWorkPackageDetail(refOrName)
+  const outcomes: WorkPackageAdvanceOutcome[] = []
 
-  for (const task of group.tasks) {
+  for (const task of workPackage.tasks) {
     const from = task.status
-    const outcome: GroupAdvanceOutcome = {
+    const outcome: WorkPackageAdvanceOutcome = {
       ref: task.ref,
       title: task.title,
       from,
@@ -274,7 +285,7 @@ async function advanceGroup(
           setStatus(
             task.ref,
             "verified",
-            `Verified with ${group.ref} (${group.name}).`,
+            `Verified with ${workPackage.ref} (${workPackage.name}).`,
           )
         }
         if (target === "closed") await closeTask(task.ref)
@@ -291,7 +302,7 @@ async function advanceGroup(
     outcomes.push(outcome)
   }
 
-  return { group: getGroupDetail(group.ref), outcomes }
+  return { workPackage: getWorkPackageDetail(workPackage.ref), outcomes }
 }
 
 /** Build one linear branch by cherry-picking each selected task branch, in the
@@ -412,19 +423,19 @@ async function combineTasks(
   // The branch name can have been corrected after the task detail was loaded.
   tasks = uniqueRefs.map((ref) => getTaskDetail(ref))
 
-  // A grouped task's branch is cut from its group's branch, so everything the
-  // group has merged so far sits between the base and this task's commits —
-  // cherry-picking `base..taskBranch` would deliver the group's other tasks
-  // under this branch's name. The group branch is already the delivery vehicle
+  // A grouped task's branch is cut from its work package's branch, so everything the
+  // work package has merged so far sits between the base and this task's commits —
+  // cherry-picking `base..taskBranch` would deliver the work package's other tasks
+  // under this branch's name. The work package branch is already the delivery vehicle
   // for that work, so this points at it rather than guessing a range.
   for (const task of tasks) {
-    const owned = groupBranchOf(task)
+    const owned = workPackageBranchOf(task)
     if (!owned || !branchExists(owned.branch)) continue
     if (!builtOnTopOf(baseBranch, owned.branch, task.branchName!)) continue
     throw new Error(
-      `${task.ref} is in ${owned.group.ref} (${owned.group.name}), and its branch is built on that group's ` +
-        `branch '${owned.branch}' — combining it here would carry the group's other tasks with it. ` +
-        `Deliver the group from '${owned.branch}' instead.`,
+      `${task.ref} is in ${owned.workPackage.ref} (${owned.workPackage.name}), and its branch is built on that work package's ` +
+        `branch '${owned.branch}' — combining it here would carry the work package's other tasks with it. ` +
+        `Deliver the work package from '${owned.branch}' instead.`,
     )
   }
   // Every range is resolved before the branch is created, so a task with nothing
@@ -674,10 +685,25 @@ async function handleBranches(
         'No checks are configured — add "checks" to .tasks/tasks.config.json.',
       )
     }
+    const input = await body<{ check?: unknown }>(request).catch(
+      () => ({}) as { check?: unknown },
+    )
+    if (
+      input.check !== undefined &&
+      (typeof input.check !== "string" ||
+        !configuredChecks().some((check) => check.name === input.check))
+    ) {
+      return fail("Unknown check.", 400)
+    }
     const base = branch.baseBranch ?? defaultBaseBranch()
     // Started, not awaited: a suite outlives any request worth holding open, so
     // this returns immediately and the page follows `checksRunning`.
-    startChecks({ branch: branch.branchName, base })
+    startChecks({
+      branch: branch.branchName,
+      base,
+      check: input.check as string | undefined,
+      previous: branch.checks,
+    })
     return json({ branch: branchDetail(name) })
   }
 
@@ -925,17 +951,21 @@ async function handleNotes(
         tags?: unknown
         path?: string
       }>(request)
-      return json({
-        note: updateNote(path, {
-          title: input.title,
-          body: input.body,
-          tags: parseTags(input.tags),
-          path: input.path,
-        }),
+      const note = updateNote(path, {
+        title: input.title,
+        body: input.body,
+        tags: parseTags(input.tags),
+        path: input.path,
       })
+      renameNoteLinks(path, note.path)
+      return json({ note })
     }
 
-    if (request.method === "DELETE") return json({ deleted: deleteNote(path) })
+    if (request.method === "DELETE") {
+      const deleted = deleteNote(path)
+      detachDeletedNote(deleted)
+      return json({ deleted })
+    }
 
     return fail("Method not allowed.", 405)
   }
@@ -1212,17 +1242,18 @@ async function handleAgents(
 
 /* ----------------------------------------------------------------- routes */
 
-/* ---------------------------------------------------------------- groups */
+/* ---------------------------------------------------------------- work packages */
 
-async function handleGroups(
+async function handleWorkPackages(
   request: Request,
   rest: string[],
 ): Promise<Response> {
-  const [ref, action] = rest
+  const [ref, action, rawNotePath] = rest
 
-  // /api/groups
+  // /api/work packages
   if (!ref) {
-    if (request.method === "GET") return json({ groups: listGroups() })
+    if (request.method === "GET")
+      return json({ workPackages: listWorkPackages() })
 
     if (request.method === "POST") {
       const input = await body<{
@@ -1233,30 +1264,30 @@ async function handleGroups(
         branchName?: string
         investigationRef?: string
       }>(request)
-      if (!input.name) return fail("A group needs a name.")
-      const group =
+      if (!input.name) return fail("A work package needs a name.")
+      const workPackage =
         input.investigation !== undefined && !input.investigationRef
-          ? createInvestigatedGroup({
+          ? createInvestigatedWorkPackage({
               name: input.name,
               description: input.description ?? input.investigation,
               investigationBrief: input.investigation,
               color: input.color,
               branchName: input.branchName,
             })
-          : createGroup({
+          : createWorkPackage({
               name: input.name,
               description: input.description,
               color: input.color,
               branchName: input.branchName,
               investigationRef: input.investigationRef,
             })
-      return json({ group, groups: listGroups() }, 201)
+      return json({ workPackage, workPackages: listWorkPackages() }, 201)
     }
 
     return fail("Method not allowed.", 405)
   }
 
-  // /api/groups/reorder — the empty groups' order, and how ties are settled.
+  // /api/work packages/reorder — the empty work packages' order, and how ties are settled.
   if (ref === "reorder") {
     if (request.method !== "POST") return fail("Method not allowed.", 405)
     const input = await body<{ refs?: unknown }>(request)
@@ -1265,18 +1296,18 @@ async function handleGroups(
       !input.refs.every((one) => typeof one === "string")
     ) {
       return fail(
-        "refs must be an array of group references, in their new order.",
+        "refs must be an array of work package references, in their new order.",
       )
     }
-    return json({ groups: reorderGroups(input.refs as string[]) })
+    return json({ workPackages: reorderWorkPackages(input.refs as string[]) })
   }
 
-  // /api/groups/:ref
+  // /api/work packages/:ref
   if (!action) {
     if (request.method === "GET") {
-      // The group page wants the branch's live Git state and the work order too,
+      // The work package page wants the branch's live Git state and the work order too,
       // and one read is what keeps them consistent with each other.
-      return json({ group: getGroupDetail(ref) })
+      return json({ workPackage: getWorkPackageDetail(ref) })
     }
 
     if (request.method === "PATCH") {
@@ -1286,18 +1317,18 @@ async function handleGroups(
         color?: string
         branchName?: string
       }>(request)
-      updateGroup(ref, input)
-      return json({ groups: listGroups(), tasks: listTasks() })
+      updateWorkPackage(ref, input)
+      return json({ workPackages: listWorkPackages(), tasks: listTasks() })
     }
 
     if (request.method === "DELETE") {
       // The tasks are kept and turned loose; saying which ones is the whole
       // reassurance a delete confirmation needs.
-      const result = deleteGroup(ref)
+      const result = deleteWorkPackage(ref)
       return json({
         deleted: result.ref,
         released: result.released,
-        groups: listGroups(),
+        workPackages: listWorkPackages(),
         tasks: listTasks(),
       })
     }
@@ -1305,36 +1336,59 @@ async function handleGroups(
     return fail("Method not allowed.", 405)
   }
 
-  // /api/groups/:ref/investigation — migration path for groups created before
-  // the current UI made the investigation brief part of every group.
+  // /api/work packages/:ref/investigation — migration path for work packages created before
+  // the current UI made the investigation brief part of every work package.
   if (action === "investigation") {
     if (request.method !== "POST") return fail("Method not allowed.", 405)
     const input = await body<{ brief?: string }>(request)
-    const investigation = ensureGroupInvestigation(ref, input.brief)
+    const investigation = ensureWorkPackageInvestigation(ref, input.brief)
     return json({
       investigation,
-      group: getGroupDetail(ref),
-      groups: listGroups(),
+      workPackage: getWorkPackageDetail(ref),
+      workPackages: listWorkPackages(),
     })
   }
 
-  // /api/groups/:ref/advance — sign the whole group off in one go.
+  // /api/work packages/:ref/note-links — reference material for an investigation or
+  // for the work package as a whole. The note remains an ordinary Markdown file.
+  if (action === "note-links") {
+    const workPackage = requireWorkPackage(ref)
+    if (rawNotePath !== undefined) {
+      if (request.method !== "DELETE") return fail("Method not allowed.", 405)
+      detachNote(
+        "work-package",
+        workPackage.ref,
+        decodeURIComponent(rawNotePath),
+      )
+      return json({ workPackage: getWorkPackageDetail(workPackage.ref) })
+    }
+    if (request.method !== "POST") return fail("Method not allowed.", 405)
+    const input = await body<{ path?: unknown }>(request)
+    if (typeof input.path !== "string" || !input.path.trim()) {
+      return fail("A note path is required.")
+    }
+    const note = readNote(input.path)
+    attachNote("work-package", workPackage.ref, note.path)
+    return json({ workPackage: getWorkPackageDetail(workPackage.ref) }, 201)
+  }
+
+  // /api/work packages/:ref/advance — sign the whole work package off in one go.
   if (action === "advance") {
     if (request.method !== "POST") return fail("Method not allowed.", 405)
     const input = await body<{ status?: unknown }>(request)
     if (input.status !== "verified" && input.status !== "closed") {
       return fail("status must be 'verified' or 'closed'.")
     }
-    const result = await advanceGroup(ref, input.status)
+    const result = await advanceWorkPackage(ref, input.status)
     return json({
-      group: result.group,
+      workPackage: result.workPackage,
       outcomes: result.outcomes,
-      groups: listGroups(),
+      workPackages: listWorkPackages(),
       tasks: listTasks(),
     })
   }
 
-  // /api/groups/:ref/run — work the whole group unattended, a fresh headless
+  // /api/work packages/:ref/run — work the whole work package unattended, a fresh headless
   // agent per task, this server driving the queue between them.
   if (action === "run") {
     if (request.method === "POST") {
@@ -1365,8 +1419,8 @@ async function handleGroups(
         )
       }
 
-      const started = startGroupRun({
-        groupRef: ref,
+      const started = startWorkPackageRun({
+        workPackageRef: ref,
         harness: input.harness,
         model: input.model ?? "",
         // Nobody is watching any of these runs, so the only mode that can finish
@@ -1380,9 +1434,9 @@ async function handleGroups(
 
       return json(
         {
-          groupRun: started.groupRun,
+          workPackageRun: started.workPackageRun,
           run: started.run,
-          group: getGroupDetail(ref),
+          workPackage: getWorkPackageDetail(ref),
         },
         201,
       )
@@ -1390,19 +1444,19 @@ async function handleGroups(
 
     // Stopping kills the agent in flight; the tasks already merged stay merged.
     if (request.method === "DELETE") {
-      const group = getGroupDetail(ref)
-      if (!group.run) return fail(`${ref} has no run to stop.`)
-      const groupRun = stopGroupRun(group.run.id)
-      return json({ groupRun, group: getGroupDetail(ref) })
+      const workPackage = getWorkPackageDetail(ref)
+      if (!workPackage.run) return fail(`${ref} has no run to stop.`)
+      const workPackageRun = stopWorkPackageRun(workPackage.run.id)
+      return json({ workPackageRun, workPackage: getWorkPackageDetail(ref) })
     }
 
     return fail("Method not allowed.", 405)
   }
 
-  // /api/groups/:ref/runs — what the group has been run through before.
+  // /api/work packages/:ref/runs — what the work package has been run through before.
   if (action === "runs") {
     if (request.method !== "GET") return fail("Method not allowed.", 405)
-    return json({ runs: listGroupRuns(ref) })
+    return json({ runs: listWorkPackageRuns(ref) })
   }
 
   return fail("Unknown endpoint.", 404)
@@ -1485,7 +1539,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
 
   if (head === "investigations") return handleInvestigations(request, url, rest)
 
-  if (head === "groups") return handleGroups(request, rest)
+  if (head === "work-packages") return handleWorkPackages(request, rest)
 
   if (head === "baselines") return handleBaselines(request, rest)
 
@@ -1521,7 +1575,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
           status: status as Status | undefined,
           tag: url.searchParams.get("tag") ?? undefined,
           investigationRef: url.searchParams.get("investigation") ?? undefined,
-          groupRef: url.searchParams.get("group") ?? undefined,
+          workPackageRef: url.searchParams.get("work-package") ?? undefined,
         }),
       })
     }
@@ -1533,9 +1587,10 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
         priority?: string
         recommendedTier?: string | null
         tags?: unknown
+        useGitWorkflow?: boolean
         branchName?: string
         investigationRef?: string
-        groupRef?: string | null
+        workPackageRef?: string | null
         dependsOn?: unknown
         estimateUnits?: unknown
       }>(request)
@@ -1547,6 +1602,12 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
       if (input.recommendedTier && !isModelTier(input.recommendedTier)) {
         return fail(`Unknown tier '${input.recommendedTier}'.`)
       }
+      if (
+        input.useGitWorkflow !== undefined &&
+        typeof input.useGitWorkflow !== "boolean"
+      ) {
+        return fail("useGitWorkflow must be a boolean.")
+      }
 
       return json(
         {
@@ -1556,9 +1617,10 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
             priority: input.priority as never,
             recommendedTier: input.recommendedTier as never,
             tags: parseTags(input.tags),
+            useGitWorkflow: input.useGitWorkflow,
             branchName: input.branchName,
             investigationRef: input.investigationRef,
-            groupRef: input.groupRef,
+            workPackageRef: input.workPackageRef,
             dependsOn: parseRefs(input.dependsOn, "dependsOn"),
             estimateUnits: parseUnits(input.estimateUnits),
           }),
@@ -1710,8 +1772,9 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
         priority?: string
         recommendedTier?: string | null
         tags?: unknown
+        useGitWorkflow?: boolean
         investigationRef?: string | null
-        groupRef?: string | null
+        workPackageRef?: string | null
         branchName?: string
         dependsOn?: unknown
         estimateUnits?: unknown
@@ -1723,6 +1786,17 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
       if (input.recommendedTier && !isModelTier(input.recommendedTier)) {
         return fail(`Unknown tier '${input.recommendedTier}'.`)
       }
+      if (
+        input.useGitWorkflow !== undefined &&
+        typeof input.useGitWorkflow !== "boolean"
+      ) {
+        return fail("useGitWorkflow must be a boolean.")
+      }
+      if (input.useGitWorkflow === false && input.branchName !== undefined) {
+        return fail(
+          "A task cannot have a branch when its Git workflow is disabled.",
+        )
+      }
 
       if (input.branchName !== undefined)
         updateTaskBranchName(ref!, input.branchName)
@@ -1732,8 +1806,9 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
         priority: input.priority as never,
         recommendedTier: input.recommendedTier as never,
         tags: parseTags(input.tags),
+        useGitWorkflow: input.useGitWorkflow,
         investigationRef: input.investigationRef,
-        groupRef: input.groupRef,
+        workPackageRef: input.workPackageRef,
         dependsOn: parseRefs(input.dependsOn, "dependsOn"),
         estimateUnits: parseUnits(input.estimateUnits),
       })
@@ -1811,6 +1886,25 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
     return json({ added, task: getTaskDetail(ref!) }, 201)
   }
 
+  // /api/tasks/:ref/note-links — separate from /notes, which is the existing
+  // free-form task history endpoint.
+  if (action === "note-links") {
+    const task = requireTask(ref!)
+    if (phase !== undefined) {
+      if (request.method !== "DELETE") return fail("Method not allowed.", 405)
+      detachNote("task", task.ref, decodeURIComponent(phase))
+      return json({ task: getTaskDetail(task.ref) })
+    }
+    if (request.method !== "POST") return fail("Method not allowed.", 405)
+    const input = await body<{ path?: unknown }>(request)
+    if (typeof input.path !== "string" || !input.path.trim()) {
+      return fail("A note path is required.")
+    }
+    const note = readNote(input.path)
+    attachNote("task", task.ref, note.path)
+    return json({ task: getTaskDetail(task.ref) }, 201)
+  }
+
   if (request.method !== "POST") return fail("Method not allowed.", 405)
 
   // /api/tasks/:ref/status
@@ -1826,21 +1920,26 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
 
     setStatus(ref!, input.status, input.note)
 
-    // Dev complete is when the work joins the rest of its group's, exactly as
+    // Dev complete is when the work joins the rest of its work package's, exactly as
     // `tasks done` does it. A conflict is reported alongside the task rather
     // than as a failed request: the status change did happen, and the caller
     // needs to be told both things.
     let mergeError: string | null = null
-    if (input.status === "dev_complete" && input.merge !== false) {
-      mergeError = mergeIntoGroupBranch(ref!)
+    const task = requireTask(ref!)
+    if (
+      input.status === "dev_complete" &&
+      input.merge !== false &&
+      task.useGitWorkflow
+    ) {
+      mergeError = mergeIntoWorkPackageBranch(ref!)
     }
     return json({ task: getTaskDetail(ref!), mergeError })
   }
 
-  // /api/tasks/:ref/merge — the group-branch merge on its own, for after a
+  // /api/tasks/:ref/merge — the work package-branch merge on its own, for after a
   // conflict has been resolved by hand or a merge was skipped.
   if (action === "merge") {
-    const mergeError = mergeIntoGroupBranch(ref!)
+    const mergeError = mergeIntoWorkPackageBranch(ref!)
     if (mergeError) return fail(mergeError)
     return json({ task: getTaskDetail(ref!), mergeError: null })
   }
@@ -1854,19 +1953,23 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
     return json({ task: getTaskDetail(ref!) })
   }
 
-  // /api/tasks/:ref/group — what dropping a row onto a group sends.
+  // /api/tasks/:ref/work package — what dropping a row onto a work package sends.
   //
   // Separate from PATCH because it is one gesture with two effects: the row
-  // changes group *and* lands somewhere, and the drop decides where. `reposition`
+  // changes work package *and* lands somewhere, and the drop decides where. `reposition`
   // false leaves the queue alone for a caller that is about to reorder it
   // itself, which is exactly what the drag does.
-  if (action === "group") {
-    const input = await body<{ groupRef?: unknown; reposition?: unknown }>(
-      request,
-    )
-    if (input.groupRef !== null && typeof input.groupRef !== "string") {
+  if (action === "work-package") {
+    const input = await body<{
+      workPackageRef?: unknown
+      reposition?: unknown
+    }>(request)
+    if (
+      input.workPackageRef !== null &&
+      typeof input.workPackageRef !== "string"
+    ) {
       return fail(
-        "groupRef must be a group reference, or null to remove the task from its group.",
+        "workPackageRef must be a work package reference, or null to remove the task from its work package.",
       )
     }
     if (
@@ -1876,11 +1979,11 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
       return fail("reposition must be a boolean.")
     }
 
-    setTaskGroup(ref!, input.groupRef, { reposition: input.reposition })
+    setWorkPackage(ref!, input.workPackageRef, { reposition: input.reposition })
     return json({
       task: getTaskDetail(ref!),
       tasks: listTasks(),
-      groups: listGroups(),
+      workPackages: listWorkPackages(),
     })
   }
 
@@ -1983,10 +2086,10 @@ function serveStatic(url: URL): Response {
 
 // Headless agent runs are children of this process, so a restart ended any that
 // were in flight. Settle those rows before anything can read them — and the
-// group runs that were driving some of them, which are stopped rather than
+// work package runs that were driving some of them, which are stopped rather than
 // picked up again: relaunching agents at boot is not a decision a restart makes.
 reconcileRuns()
-reconcileGroupRuns()
+reconcileWorkPackageRuns()
 
 // Start watching before the first tab connects, so the opening revisions a
 // client is handed are already moving with the workspace.

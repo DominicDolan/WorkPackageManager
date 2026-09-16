@@ -40,6 +40,9 @@ below is in service of it:
 tasks investigation show I-<n> --json
 ```
 
+If its `notes` array is non-empty, those notes were attached as investigation
+material. Read each one before researching with `tasks notes show <path> --raw`.
+
 Mark it as being worked on before you start, so anyone looking at the UI can see
 it is in flight:
 
@@ -230,6 +233,12 @@ Ruled out: virtualising the rows — too big a change for this problem.
 
 Verify: tasks checkpoint before/after with --scenario plan.gantt."
 ```
+
+Tasks default to the normal branch/commit/merge workflow. When a task changes
+only ignored or local workspace files—for example adding an `.aio-vr/scenarios/`
+scenario—create it with `--no-git`. Do not use `--no-git` for product-code
+changes merely to avoid branching; it is specifically for work that should not
+be committed.
 
 Capture a finding as a task even when it is outside what the brief asked for —
 that is the point of filing rather than fixing. Keep it in its own task, do not

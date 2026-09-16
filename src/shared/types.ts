@@ -1,4 +1,4 @@
-/** Types shared by the CLI, the bun server and the Vue app. */
+/** Types shared by the CLI, the bun server and the Solid app. */
 
 export const STATUSES = [
   "backlog",
@@ -83,10 +83,10 @@ export interface Task {
    *  `AgentRunDialog`, not a constraint — the person running the task can
    *  always pick something else. */
   recommendedTier: ModelTier | null
-  /** The group this task belongs to, or null when it is loose. A plain ref for
-   *  the same reason as `investigationRef`: the group is a way of reading the
+  /** The work package this task belongs to, or null when it is loose. A plain ref for
+   *  the same reason as `investigationRef`: the work package is a way of reading the
    *  list, and deleting one must not take its tasks with it. */
-  groupRef: string | null
+  workPackageRef: string | null
   /** Refs of the tasks this one waits on, nearest the top of the list first.
    *  Plain refs rather than ids, so the shape matches how everything else here
    *  addresses a task. */
@@ -94,7 +94,12 @@ export interface Task {
   /** Refs of the tasks waiting on this one — the other side of `dependsOn`,
    *  materialised so a list view can mark a blocker without a second request. */
   blocks: string[]
-  /** The Git branch assigned when the task is created. Legacy completed tasks may not have one. */
+  /** Whether work on this task gets its own branch and is merged into its
+   *  work package's branch. False is useful for ignored workspace files such as
+   *  visual-regression scenarios, while checkpoints remain available. */
+  useGitWorkflow: boolean
+  /** The assigned Git branch. Null when the Git workflow is disabled, and on
+   *  some legacy completed tasks. */
   branchName: string | null
   checkpointName: string | null
   createdAt: string
@@ -284,67 +289,69 @@ export interface TaskDetail extends Task {
   events: TaskEvent[]
   runs: CheckpointRun[]
   attachments: TaskAttachment[]
+  /** Reusable Markdown notes attached as reference material. */
+  notes: NoteSummary[]
 }
 
-/* ------------------------------------------------------------------ groups */
+/* ------------------------------------------------------------------ work packages */
 
 /**
  * A named bundle of tasks — a feature, a release, an investigation's output.
  *
- * Deliberately not a tag: a task belongs to at most one group, groups are
+ * Deliberately not a tag: a task belongs to at most one work package, work packages are
  * ordered, and both the list and the plan draw them as sections. Tags stay what
  * they are — free-form labels a task can carry any number of.
  *
- * Membership lives on the task (`Task.groupRef`), not in a join table, which is
- * what makes "one group per task" a fact of the schema rather than a rule
+ * Membership lives on the task (`Task.workPackageRef`), not in a join table, which is
+ * what makes "one work package per task" a fact of the schema rather than a rule
  * something has to enforce.
  */
-export interface TaskGroup {
+export interface WorkPackage {
   id: number
-  /** `G-<n>`, counted separately from tasks and investigations. */
+  /** `WP-<n>`, counted separately from tasks and investigations. */
   ref: string
   name: string
   description: string
   /** `#rrggbb`, used for the band on the plan and the dot in the list. Assigned
-   *  from `GROUP_COLORS` when nobody picks one. */
+   *  from `WORK_PACKAGE_COLORS` when nobody picks one. */
   color: string
   /**
-   * The branch this group's work is built on. Every group has one: members are
+   * The branch this work package's work is built on. Every work package has one: members are
    * cut from it rather than from the base branch, and `tasks done` merges each
-   * member back into it, so the group is deliverable as a single PR.
+   * member back into it, so the work package is deliverable as a single PR.
    */
   branchName: string
-  /** Where the group sits among the others. Only decides the order of *empty*
-   *  groups and ties — a group with tasks in it is ordered by the first of them
+  /** Where the work package sits among the others. Only decides the order of *empty*
+   *  work packages and ties — a work package with tasks in it is ordered by the first of them
    *  in the queue, so the grouped list reads in the same order as the flat one. */
   position: number
-  /** The investigation whose tasks this group collects, when it was created for
-   *  one. Set by the auto-grouping in `createTask`, and what makes that
-   *  idempotent — a second run of the same investigation refills the same group. */
+  /** The investigation whose tasks this work package collects, when it was created for
+   *  one. Set by the auto-organizing in `createTask`, and what makes that
+   *  idempotent — a second run of the same investigation refills the same work package. */
   investigationRef: string | null
   createdAt: string
   updatedAt: string
 }
 
-/** A group plus how much is in it — what a list of groups actually needs. */
-export interface TaskGroupSummary extends TaskGroup {
+/** A work package plus how much is in it — what a list of work packages actually needs. */
+export interface WorkPackageSummary extends WorkPackage {
   taskCount: number
   /** Members whose implementation is finished. This includes tasks that have
    *  subsequently moved on to verification or closure. */
   devCompleteCount: number
-  /** Members that are not closed. The count worth showing: a group whose work
-   *  is finished should not read as a group with ten open tasks in it. */
+  /** Members that are not closed. The count worth showing: a work package whose work
+   *  is finished should not read as a work package with ten open tasks in it. */
   openCount: number
 }
 
 /**
- * The colours a group is assigned from, in order.
+ * The colours a work package is assigned from, in order.
  *
  * A fixed list rather than a generator: these are picked to stay legible as a
- * 3px band on both themes, and a group's colour has to be stable enough that
+ * 3px band on both themes, and a work package's colour has to be stable enough that
  * people learn it.
  */
-export const GROUP_COLORS = [
+export const WORK_PACKAGE_COLORS = [
   "#5b9dff",
   "#4ec98a",
   "#e0a03a",
@@ -357,53 +364,58 @@ export const GROUP_COLORS = [
 
 /** The next colour to hand out, given what is already taken. Falls back to
  *  cycling once every colour is in use — a repeat is better than a blank. */
-export function nextGroupColor(taken: Iterable<string>): string {
+export function nextWorkPackageColor(taken: Iterable<string>): string {
   const used = new Set([...taken].map((color) => color.toLowerCase()))
   return (
-    GROUP_COLORS.find((color) => !used.has(color)) ??
-    GROUP_COLORS[used.size % GROUP_COLORS.length]!
+    WORK_PACKAGE_COLORS.find((color) => !used.has(color)) ??
+    WORK_PACKAGE_COLORS[used.size % WORK_PACKAGE_COLORS.length]!
   )
 }
 
 /** Whether a string is a colour this app will store. Hex only, so a value read
  *  back can go straight into a style attribute. */
-export function isGroupColor(value: string): boolean {
+export function isWorkPackageColor(value: string): boolean {
   return /^#[0-9a-fA-F]{6}$/.test(value)
 }
 
 /**
- * Split tasks into their groups, in the order the views draw them.
+ * Split tasks into their work packages, in the order the views draw them.
  *
  * Shared by the list and the plan so the two never disagree about what the
- * grouping *is*. Section order follows the first member in the given task order
+ * organizing *is*. Section order follows the first member in the given task order
  * — which is the queue — so the row at the top of a grouped list is still the one
- * `/work-task` takes. Sectioning only reads as queue order while each group's
- * tasks are contiguous, which is what `setTaskGroup` maintains as tasks join a
- * group; a task taken out of one is left where it was rather than the queue
+ * `/work-task` takes. Sectioning only reads as queue order while each work package's
+ * tasks are contiguous, which is what `setWork package` maintains as tasks join a
+ * work package; a task taken out of one is left where it was rather than the queue
  * being shuffled behind the user to preserve the appearance. The loose tasks are a section like any other for that reason, rather
  * than a footer: pinning them last would move whatever is at the top of the
  * queue down the page for no better reason than that nobody has grouped it.
- * Groups with nothing in them have no first member, so they come after.
+ * Work packages with nothing in them have no first member, so they come after.
  */
-export interface TaskGrouping<T> {
-  group: TaskGroup | null
+export interface WorkPackageSection<T> {
+  workPackage: WorkPackage | null
   items: T[]
 }
 
-export function groupTasks<T>(
+export function workPackageTasks<T>(
   items: T[],
-  groups: TaskGroup[],
+  workPackages: WorkPackage[],
   taskOf: (item: T) => Task,
-): TaskGrouping<T>[] {
-  const byRef = new Map(groups.map((group) => [group.ref.toLowerCase(), group]))
+): WorkPackageSection<T>[] {
+  const byRef = new Map(
+    workPackages.map((workPackage) => [
+      workPackage.ref.toLowerCase(),
+      workPackage,
+    ]),
+  )
   const buckets = new Map<string, T[]>()
   // Insertion order *is* the answer for a section with something in it: its
   // first task decides where it sits. `''` keys the loose one.
   const seen: string[] = []
 
   for (const item of items) {
-    const ref = taskOf(item).groupRef?.toLowerCase()
-    // A ref pointing at a group this view was not handed reads as loose rather
+    const ref = taskOf(item).workPackageRef?.toLowerCase()
+    // A ref pointing at a work package this view was not handed reads as loose rather
     // than inventing a section nothing can name.
     const key = ref && byRef.has(ref) ? ref : ""
     if (!buckets.has(key)) {
@@ -413,15 +425,15 @@ export function groupTasks<T>(
     buckets.get(key)!.push(item)
   }
 
-  const result: TaskGrouping<T>[] = seen.map((key) => ({
-    group: key ? byRef.get(key)! : null,
+  const result: WorkPackageSection<T>[] = seen.map((key) => ({
+    workPackage: key ? byRef.get(key)! : null,
     items: buckets.get(key)!,
   }))
 
-  const empty = groups
-    .filter((group) => !buckets.has(group.ref.toLowerCase()))
+  const empty = workPackages
+    .filter((workPackage) => !buckets.has(workPackage.ref.toLowerCase()))
     .sort((left, right) => left.position - right.position || left.id - right.id)
-  for (const group of empty) result.push({ group, items: [] })
+  for (const workPackage of empty) result.push({ workPackage, items: [] })
 
   return result
 }
@@ -451,6 +463,8 @@ export interface Investigation {
 /** An investigation plus the tasks it produced. */
 export interface InvestigationDetail extends Investigation {
   tasks: Task[]
+  /** Notes attached to the work package that owns this investigation. */
+  notes: NoteSummary[]
 }
 
 /* -------------------------------------------------------------- notes */
@@ -765,64 +779,67 @@ export interface CombinedBranchDetail extends CombinedBranch {
   checksRunning: ChecksProgress | null
 }
 
-/* ------------------------------------------------------------ group detail */
+/* ------------------------------------------------------------ work package detail */
 
 /**
- * Everything the group page shows: the group, its tasks, the order they can be
+ * Everything the work package page shows: the work package, its tasks, the order they can be
  * worked in, and the live state of the branch they all sit on.
  *
  * The delivery record is the same `combined_branches` row `tasks done` registers
- * each merged task on, so the group page and the Branches view are two readings
+ * each merged task on, so the work package page and the Branches view are two readings
  * of one fact rather than two sources of truth.
  */
-export interface TaskGroupDetail extends TaskGroupSummary {
+export interface WorkPackageDetail extends WorkPackageSummary {
   tasks: Task[]
+  /** Investigation and reference notes attached to this work package. */
+  notes: NoteSummary[]
   /** The unfinished tasks, in dependency order — what an agent works through. */
   queue: Task[]
   /**
-   * Blockers of the queued tasks that live outside this group and are **not
+   * Blockers of the queued tasks that live outside this work package and are **not
    * finished**. Only unmet ones: a closed or dev-complete dependency is work
-   * that already exists, so it is nothing for the group to wait on.
+   * that already exists, so it is nothing for the work package to wait on.
    *
    * Resolved on the server because it is the only place every task is visible —
-   * the page is handed this group's tasks and could not otherwise tell a
+   * the page is handed this work package's tasks and could not otherwise tell a
    * finished outside dependency from an unfinished one.
    */
   outsideBlockers: Task[]
   /**
    * Tasks anywhere in the workspace that are currently `in_progress` — not just
-   * this group's.
+   * this work package's.
    *
    * `/work-task` refuses to start a second task while one is in flight, because
    * each task owns a branch and a visual checkpoint and two at once corrupts
    * both. The page has to apply the same rule to say honestly whether the next
-   * task can be started, and a task in another group blocks it just as much.
+   * task can be started, and a task in another work package blocks it just as much.
    */
   inProgress: Task[]
-  /** What the group branch is cut from, and what its PR would target. */
+  /** What the work package branch is cut from, and what its PR would target. */
   baseBranch: string
   git: BranchGitInfo
-  /** Null until the first task is merged into the group branch. */
+  /** Null until the branch has commits. Existing branches attached to a work package
+   *  are registered even when no task merge created them. */
   delivery: CombinedBranch | null
   /**
-   * The unattended run working through this group right now, or the last one to
-   * have tried — null when the group has never been run that way.
+   * The unattended run working through this work package right now, or the last one to
+   * have tried — null when the work package has never been run that way.
    *
-   * Read with the rest of the group because it is not a detail of the run
-   * history: a group with a loop in flight is in a different state, and every
+   * Read with the rest of the work package because it is not a detail of the run
+   * history: a work package with a loop in flight is in a different state, and every
    * button on the page has to know that before it offers to start anything.
    */
-  run: GroupRun | null
+  run: WorkPackageRun | null
 }
 
 /**
- * What became of one task when its whole group was signed off in a single go.
+ * What became of one task when its whole work package was signed off in a single go.
  *
- * Signing off a group is not all-or-nothing — unfinished work is left where it
+ * Signing off a work package is not all-or-nothing — unfinished work is left where it
  * is, and one task failing does not hold up the others — so the caller is told
  * about every member rather than just handed a count.
  */
-export interface GroupAdvanceOutcome {
+export interface WorkPackageAdvanceOutcome {
   ref: string
   title: string
   from: Status
@@ -841,6 +858,8 @@ export interface ToolAvailability {
   prAgentAvailable: boolean
   /** How many pre-PR checks this repository configures. 0 leaves PRs ungated. */
   checkCount: number
+  /** Names of the configured checks, used to offer individual run actions. */
+  checkNames: string[]
   gh: boolean
   ghAuthed: boolean
 }
@@ -885,7 +904,7 @@ export type AgentHarnessId = (typeof AGENT_HARNESSES)[number]
 export const AGENT_COMMANDS = [
   "plan-tasks",
   "work-task",
-  "work-group",
+  "work-package",
   "resolve-checks",
 ] as const
 export type AgentCommand = (typeof AGENT_COMMANDS)[number]
@@ -1002,15 +1021,15 @@ export interface AgentRunDetail extends AgentRun {
   truncated: boolean
 }
 
-/* ------------------------------------------------------------ group runs */
+/* ------------------------------------------------------------ work package runs */
 
 /**
- * Working a whole group unattended, one fresh agent per task.
+ * Working a whole work package unattended, one fresh agent per task.
  *
- * This is not `/work-group` — that command is a loop *inside* one conversation,
+ * This is not `/work-package` — that command is a loop *inside* one conversation,
  * which is the thing it is worth avoiding: by the fifth task the session is
  * carrying four tasks' worth of context that has nothing to do with the fifth.
- * A group run is the same loop turned inside out. Each task gets its own
+ * A work package run is the same loop turned inside out. Each task gets its own
  * headless `/work-task` process with an empty context, and this server is what
  * remembers the order and what has been done.
  *
@@ -1021,16 +1040,19 @@ export interface AgentRunDetail extends AgentRun {
  * task counts as done only when the database says it reached `dev_complete`,
  * which is `tasks done` having actually run. Anything else stops the loop.
  */
-export const GROUP_RUN_STATUSES = [
+export const WORK_PACKAGE_RUN_STATUSES = [
   "running",
   "finished",
   "stopped",
   "blocked",
   "failed",
 ] as const
-export type GroupRunStatus = (typeof GROUP_RUN_STATUSES)[number]
+export type WorkPackageRunStatus = (typeof WORK_PACKAGE_RUN_STATUSES)[number]
 
-export const GROUP_RUN_STATUS_LABELS: Record<GroupRunStatus, string> = {
+export const WORK_PACKAGE_RUN_STATUS_LABELS: Record<
+  WorkPackageRunStatus,
+  string
+> = {
   running: "Running",
   finished: "Finished",
   stopped: "Stopped",
@@ -1038,18 +1060,18 @@ export const GROUP_RUN_STATUS_LABELS: Record<GroupRunStatus, string> = {
   failed: "Failed",
 }
 
-export interface GroupRun {
+export interface WorkPackageRun {
   id: number
-  groupRef: string
+  workPackageRef: string
   /** The launch settings every task in the loop is worked with. Chosen once, at
-   *  the start, because changing harness halfway through a group would make the
+   *  the start, because changing harness halfway through a work package would make the
    *  run mean two different things. */
   harness: AgentHarnessId
   model: string
   permissionMode: AgentPermissionMode
   /** Extra prompt text appended to every task's `/work-task`. */
   extra: string
-  status: GroupRunStatus
+  status: WorkPackageRunStatus
   /** The `agent_runs` row working right now, or the last one that worked. */
   currentRunId: number | null
   /** What that run is pointed at. */
@@ -1064,23 +1086,25 @@ export interface GroupRun {
   finishedAt: string | null
 }
 
-/** True while the loop still owns the group — nothing else should start a task. */
-export function groupRunActive(run: GroupRun | null | undefined): boolean {
+/** True while the loop still owns the work package — nothing else should start a task. */
+export function workPackageRunActive(
+  run: WorkPackageRun | null | undefined,
+): boolean {
   return !!run && run.status === "running"
 }
 
 /* ----------------------------------------------------------- queue choice */
 
 /**
- * What is holding up each queued task, resolved against what the group can see.
+ * What is holding up each queued task, resolved against what the work package can see.
  *
- * The group's own tasks plus the unfinished outside blockers the server found
+ * The work package's own tasks plus the unfinished outside blockers the server found
  * is the whole universe that matters here: anything else a task depends on is
  * finished work, and `unmetDependencies` skipping a ref it cannot see is
  * exactly right for that reason.
  */
-export function groupQueueBlockers(
-  detail: Pick<TaskGroupDetail, "tasks" | "queue" | "outsideBlockers">,
+export function workPackageQueueBlockers(
+  detail: Pick<WorkPackageDetail, "tasks" | "queue" | "outsideBlockers">,
 ): Map<string, Task[]> {
   const known = [...detail.tasks, ...detail.outsideBlockers]
   const map = new Map<string, Task[]>()
@@ -1096,7 +1120,7 @@ export function groupQueueBlockers(
  * holding up.
  *
  * Not simply `queue[0]` — the order guarantees dependencies come first, but the
- * top of it can still be blocked by something outside the group, and the point
+ * top of it can still be blocked by something outside the work package, and the point
  * of this is to name a task that can actually be started now.
  *
  * Shared between the page and the loop deliberately. They have to agree about
@@ -1104,9 +1128,9 @@ export function groupQueueBlockers(
  * agreeing.
  */
 export function nextWorkableTask(
-  detail: Pick<TaskGroupDetail, "tasks" | "queue" | "outsideBlockers">,
+  detail: Pick<WorkPackageDetail, "tasks" | "queue" | "outsideBlockers">,
 ): Task | null {
-  const blocked = groupQueueBlockers(detail)
+  const blocked = workPackageQueueBlockers(detail)
   return detail.queue.find((task) => !blocked.has(task.ref)) ?? null
 }
 
@@ -1145,17 +1169,17 @@ export function branchNameFor(
 }
 
 /**
- * A deterministic, Git-friendly default branch for a group.
+ * A deterministic, Git-friendly default branch for a work package.
  *
- * A group's branch is the base its members are cut from and merged back into,
- * so it lives under its own prefix: `group/g-3-search-rework` never collides
+ * A work package's branch is the base its members are cut from and merged back into,
+ * so it includes its own ref: `feature/wp-3-search-rework` never collides
  * with a task's `feature/t-12-...`, and a glance at a branch list says which
  * kind of branch it is.
  */
-export function groupBranchNameFor(
+export function workPackageBranchNameFor(
   ref: string,
   name: string,
-  prefix = "group/",
+  prefix = "feature/",
 ): string {
-  return `${prefix}${ref.toLowerCase()}-${branchSlug(name, "group")}`
+  return `${prefix}${ref.toLowerCase()}-${branchSlug(name, "work-package")}`
 }

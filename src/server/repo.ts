@@ -1,21 +1,22 @@
 import {
   getDb,
-  nextGroupRef,
+  nextWorkPackageRef,
   nextInvestigationRef,
   nextRef,
   nowIso,
 } from "./db"
 import { workspace } from "../config/paths"
 import { deleteTaskAttachments, listTaskAttachments } from "./attachments"
+import { detachAllNotes, linkedNotes } from "./noteLinks"
 import {
   branchNameFor,
-  groupBranchNameFor,
+  workPackageBranchNameFor,
   checkpointNameFor,
   DEFAULT_ESTIMATE_UNITS,
   INVESTIGATION_STATUSES,
-  isGroupColor,
+  isWorkPackageColor,
   MODEL_TIERS,
-  nextGroupColor,
+  nextWorkPackageColor,
   parseEstimateUnits,
   PRIORITIES,
   STATUSES,
@@ -32,13 +33,13 @@ import {
   type Status,
   type AgentHarnessId,
   type AgentPermissionMode,
-  type GroupRun,
-  type GroupRunStatus,
+  type WorkPackageRun,
+  type WorkPackageRunStatus,
   type Task,
   type TaskDetail,
   type TaskEvent,
-  type TaskGroup,
-  type TaskGroupSummary,
+  type WorkPackage,
+  type WorkPackageSummary,
 } from "../shared/types"
 
 /* ------------------------------------------------------------------ rows */
@@ -55,7 +56,8 @@ interface TaskRow {
   estimate_units: number
   recommended_tier: string | null
   investigation_ref: string | null
-  group_ref: string | null
+  work_package_ref: string | null
+  use_git_workflow: number
   branch_name: string | null
   checkpoint_name: string | null
   created_at: string
@@ -121,7 +123,8 @@ function toTask(
     dependsOn: edges.dependsOn.get(row.ref) ?? [],
     blocks: edges.blocks.get(row.ref) ?? [],
     investigationRef: row.investigation_ref,
-    groupRef: row.group_ref,
+    workPackageRef: row.work_package_ref,
+    useGitWorkflow: row.use_git_workflow !== 0,
     branchName: row.branch_name,
     checkpointName: row.checkpoint_name,
     createdAt: row.created_at,
@@ -186,9 +189,9 @@ export function listTasks(filter?: {
   status?: Status
   tag?: string
   investigationRef?: string
-  /** A group's ref, or `'none'` for the tasks that are in no group at all —
+  /** A work package's ref, or `'none'` for the tasks that are in no work package at all —
    *  the one filter that cannot be expressed as a ref. */
-  groupRef?: string
+  workPackageRef?: string
   /** Keep closed tasks in the result. An investigation's own list uses this: a
    *  task it filed and saw through to closed is the outcome, not clutter. */
   includeClosed?: boolean
@@ -200,14 +203,14 @@ export function listTasks(filter?: {
     clauses.push("investigation_ref = $investigation COLLATE NOCASE")
     params.$investigation = filter.investigationRef
   }
-  if (filter?.groupRef) {
-    if (filter.groupRef.toLowerCase() === "none") {
-      clauses.push("group_ref IS NULL")
+  if (filter?.workPackageRef) {
+    if (filter.workPackageRef.toLowerCase() === "none") {
+      clauses.push("work_package_ref IS NULL")
     } else {
-      // Resolved rather than matched, so a group named by its name filters the
+      // Resolved rather than matched, so a work package named by its name filters the
       // same way one named by its ref does.
-      clauses.push("group_ref = $group COLLATE NOCASE")
-      params.$group = requireGroup(filter.groupRef).ref
+      clauses.push("work_package_ref = $workPackage COLLATE NOCASE")
+      params.$workPackage = requireWorkPackage(filter.workPackageRef).ref
     }
   }
   if (filter?.status) {
@@ -372,6 +375,7 @@ export function getTaskDetail(ref: string): TaskDetail {
     events: listEvents(task.id),
     runs: listRuns(task.id),
     attachments: listTaskAttachments(task.ref),
+    notes: linkedNotes("task", task.ref),
   }
 }
 
@@ -410,15 +414,17 @@ export interface CreateInput {
    *  which always has one. */
   recommendedTier?: ModelTier | null
   tags?: string[]
+  /** Defaults to true. False skips task branching, committing and merging. */
+  useGitWorkflow?: boolean
   branchName?: string
   /** The investigation this task came out of, if any. Validated here so a typo'd
    *  ref fails loudly rather than producing a task nothing links to. */
   investigationRef?: string
-  /** The group to file it under, by ref or by name. A task filed against an
-   *  investigation may omit this and lands in that investigation's group.
-   *  Other new tasks must name a group; null remains in the type only so old
-   *  ungrouped records can still be read. */
-  groupRef?: string | null
+  /** The work package to file it under, by ref or by name. A task filed against an
+   *  investigation may omit this and lands in that investigation's work package.
+   *  Other new tasks must name a work package; null remains in the type only so old
+   *  unassigned records can still be read. */
+  workPackageRef?: string | null
   /** Refs of tasks this one has to wait for. */
   dependsOn?: string[]
   /** Plan duration in units. Defaults to one. */
@@ -434,20 +440,20 @@ export function createTask(input: CreateInput): Task {
   const investigation = input.investigationRef
     ? requireInvestigation(input.investigationRef).ref
     : null
-  // An explicit group wins. Otherwise an investigation supplies its own group.
+  // An explicit work package wins. Otherwise an investigation supplies its own work package.
   // Null used to mean "loose"; new work may no longer enter that legacy bucket.
   if (
-    input.groupRef === null ||
-    (input.groupRef === undefined && !investigation)
+    input.workPackageRef === null ||
+    (input.workPackageRef === undefined && !investigation)
   ) {
     throw new Error(
-      "A new task must belong to a group. Pass a group or an investigation.",
+      "A new task must belong to a work package. Pass a work package or an investigation.",
     )
   }
-  const group =
-    input.groupRef === undefined
-      ? groupForInvestigation(investigation!).ref
-      : requireGroup(input.groupRef).ref
+  const workPackage =
+    input.workPackageRef === undefined
+      ? workPackageForInvestigation(investigation!).ref
+      : requireWorkPackage(input.workPackageRef).ref
   // Same reasoning as the investigation above: a ref that does not resolve must
   // fail before the task exists, not leave one behind with half its blockers.
   const blockers = [
@@ -460,18 +466,25 @@ export function createTask(input: CreateInput): Task {
 
   const at = nowIso()
   const ref = nextRef()
-  const branchName =
-    input.branchName === undefined
+  const useGitWorkflow = input.useGitWorkflow ?? true
+  if (!useGitWorkflow && input.branchName !== undefined) {
+    throw new Error(
+      "A task cannot have a branch when its Git workflow is disabled.",
+    )
+  }
+  const branchName = !useGitWorkflow
+    ? null
+    : input.branchName === undefined
       ? branchNameFor(ref, title, workspace().config.branchPrefix)
       : validateBranchName(input.branchName)
 
   getDb()
     .query(
       `INSERT INTO tasks (ref, title, description, status, priority, recommended_tier, position, tags,
-                          estimate_units, branch_name, investigation_ref, group_ref, checkpoint_name,
+                          estimate_units, use_git_workflow, branch_name, investigation_ref, work_package_ref, checkpoint_name,
                           created_at, updated_at)
        VALUES ($ref, $title, $description, 'backlog', $priority, $tier, $position, $tags,
-               $units, $branch, $investigation, $group, $checkpoint, $at, $at)`,
+               $units, $useGitWorkflow, $branch, $investigation, $workPackage, $checkpoint, $at, $at)`,
     )
     .run({
       $ref: ref,
@@ -485,9 +498,10 @@ export function createTask(input: CreateInput): Task {
       $tier: input.recommendedTier ?? null,
       $tags: JSON.stringify(input.tags ?? []),
       $units: estimateUnits,
+      $useGitWorkflow: useGitWorkflow ? 1 : 0,
       $branch: branchName,
       $investigation: investigation,
-      $group: group,
+      $workPackage: workPackage,
       $checkpoint: checkpointNameFor(ref, workspace().config.checkpointPrefix),
       $at: at,
     })
@@ -508,11 +522,13 @@ export interface UpdateInput {
   priority?: Priority
   /** Pass null to clear a previous recommendation. */
   recommendedTier?: ModelTier | null
+  /** Enable or disable task-level branching and merging. */
+  useGitWorkflow?: boolean
   tags?: string[]
   /** Link the task to an investigation, or pass null to unlink it. */
   investigationRef?: string | null
-  /** Move it into a group by ref or name, or pass null to take it out of one. */
-  groupRef?: string | null
+  /** Move it into a work package by ref or name, or pass null to take it out of one. */
+  workPackageRef?: string | null
   /** Replaces the task's blockers outright; an empty array clears them. */
   dependsOn?: string[]
   /** Plan duration in units. */
@@ -555,6 +571,21 @@ export function updateTask(ref: string, input: UpdateInput): Task {
     params.$tier = input.recommendedTier
     changed.push("recommended tier")
   }
+  if (input.useGitWorkflow !== undefined) {
+    assignments.push("use_git_workflow = $useGitWorkflow")
+    params.$useGitWorkflow = input.useGitWorkflow ? 1 : 0
+    changed.push("Git workflow")
+    if (!input.useGitWorkflow) {
+      assignments.push("branch_name = NULL")
+    } else if (!task.branchName) {
+      assignments.push("branch_name = $generatedBranch")
+      params.$generatedBranch = branchNameFor(
+        task.ref,
+        input.title?.trim() || task.title,
+        workspace().config.branchPrefix,
+      )
+    }
+  }
   if (input.tags !== undefined) {
     assignments.push("tags = $tags")
     params.$tags = JSON.stringify(input.tags)
@@ -572,15 +603,15 @@ export function updateTask(ref: string, input: UpdateInput): Task {
       : null
     changed.push("investigation")
   }
-  if (input.groupRef !== undefined) {
-    if (!input.groupRef) {
+  if (input.workPackageRef !== undefined) {
+    if (!input.workPackageRef) {
       throw new Error(
-        "Tasks must belong to a group. Choose another group instead.",
+        "Tasks must belong to a work package. Choose another work package instead.",
       )
     }
-    assignments.push("group_ref = $group")
-    params.$group = requireGroup(input.groupRef).ref
-    changed.push("group")
+    assignments.push("work_package_ref = $workPackage")
+    params.$workPackage = requireWorkPackage(input.workPackageRef).ref
+    changed.push("work-package")
   }
 
   // Re-read: a dependency change above is a change even when no column moved.
@@ -635,7 +666,10 @@ export function addNote(ref: string, note: string): Task {
 
 export function deleteTask(ref: string): void {
   const task = requireTask(ref)
-  getDb().query("DELETE FROM tasks WHERE id = $id").run({ $id: task.id })
+  getDb().transaction(() => {
+    detachAllNotes("task", task.ref)
+    getDb().query("DELETE FROM tasks WHERE id = $id").run({ $id: task.id })
+  })()
   deleteTaskAttachments(task.ref)
 }
 
@@ -823,9 +857,9 @@ export function moveTask(ref: string, target: MoveTarget): Task[] {
   return listTasks()
 }
 
-/* ---------------------------------------------------------------- groups */
+/* ---------------------------------------------------------------- work packages */
 
-interface TaskGroupRow {
+interface WorkPackageRow {
   id: number
   ref: string
   name: string
@@ -838,7 +872,7 @@ interface TaskGroupRow {
   updated_at: string
 }
 
-function toGroup(row: TaskGroupRow): TaskGroup {
+function toWorkPackage(row: WorkPackageRow): WorkPackage {
   return {
     id: row.id,
     ref: row.ref,
@@ -854,24 +888,24 @@ function toGroup(row: TaskGroupRow): TaskGroup {
 }
 
 /**
- * Every group, with what is in it, in the order the views draw them.
+ * Every work package, with what is in it, in the order the views draw them.
  *
- * Ordered by the queue position of the group's first task, so the grouped list
- * reads top to bottom in the same order as the ungrouped one — the group a task
- * is in changes how the list is *sectioned*, never which work is next. Groups
+ * Ordered by the queue position of the work package's first task, so the grouped list
+ * reads top to bottom in the same order as the unassigned one — the work package a task
+ * is in changes how the list is *sectioned*, never which work is next. Work packages
  * with nothing in them sort after, by their own position.
  */
-export function listGroups(): TaskGroupSummary[] {
+export function listWorkPackages(): WorkPackageSummary[] {
   return getDb()
     .query<
-      TaskGroupRow & {
+      WorkPackageRow & {
         task_count: number
         dev_complete_count: number
         open_count: number
       },
       []
     >(
-      // The group's columns are named rather than taken as `g.*`. A `*` ahead of
+      // The work package's columns are named rather than taken as `g.*`. A `*` ahead of
       // aliased aggregates means adding a column later shifts `task_count` and
       // `open_count` along by one — which a long-running process, holding a
       // statement prepared before the migration, serves as silently mislabelled
@@ -881,8 +915,8 @@ export function listGroups(): TaskGroupSummary[] {
               COUNT(t.id) AS task_count,
               COUNT(CASE WHEN t.status IN ('dev_complete', 'verified', 'closed') THEN 1 END) AS dev_complete_count,
               COUNT(CASE WHEN t.status != 'closed' THEN 1 END) AS open_count
-         FROM task_groups g
-         LEFT JOIN tasks t ON t.group_ref = g.ref COLLATE NOCASE
+         FROM work_packages g
+         LEFT JOIN tasks t ON t.work_package_ref = g.ref COLLATE NOCASE
         GROUP BY g.id
         ORDER BY COALESCE(MIN(CASE WHEN t.status != 'closed' THEN t.position END), 1e15) ASC,
                  g.position ASC,
@@ -890,7 +924,7 @@ export function listGroups(): TaskGroupSummary[] {
     )
     .all()
     .map((row) => ({
-      ...toGroup(row),
+      ...toWorkPackage(row),
       taskCount: row.task_count,
       devCompleteCount: row.dev_complete_count,
       openCount: row.open_count,
@@ -898,61 +932,62 @@ export function listGroups(): TaskGroupSummary[] {
 }
 
 /**
- * A group by ref or by name, case-insensitively.
+ * A work package by ref or by name, case-insensitively.
  *
  * Names are accepted because that is what a person typing a command has to
- * hand — `tasks group assign "Search rework" T-4` beats looking G-2 up first.
- * The ref is tried first, so a group someone named `G-2` cannot shadow the
- * group actually called that.
+ * hand — `tasks work-package assign "Search rework" T-4` beats looking WP-2 up first.
+ * The ref is tried first, so a work package someone named `WP-2` cannot shadow the
+ * work package actually called that.
  */
-export function findGroup(refOrName: string): TaskGroup | null {
+export function findWorkPackage(refOrName: string): WorkPackage | null {
   const value = refOrName.trim()
   if (!value) return null
 
   const row = getDb()
-    .query<TaskGroupRow, { $value: string }>(
-      `SELECT * FROM task_groups
+    .query<WorkPackageRow, { $value: string }>(
+      `SELECT * FROM work_packages
         WHERE ref = $value COLLATE NOCASE OR name = $value COLLATE NOCASE
         ORDER BY CASE WHEN ref = $value COLLATE NOCASE THEN 0 ELSE 1 END, id ASC`,
     )
     .get({ $value: value })
-  return row ? toGroup(row) : null
+  return row ? toWorkPackage(row) : null
 }
 
-export function requireGroup(refOrName: string): TaskGroup {
-  const group = findGroup(refOrName)
-  if (!group) throw new Error(`No group with ref or name '${refOrName}'.`)
-  return group
+export function requireWorkPackage(refOrName: string): WorkPackage {
+  const workPackage = findWorkPackage(refOrName)
+  if (!workPackage)
+    throw new Error(`No work package with ref or name '${refOrName}'.`)
+  return workPackage
 }
 
-/** One past the last group position in use — where a new group goes. */
-function bottomGroupPosition(): number {
+/** One past the last work package position in use — where a new work package goes. */
+function bottomWorkPackagePosition(): number {
   const row = getDb()
     .query<{ top: number | null }, []>(
-      "SELECT MAX(position) AS top FROM task_groups",
+      "SELECT MAX(position) AS top FROM work_packages",
     )
     .get()
   return (row?.top ?? 0) + 1
 }
 
-export interface CreateGroupInput {
+export interface CreateWorkPackageInput {
   name: string
   description?: string
-  /** `#rrggbb`. Left out, the next unused colour in `GROUP_COLORS` is taken. */
+  /** `#rrggbb`. Left out, the next unused colour in `WORK_PACKAGE_COLORS` is taken. */
   color?: string
-  /** The branch the group's work is built on. Left out, one is derived from the
-   *  ref and name — a group always has a branch, so this only chooses which. */
+  /** The branch the work package's work is built on. Left out, one is derived from the
+   *  ref and name — a work package always has a branch, so this only chooses which. */
   branchName?: string
-  /** Set when the group exists to hold one investigation's output. */
+  /** Set when the work package exists to hold one investigation's output. */
   investigationRef?: string
 }
 
-/** No two groups may share a branch, or merging a task into "its" group branch
- *  would silently deliver it under another group's name. */
-function assertGroupBranchFree(branch: string, exceptRef?: string): void {
+/** No two work packages may share a branch, or merging a task into "its" work package branch
+ *  would silently deliver it under another work package's name. */
+function assertWorkPackageBranchFree(branch: string, exceptRef?: string): void {
   const clash = getDb()
     .query<{ ref: string; name: string }, { $branch: string }>(
-      "SELECT ref, name FROM task_groups WHERE branch_name = $branch COLLATE NOCASE",
+      "SELECT ref, name FROM work_packages WHERE branch_name = $branch COLLATE NOCASE",
     )
     .get({ $branch: branch })
   if (clash && clash.ref !== exceptRef) {
@@ -962,19 +997,19 @@ function assertGroupBranchFree(branch: string, exceptRef?: string): void {
   }
 }
 
-export function createGroup(input: CreateGroupInput): TaskGroup {
+export function createWorkPackage(input: CreateWorkPackageInput): WorkPackage {
   const name = input.name.trim()
-  if (!name) throw new Error("A group needs a name.")
-  // Two groups with the same name would make `findGroup` a coin toss, and the
+  if (!name) throw new Error("A work package needs a name.")
+  // Two work packages with the same name would make `findWorkPackage` a coin toss, and the
   // name is how the CLI addresses one.
-  if (findGroup(name))
-    throw new Error(`A group called '${name}' already exists.`)
+  if (findWorkPackage(name))
+    throw new Error(`A work package called '${name}' already exists.`)
 
   const color = input.color?.trim()
-    ? validateGroupColor(input.color)
-    : nextGroupColor(
+    ? validateWorkPackageColor(input.color)
+    : nextWorkPackageColor(
         getDb()
-          .query<{ color: string }, []>("SELECT color FROM task_groups")
+          .query<{ color: string }, []>("SELECT color FROM work_packages")
           .all()
           .map((row) => row.color),
       )
@@ -983,16 +1018,20 @@ export function createGroup(input: CreateGroupInput): TaskGroup {
     : null
 
   const at = nowIso()
-  const ref = nextGroupRef()
+  const ref = nextWorkPackageRef()
   // The ref is only known now, and it is what makes the default name unique.
   const branch = input.branchName?.trim()
     ? validateBranchName(input.branchName)
-    : groupBranchNameFor(ref, name, workspace().config.groupBranchPrefix)
-  assertGroupBranchFree(branch)
+    : workPackageBranchNameFor(
+        ref,
+        name,
+        workspace().config.workPackageBranchPrefix,
+      )
+  assertWorkPackageBranchFree(branch)
 
   getDb()
     .query(
-      `INSERT INTO task_groups (ref, name, description, color, branch_name, position, investigation_ref, created_at, updated_at)
+      `INSERT INTO work_packages (ref, name, description, color, branch_name, position, investigation_ref, created_at, updated_at)
        VALUES ($ref, $name, $description, $color, $branch, $position, $investigation, $at, $at)`,
     )
     .run({
@@ -1001,33 +1040,33 @@ export function createGroup(input: CreateGroupInput): TaskGroup {
       $description: input.description?.trim() ?? "",
       $color: color,
       $branch: branch,
-      $position: bottomGroupPosition(),
+      $position: bottomWorkPackagePosition(),
       $investigation: investigation,
       $at: at,
     })
 
-  return requireGroup(ref)
+  return requireWorkPackage(ref)
 }
 
 /**
- * Create the question and the group that will receive its tasks as one write.
+ * Create the question and the work package that will receive its tasks as one write.
  *
  * The separate rows remain intentional: the CLI and the legacy web UI still
  * speak in investigations, while the current UI can present the pair as one
- * group workflow. A transaction prevents a rejected group name or branch from
+ * work package workflow. A transaction prevents a rejected work package name or branch from
  * leaving an orphan investigation behind.
  */
-export function createInvestigatedGroup(
-  input: Omit<CreateGroupInput, "investigationRef"> & {
+export function createInvestigatedWorkPackage(
+  input: Omit<CreateWorkPackageInput, "investigationRef"> & {
     investigationBrief: string
   },
-): TaskGroup {
+): WorkPackage {
   return getDb().transaction(() => {
     const investigation = createInvestigation({
       title: input.name,
       brief: input.investigationBrief,
     })
-    return createGroup({
+    return createWorkPackage({
       name: input.name,
       description: input.description,
       color: input.color,
@@ -1037,44 +1076,44 @@ export function createInvestigatedGroup(
   })()
 }
 
-/** Attach an investigation to a group made before groups owned their brief. */
-export function ensureGroupInvestigation(
+/** Attach an investigation to a work package made before work packages owned their brief. */
+export function ensureWorkPackageInvestigation(
   refOrName: string,
   brief?: string,
 ): Investigation {
-  const group = requireGroup(refOrName)
-  if (group.investigationRef)
-    return requireInvestigation(group.investigationRef)
+  const workPackage = requireWorkPackage(refOrName)
+  if (workPackage.investigationRef)
+    return requireInvestigation(workPackage.investigationRef)
 
   return getDb().transaction(() => {
     const investigation = createInvestigation({
-      title: group.name,
-      brief: brief ?? group.description,
+      title: workPackage.name,
+      brief: brief ?? workPackage.description,
     })
     getDb()
       .query(
-        "UPDATE task_groups SET investigation_ref = $investigation, updated_at = $at WHERE ref = $ref",
+        "UPDATE work_packages SET investigation_ref = $investigation, updated_at = $at WHERE ref = $ref",
       )
       .run({
         $investigation: investigation.ref,
         $at: nowIso(),
-        $ref: group.ref,
+        $ref: workPackage.ref,
       })
     return investigation
   })()
 }
 
-function validateGroupColor(value: string): string {
+function validateWorkPackageColor(value: string): string {
   const color = value.trim()
-  if (!isGroupColor(color)) {
+  if (!isWorkPackageColor(color)) {
     throw new Error(
-      `A group colour must be a hex value like '#5b9dff', not '${value}'.`,
+      `A work package colour must be a hex value like '#5b9dff', not '${value}'.`,
     )
   }
   return color.toLowerCase()
 }
 
-export function updateGroup(
+export function updateWorkPackage(
   refOrName: string,
   input: {
     name?: string
@@ -1082,20 +1121,20 @@ export function updateGroup(
     color?: string
     branchName?: string
   },
-): TaskGroup {
-  const group = requireGroup(refOrName)
+): WorkPackage {
+  const workPackage = requireWorkPackage(refOrName)
   const assignments: string[] = []
   const params: Record<string, string | number | null> = {
-    $ref: group.ref,
+    $ref: workPackage.ref,
     $at: nowIso(),
   }
 
   if (input.name !== undefined) {
     const name = input.name.trim()
-    if (!name) throw new Error("A group needs a name.")
-    const clash = findGroup(name)
-    if (clash && clash.ref !== group.ref)
-      throw new Error(`A group called '${name}' already exists.`)
+    if (!name) throw new Error("A work package needs a name.")
+    const clash = findWorkPackage(name)
+    if (clash && clash.ref !== workPackage.ref)
+      throw new Error(`A work package called '${name}' already exists.`)
     assignments.push("name = $name")
     params.$name = name
   }
@@ -1105,146 +1144,156 @@ export function updateGroup(
   }
   if (input.color !== undefined) {
     assignments.push("color = $color")
-    params.$color = validateGroupColor(input.color)
+    params.$color = validateWorkPackageColor(input.color)
   }
   if (input.branchName !== undefined) {
-    // Renaming the branch here only repoints the group. The Git branch itself
-    // is the user's to rename — a group whose branch does not exist yet is the
+    // Renaming the branch here only repoints the work package. The Git branch itself
+    // is the user's to rename — a work package whose branch does not exist yet is the
     // normal state, so this cannot tell a rename from a not-created-yet.
     const branch = validateBranchName(input.branchName)
-    assertGroupBranchFree(branch, group.ref)
+    assertWorkPackageBranchFree(branch, workPackage.ref)
     assignments.push("branch_name = $branch")
     params.$branch = branch
   }
 
-  if (!assignments.length) return group
+  if (!assignments.length) return workPackage
 
   getDb()
     .query(
-      `UPDATE task_groups SET ${assignments.join(", ")}, updated_at = $at WHERE ref = $ref`,
+      `UPDATE work_packages SET ${assignments.join(", ")}, updated_at = $at WHERE ref = $ref`,
     )
     .run(params)
-  return requireGroup(group.ref)
+  return requireWorkPackage(workPackage.ref)
 }
 
 /**
- * Delete the grouping, not the work. Members are turned loose rather than
+ * Delete the organizing, not the work. Members are turned loose rather than
  * cascaded away — the same reasoning as deleting an investigation, and the
  * reason membership is a nullable ref instead of a foreign key.
  */
-export function deleteGroup(refOrName: string): {
+export function deleteWorkPackage(refOrName: string): {
   ref: string
   released: string[]
 } {
-  const group = requireGroup(refOrName)
-  const released = listTasks({ groupRef: group.ref, includeClosed: true }).map(
-    (task) => task.ref,
-  )
+  const workPackage = requireWorkPackage(refOrName)
+  const released = listTasks({
+    workPackageRef: workPackage.ref,
+    includeClosed: true,
+  }).map((task) => task.ref)
 
   if (released.length) {
     throw new Error(
-      `${group.ref} still has ${released.length} task(s). Move them to another group before deleting it.`,
+      `${workPackage.ref} still has ${released.length} task(s). Move them to another work package before deleting it.`,
     )
   }
 
   getDb().transaction(() => {
+    detachAllNotes("work-package", workPackage.ref)
     getDb()
       .query(
-        "UPDATE tasks SET group_ref = NULL, updated_at = $at WHERE group_ref = $ref COLLATE NOCASE",
+        "UPDATE tasks SET work_package_ref = NULL, updated_at = $at WHERE work_package_ref = $ref COLLATE NOCASE",
       )
-      .run({ $at: nowIso(), $ref: group.ref })
+      .run({ $at: nowIso(), $ref: workPackage.ref })
     getDb()
-      .query("DELETE FROM task_groups WHERE id = $id")
-      .run({ $id: group.id })
+      .query("DELETE FROM work_packages WHERE id = $id")
+      .run({ $id: workPackage.id })
   })()
 
-  return { ref: group.ref, released }
+  return { ref: workPackage.ref, released }
 }
 
 /**
- * Rearrange the groups. Only the positions the named groups already occupy are
+ * Rearrange the work packages. Only the positions the named work packages already occupy are
  * redistributed among them, exactly as `reorderTasks` does for tasks.
  *
- * Worth remembering what this actually decides: a group holding tasks is drawn
+ * Worth remembering what this actually decides: a work package holding tasks is drawn
  * where its first task sits in the queue, so this is what orders the *empty*
- * ones and settles ties. Moving a group's work up the queue is a task reorder.
+ * ones and settles ties. Moving a work package's work up the queue is a task reorder.
  */
-export function reorderGroups(refs: string[]): TaskGroupSummary[] {
-  const groups = refs.map((ref) => requireGroup(ref))
+export function reorderWorkPackages(refs: string[]): WorkPackageSummary[] {
+  const workPackages = refs.map((ref) => requireWorkPackage(ref))
   const seen = new Set<string>()
-  for (const group of groups) {
-    if (seen.has(group.ref))
-      throw new Error(`Group '${group.ref}' listed twice in the new order.`)
-    seen.add(group.ref)
+  for (const workPackage of workPackages) {
+    if (seen.has(workPackage.ref))
+      throw new Error(
+        `Work package '${workPackage.ref}' listed twice in the new order.`,
+      )
+    seen.add(workPackage.ref)
   }
-  if (groups.length < 2) return listGroups()
+  if (workPackages.length < 2) return listWorkPackages()
 
-  const slots = groups
-    .map((group) => group.position)
+  const slots = workPackages
+    .map((workPackage) => workPackage.position)
     .sort((left, right) => left - right)
   const assign = getDb().query(
-    "UPDATE task_groups SET position = $position WHERE id = $id",
+    "UPDATE work_packages SET position = $position WHERE id = $id",
   )
   getDb().transaction(() => {
-    groups.forEach((group, index) =>
-      assign.run({ $id: group.id, $position: slots[index]! }),
+    workPackages.forEach((workPackage, index) =>
+      assign.run({ $id: workPackage.id, $position: slots[index]! }),
     )
   })()
 
-  return listGroups()
+  return listWorkPackages()
 }
 
 /**
- * Put a task in a group, or take it out of one.
+ * Put a task in a work package, or take it out of one.
  *
- * By default the task is also moved to sit directly after the group's last
- * member in the queue, which is what keeps a group contiguous — and therefore
+ * By default the task is also moved to sit directly after the work package's last
+ * member in the queue, which is what keeps a work package contiguous — and therefore
  * what keeps the grouped list in the same order as the flat one. A caller that
  * has just been told where to drop the row (the UI's drag) passes
  * `reposition: false` and sets the order itself.
  */
-export function setTaskGroup(
+export function setWorkPackage(
   ref: string,
-  groupRefOrName: string | null,
+  workPackageRefOrName: string | null,
   options: { reposition?: boolean } = {},
 ): Task {
   const task = requireTask(ref)
-  if (!groupRefOrName) {
+  if (!workPackageRefOrName) {
     throw new Error(
-      "Tasks must belong to a group. Choose another group instead.",
+      "Tasks must belong to a work package. Choose another work package instead.",
     )
   }
-  const group = groupRefOrName ? requireGroup(groupRefOrName) : null
-  if ((task.groupRef ?? null) === (group?.ref ?? null)) return task
+  const workPackage = workPackageRefOrName
+    ? requireWorkPackage(workPackageRefOrName)
+    : null
+  if ((task.workPackageRef ?? null) === (workPackage?.ref ?? null)) return task
 
   getDb()
     .query(
-      "UPDATE tasks SET group_ref = $group, updated_at = $at WHERE ref = $ref",
+      "UPDATE tasks SET work_package_ref = $workPackage, updated_at = $at WHERE ref = $ref",
     )
-    .run({ $group: group?.ref ?? null, $at: nowIso(), $ref: task.ref })
+    .run({
+      $workPackage: workPackage?.ref ?? null,
+      $at: nowIso(),
+      $ref: task.ref,
+    })
 
   addEvent(task.id, "edited", {
-    note: group
-      ? `moved into group ${group.ref} (${group.name})`
-      : "removed from its group",
+    note: workPackage
+      ? `moved into work package ${workPackage.ref} (${workPackage.name})`
+      : "removed from its work package",
   })
 
-  if (group && options.reposition !== false)
-    appendToGroupRun(task.ref, group.ref)
+  if (workPackage && options.reposition !== false)
+    appendToWorkPackageRun(task.ref, workPackage.ref)
   return requireTask(task.ref)
 }
 
-/** Move `ref` to just after the last task already in `groupRef`, when there is
+/** Move `ref` to just after the last task already in `workPackageRef`, when there is
  *  one and both rows are in the ordered list. Closed tasks have no place in the
- *  queue, so a group made only of them simply leaves the task where it is. */
-function appendToGroupRun(ref: string, groupRef: string): void {
+ *  queue, so a work package made only of them simply leaves the task where it is. */
+function appendToWorkPackageRun(ref: string, workPackageRef: string): void {
   const order = listTasks()
   const anchor = [...order]
     .reverse()
     .find(
       (one) =>
         one.ref !== ref &&
-        one.groupRef?.toLowerCase() === groupRef.toLowerCase(),
+        one.workPackageRef?.toLowerCase() === workPackageRef.toLowerCase(),
     )
   if (!anchor || !order.some((one) => one.ref === ref)) return
 
@@ -1252,27 +1301,29 @@ function appendToGroupRun(ref: string, groupRef: string): void {
 }
 
 /**
- * The group holding an investigation's tasks, made if it is not there yet.
+ * The work package holding an investigation's tasks, made if it is not there yet.
  *
- * Keyed on the investigation rather than on the name, so renaming the group —
+ * Keyed on the investigation rather than on the name, so renaming the work package —
  * or running the same investigation twice — refills the one that exists instead
  * of making a second one beside it.
  */
-export function groupForInvestigation(investigationRef: string): TaskGroup {
+export function workPackageForInvestigation(
+  investigationRef: string,
+): WorkPackage {
   const investigation = requireInvestigation(investigationRef)
   const existing = getDb()
-    .query<TaskGroupRow, { $ref: string }>(
-      "SELECT * FROM task_groups WHERE investigation_ref = $ref COLLATE NOCASE ORDER BY id ASC",
+    .query<WorkPackageRow, { $ref: string }>(
+      "SELECT * FROM work_packages WHERE investigation_ref = $ref COLLATE NOCASE ORDER BY id ASC",
     )
     .get({ $ref: investigation.ref })
-  if (existing) return toGroup(existing)
+  if (existing) return toWorkPackage(existing)
 
   // The investigation's own title is the name people already know it by. A
-  // second group that happens to be called that is disambiguated with the ref
-  // rather than refused: auto-grouping must never fail a task's creation.
+  // second work package that happens to be called that is disambiguated with the ref
+  // rather than refused: auto-organizing must never fail a task's creation.
   const base = investigation.title.trim() || investigation.ref
-  const name = findGroup(base) ? `${base} (${investigation.ref})` : base
-  return createGroup({ name, investigationRef: investigation.ref })
+  const name = findWorkPackage(base) ? `${base} (${investigation.ref})` : base
+  return createWorkPackage({ name, investigationRef: investigation.ref })
 }
 
 /* ----------------------------------------------------------- investigations */
@@ -1351,8 +1402,14 @@ export function requireInvestigation(ref: string): Investigation {
  *  taken all the way through is part of the answer. */
 export function getInvestigationDetail(ref: string): InvestigationDetail {
   const investigation = requireInvestigation(ref)
+  const workPackage = getDb()
+    .query<{ ref: string }, { $ref: string }>(
+      "SELECT ref FROM work_packages WHERE investigation_ref = $ref COLLATE NOCASE ORDER BY id ASC LIMIT 1",
+    )
+    .get({ $ref: investigation.ref })
   return {
     ...investigation,
+    notes: workPackage ? linkedNotes("work-package", workPackage.ref) : [],
     tasks: listTasks({
       investigationRef: investigation.ref,
       includeClosed: true,
@@ -1417,14 +1474,14 @@ export function updateInvestigation(
     )
     .run(params)
 
-  // A linked group's description is the compatibility projection of the brief:
+  // A linked work package's description is the compatibility projection of the brief:
   // the current UI calls it Investigation, while older clients still read the
   // description column. Keeping it mirrored lets both interfaces tell the same
   // story without a schema-breaking migration.
   if (input.brief !== undefined) {
     getDb()
       .query(
-        "UPDATE task_groups SET description = $brief, updated_at = $at WHERE investigation_ref = $ref COLLATE NOCASE",
+        "UPDATE work_packages SET description = $brief, updated_at = $at WHERE investigation_ref = $ref COLLATE NOCASE",
       )
       .run({ $brief: input.brief, $at: params.$at, $ref: investigation.ref })
   }
@@ -1473,7 +1530,7 @@ export function updateTaskBranchName(ref: string, branchName: string): Task {
   const at = nowIso()
   getDb()
     .query(
-      "UPDATE tasks SET branch_name = $branch, updated_at = $at WHERE ref = $ref",
+      "UPDATE tasks SET branch_name = $branch, use_git_workflow = 1, updated_at = $at WHERE ref = $ref",
     )
     .run({ $branch: validateBranchName(branchName), $at: at, $ref: task.ref })
   addEvent(task.id, "note", {
@@ -1628,7 +1685,7 @@ export function recordCombine(input: {
  * Add one task to a delivery branch's roster, keeping everything else about the
  * branch as it was.
  *
- * This is how a group branch accumulates its tasks: each `tasks done` merge
+ * This is how a work package branch accumulates its tasks: each `tasks done` merge
  * registers the task it just merged, so the branch's record answers "what is on
  * this branch" without anyone having to select the tasks by hand. Idempotent —
  * re-registering a task already on the roster changes nothing, which is what
@@ -1830,19 +1887,19 @@ export function firstRun(taskId: number, phase: Phase): CheckpointRun | null {
   return listRuns(taskId).find((run) => run.phase === phase) ?? null
 }
 
-/* ------------------------------------------------------------ group runs */
+/* ------------------------------------------------------------ work package runs */
 
 /**
- * The rows behind an unattended group run.
+ * The rows behind an unattended work package run.
  *
  * Only the storage lives here, with the rest of the data layer. The loop itself
  * — what counts as a task being done, what stops it, what it starts next — is
- * in `groupRuns.ts`, which is the only thing that writes these beyond a read.
+ * in `workPackageRuns.ts`, which is the only thing that writes these beyond a read.
  */
 
-interface GroupRunRow {
+interface WorkPackageRunRow {
   id: number
-  group_ref: string
+  work_package_ref: string
   harness: string
   model: string
   permission_mode: string
@@ -1857,15 +1914,15 @@ interface GroupRunRow {
   finished_at: string | null
 }
 
-function toGroupRun(row: GroupRunRow): GroupRun {
+function toWorkPackageRun(row: WorkPackageRunRow): WorkPackageRun {
   return {
     id: row.id,
-    groupRef: row.group_ref,
+    workPackageRef: row.work_package_ref,
     harness: row.harness as AgentHarnessId,
     model: row.model,
     permissionMode: row.permission_mode as AgentPermissionMode,
     extra: row.extra,
-    status: row.status as GroupRunStatus,
+    status: row.status as WorkPackageRunStatus,
     currentRunId: row.current_run_id,
     currentRef: row.current_ref,
     worked: JSON.parse(row.worked_json) as string[],
@@ -1877,90 +1934,97 @@ function toGroupRun(row: GroupRunRow): GroupRun {
 }
 
 /**
- * The group's most recent run, whatever became of it.
+ * The work package's most recent run, whatever became of it.
  *
  * Deliberately not filtered to running ones. A finished loop is what the page
  * has to draw after the last task lands, and a stopped one is the only place
  * the reason it stopped is written down.
  */
-export function latestGroupRun(groupRef: string): GroupRun | null {
+export function latestWorkPackageRun(
+  workPackageRef: string,
+): WorkPackageRun | null {
   const row = getDb()
-    .query<GroupRunRow, { $ref: string }>(
-      "SELECT * FROM group_runs WHERE group_ref = $ref COLLATE NOCASE ORDER BY id DESC LIMIT 1",
+    .query<WorkPackageRunRow, { $ref: string }>(
+      "SELECT * FROM work_package_runs WHERE work_package_ref = $ref COLLATE NOCASE ORDER BY id DESC LIMIT 1",
     )
-    .get({ $ref: groupRef })
-  return row ? toGroupRun(row) : null
+    .get({ $ref: workPackageRef })
+  return row ? toWorkPackageRun(row) : null
 }
 
-export function listGroupRuns(groupRef?: string, limit = 20): GroupRun[] {
+export function listWorkPackageRuns(
+  workPackageRef?: string,
+  limit = 20,
+): WorkPackageRun[] {
   const db = getDb()
-  const rows = groupRef
+  const rows = workPackageRef
     ? db
-        .query<GroupRunRow, { $ref: string; $limit: number }>(
-          "SELECT * FROM group_runs WHERE group_ref = $ref COLLATE NOCASE ORDER BY id DESC LIMIT $limit",
+        .query<WorkPackageRunRow, { $ref: string; $limit: number }>(
+          "SELECT * FROM work_package_runs WHERE work_package_ref = $ref COLLATE NOCASE ORDER BY id DESC LIMIT $limit",
         )
-        .all({ $ref: groupRef, $limit: limit })
+        .all({ $ref: workPackageRef, $limit: limit })
     : db
-        .query<GroupRunRow, { $limit: number }>(
-          "SELECT * FROM group_runs ORDER BY id DESC LIMIT $limit",
+        .query<WorkPackageRunRow, { $limit: number }>(
+          "SELECT * FROM work_package_runs ORDER BY id DESC LIMIT $limit",
         )
         .all({ $limit: limit })
-  return rows.map(toGroupRun)
+  return rows.map(toWorkPackageRun)
 }
 
-export function findGroupRun(id: number): GroupRun | null {
+export function findWorkPackageRun(id: number): WorkPackageRun | null {
   const row = getDb()
-    .query<GroupRunRow, { $id: number }>(
-      "SELECT * FROM group_runs WHERE id = $id",
+    .query<WorkPackageRunRow, { $id: number }>(
+      "SELECT * FROM work_package_runs WHERE id = $id",
     )
     .get({ $id: id })
-  return row ? toGroupRun(row) : null
+  return row ? toWorkPackageRun(row) : null
 }
 
-export function requireGroupRun(id: number): GroupRun {
-  const found = findGroupRun(id)
-  if (!found) throw new Error(`No group run with id ${id}.`)
+export function requireWorkPackageRun(id: number): WorkPackageRun {
+  const found = findWorkPackageRun(id)
+  if (!found) throw new Error(`No work package run with id ${id}.`)
   return found
 }
 
 /** Every loop that still believes it is working. Used to keep two from owning
- *  the same group, and to settle them all when the server restarts. */
-export function runningGroupRuns(): GroupRun[] {
+ *  the same work package, and to settle them all when the server restarts. */
+export function runningWorkPackageRuns(): WorkPackageRun[] {
   return getDb()
-    .query<GroupRunRow, []>(
-      "SELECT * FROM group_runs WHERE status = 'running' ORDER BY id",
+    .query<WorkPackageRunRow, []>(
+      "SELECT * FROM work_package_runs WHERE status = 'running' ORDER BY id",
     )
     .all()
-    .map(toGroupRun)
+    .map(toWorkPackageRun)
 }
 
 /** The loop currently working `agentRunId`, if a loop launched it at all. */
-export function groupRunForAgentRun(agentRunId: number): GroupRun | null {
+export function workPackageRunForAgentRun(
+  agentRunId: number,
+): WorkPackageRun | null {
   const row = getDb()
-    .query<GroupRunRow, { $id: number }>(
-      "SELECT * FROM group_runs WHERE current_run_id = $id AND status = 'running' LIMIT 1",
+    .query<WorkPackageRunRow, { $id: number }>(
+      "SELECT * FROM work_package_runs WHERE current_run_id = $id AND status = 'running' LIMIT 1",
     )
     .get({ $id: agentRunId })
-  return row ? toGroupRun(row) : null
+  return row ? toWorkPackageRun(row) : null
 }
 
-export function createGroupRun(input: {
-  groupRef: string
+export function createWorkPackageRun(input: {
+  workPackageRef: string
   harness: AgentHarnessId
   model: string
   permissionMode: AgentPermissionMode
   extra: string
   excluded: string[]
-}): GroupRun {
+}): WorkPackageRun {
   const row = getDb()
     .query<{ id: number }, Record<string, string>>(
-      `INSERT INTO group_runs
-         (group_ref, harness, model, permission_mode, extra, status, worked_json, excluded_json, created_at)
+      `INSERT INTO work_package_runs
+         (work_package_ref, harness, model, permission_mode, extra, status, worked_json, excluded_json, created_at)
        VALUES ($ref, $harness, $model, $permission, $extra, 'running', '[]', $excluded, $at)
        RETURNING id`,
     )
     .get({
-      $ref: input.groupRef,
+      $ref: input.workPackageRef,
       $harness: input.harness,
       $model: input.model,
       $permission: input.permissionMode,
@@ -1969,48 +2033,51 @@ export function createGroupRun(input: {
       $at: nowIso(),
     })!
 
-  return requireGroupRun(row.id)
+  return requireWorkPackageRun(row.id)
 }
 
 /** Point the loop at the task it has just launched. */
-export function setGroupRunCurrent(
+export function setWorkPackageRunCurrent(
   id: number,
   agentRunId: number,
   ref: string,
-): GroupRun {
+): WorkPackageRun {
   getDb()
     .query(
-      "UPDATE group_runs SET current_run_id = $run, current_ref = $ref WHERE id = $id",
+      "UPDATE work_package_runs SET current_run_id = $run, current_ref = $ref WHERE id = $id",
     )
     .run({ $id: id, $run: agentRunId, $ref: ref })
-  return requireGroupRun(id)
+  return requireWorkPackageRun(id)
 }
 
 /** Record a task as carried all the way to Dev Complete by this loop. */
-export function recordGroupRunWorked(id: number, ref: string): GroupRun {
-  const run = requireGroupRun(id)
+export function recordWorkPackageRunWorked(
+  id: number,
+  ref: string,
+): WorkPackageRun {
+  const run = requireWorkPackageRun(id)
   if (run.worked.includes(ref)) return run
 
   getDb()
-    .query("UPDATE group_runs SET worked_json = $worked WHERE id = $id")
+    .query("UPDATE work_package_runs SET worked_json = $worked WHERE id = $id")
     .run({ $id: id, $worked: JSON.stringify([...run.worked, ref]) })
-  return requireGroupRun(id)
+  return requireWorkPackageRun(id)
 }
 
 /** Settle a loop. `running` is the one status this cannot set — a loop that has
  *  stopped stays stopped, and restarting one means a new row. */
-export function settleGroupRun(
+export function settleWorkPackageRun(
   id: number,
-  status: GroupRunStatus,
+  status: WorkPackageRunStatus,
   stopReason: string,
-): GroupRun {
+): WorkPackageRun {
   if (status === "running")
-    throw new Error("A group run cannot be settled as still running.")
+    throw new Error("A work package run cannot be settled as still running.")
   getDb()
     .query(
-      `UPDATE group_runs SET status = $status, stop_reason = $reason, finished_at = $at
+      `UPDATE work_package_runs SET status = $status, stop_reason = $reason, finished_at = $at
         WHERE id = $id AND status = 'running'`,
     )
     .run({ $id: id, $status: status, $reason: stopReason, $at: nowIso() })
-  return requireGroupRun(id)
+  return requireWorkPackageRun(id)
 }

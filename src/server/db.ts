@@ -2,7 +2,8 @@ import { Database } from "bun:sqlite"
 import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { workspace } from "../config/paths"
-import { branchNameFor, groupBranchNameFor } from "../shared/types"
+import { branchNameFor, workPackageBranchNameFor } from "../shared/types"
+import { migrateWorkPackages } from "./workPackageMigration"
 
 let db: Database | undefined
 
@@ -23,6 +24,9 @@ const SCHEMA = [
      -- Duration on the plan, in abstract units. One is "a task".
      estimate_units   INTEGER NOT NULL DEFAULT 1,
      investigation_ref TEXT,
+     -- False for work confined to ignored/local files that should not branch,
+     -- commit, or merge. Visual checkpoints remain independent of this flag.
+     use_git_workflow INTEGER NOT NULL DEFAULT 1,
      branch_name      TEXT,
      checkpoint_name  TEXT,
      created_at       TEXT    NOT NULL,
@@ -124,28 +128,42 @@ const SCHEMA = [
    )`,
 
   // A named bundle of tasks. Membership is a column on `tasks`, not a join
-  // table, because a task belongs to at most one group — expressing that in the
+  // table, because a task belongs to at most one work package — expressing that in the
   // schema is what keeps it true. Tasks point back by ref rather than by foreign
-  // key, matching investigations: deleting the grouping must not delete work.
-  `CREATE TABLE IF NOT EXISTS task_groups (
+  // key, matching investigations: deleting the organizing must not delete work.
+  `CREATE TABLE IF NOT EXISTS work_packages (
      id                INTEGER PRIMARY KEY AUTOINCREMENT,
      ref               TEXT    NOT NULL UNIQUE,
      name              TEXT    NOT NULL,
      description       TEXT    NOT NULL DEFAULT '',
      color             TEXT    NOT NULL DEFAULT '',
-     -- The branch this group's work is built on. Every group has one, so it is
+     -- The branch this work package's work is built on. Every work package has one, so it is
      -- backfilled rather than left null on an older database.
      branch_name       TEXT    NOT NULL DEFAULT '',
      position          INTEGER NOT NULL DEFAULT 0,
-     -- Set when the group was created to hold an investigation's output, which
-     -- is also what makes that auto-grouping idempotent.
+     -- Set when the work package was created to hold an investigation's output, which
+     -- is also what makes that auto-organizing idempotent.
      investigation_ref TEXT,
      created_at        TEXT    NOT NULL,
      updated_at        TEXT    NOT NULL
    )`,
 
-  `CREATE INDEX IF NOT EXISTS idx_task_groups_investigation
-     ON task_groups(investigation_ref)`,
+  `CREATE INDEX IF NOT EXISTS idx_work_packages_investigation
+     ON work_packages(investigation_ref)`,
+
+  // Links from workflow records to Markdown notes. Notes themselves remain
+  // files in the separately versioned notes folder; only their relative path
+  // belongs in SQLite. A generic subject pair keeps task and work package behaviour
+  // identical without pretending an on-disk file can be a foreign key.
+  `CREATE TABLE IF NOT EXISTS note_links (
+     subject_kind TEXT NOT NULL CHECK(subject_kind IN ('task', 'work-package')),
+     subject_ref  TEXT NOT NULL,
+     note_path    TEXT NOT NULL,
+     attached_at  TEXT NOT NULL,
+     PRIMARY KEY (subject_kind, subject_ref, note_path)
+   )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_note_links_path ON note_links(note_path)`,
 
   // One row per delivery branch produced by combining task branches. Deliberately
   // NOT a foreign key to tasks: combining usually closes the tasks, and a task
@@ -195,14 +213,14 @@ const SCHEMA = [
 
   `CREATE INDEX IF NOT EXISTS idx_agent_runs_subject ON agent_runs(subject_kind, subject_ref, id)`,
 
-  // One row per unattended run of a whole group. This is the loop's memory: the
+  // One row per unattended run of a whole work package. This is the loop's memory: the
   // launch settings every task is worked with, which task is in flight, and what
   // has already been carried to Dev Complete. Not a foreign key to `agent_runs`
   // for the same reason that table has none — the record of what was attempted
   // should outlive whatever it was attempted against.
-  `CREATE TABLE IF NOT EXISTS group_runs (
+  `CREATE TABLE IF NOT EXISTS work_package_runs (
      id              INTEGER PRIMARY KEY AUTOINCREMENT,
-     group_ref       TEXT    NOT NULL,
+     work_package_ref       TEXT    NOT NULL,
      harness         TEXT    NOT NULL,
      model           TEXT    NOT NULL DEFAULT '',
      permission_mode TEXT    NOT NULL,
@@ -220,7 +238,7 @@ const SCHEMA = [
      finished_at     TEXT
    )`,
 
-  `CREATE INDEX IF NOT EXISTS idx_group_runs_group ON group_runs(group_ref, id)`,
+  `CREATE INDEX IF NOT EXISTS idx_work_package_runs_work_package ON work_package_runs(work_package_ref, id)`,
 ]
 
 /**
@@ -235,9 +253,9 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: "tasks", column: "closed_at", definition: "TEXT" },
   // Tasks filed before Investigations existed simply have none.
   { table: "tasks", column: "investigation_ref", definition: "TEXT" },
-  // Tasks filed before groups existed are loose, which is exactly right: a
-  // group is something a human or an investigation puts them into.
-  { table: "tasks", column: "group_ref", definition: "TEXT" },
+  // Tasks filed before work packages existed are loose, which is exactly right: a
+  // work package is something a human or an investigation puts them into.
+  { table: "tasks", column: "work_package_ref", definition: "TEXT" },
   // Manual list order. Existing rows all land on 0 and are backfilled below.
   {
     table: "tasks",
@@ -251,10 +269,10 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
     column: "estimate_units",
     definition: "INTEGER NOT NULL DEFAULT 1",
   },
-  // Groups created before they had branches are backfilled below, because a
-  // group without a branch has nothing for its tasks to be cut from.
+  // Work packages created before they had branches are backfilled below, because a
+  // work package without a branch has nothing for its tasks to be cut from.
   {
-    table: "task_groups",
+    table: "work_packages",
     column: "branch_name",
     definition: "TEXT NOT NULL DEFAULT ''",
   },
@@ -282,12 +300,17 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   // Set by an investigation when it files a task; null on everything filed
   // before this existed, and on any task nobody has judged.
   { table: "tasks", column: "recommended_tier", definition: "TEXT" },
+  {
+    table: "tasks",
+    column: "use_git_workflow",
+    definition: "INTEGER NOT NULL DEFAULT 1",
+  },
   // Null means push to origin under the same name as the local branch, which
   // is the historical default.
   { table: "combined_branches", column: "remote_branch", definition: "TEXT" },
   // Older unattended runs included every queued task.
   {
-    table: "group_runs",
+    table: "work_package_runs",
     column: "excluded_json",
     definition: "TEXT NOT NULL DEFAULT '[]'",
   },
@@ -297,7 +320,7 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
  *  cannot live in SCHEMA — that runs before the migrations. */
 const POST_MIGRATION_INDEXES = [
   "CREATE INDEX IF NOT EXISTS idx_tasks_investigation ON tasks(investigation_ref)",
-  "CREATE INDEX IF NOT EXISTS idx_tasks_group ON tasks(group_ref)",
+  "CREATE INDEX IF NOT EXISTS idx_tasks_work_package ON tasks(work_package_ref)",
 ]
 
 function applyColumnMigrations(database: Database): void {
@@ -316,7 +339,7 @@ function applyColumnMigrations(database: Database): void {
   // to happen (backlog or in progress) branch-addressable on upgrade.
   const unassigned = database
     .query<{ ref: string; title: string }, []>(
-      "SELECT ref, title FROM tasks WHERE branch_name IS NULL AND status IN ('backlog', 'in_progress')",
+      "SELECT ref, title FROM tasks WHERE branch_name IS NULL AND use_git_workflow != 0 AND status IN ('backlog', 'in_progress')",
     )
     .all()
   const backfill = database.query(
@@ -333,32 +356,36 @@ function applyColumnMigrations(database: Database): void {
     })
   }
 
-  backfillGroupBranches(database)
+  backfillWorkPackageBranches(database)
   backfillPositions(database)
 }
 
 /**
- * Give every group a branch name. `''` is the never-assigned sentinel — nothing
+ * Give every work package a branch name. `''` is the never-assigned sentinel — nothing
  * writes it deliberately — so this is idempotent and also repairs a row that
  * somehow slipped in without one.
  */
-function backfillGroupBranches(database: Database): void {
+function backfillWorkPackageBranches(database: Database): void {
   const rows = database
     .query<{ ref: string; name: string }, []>(
-      "SELECT ref, name FROM task_groups WHERE branch_name = ''",
+      "SELECT ref, name FROM work_packages WHERE branch_name = ''",
     )
     .all()
   if (!rows.length) return
 
-  const prefix = workspace().config.groupBranchPrefix
+  const prefix = workspace().config.workPackageBranchPrefix
   const assign = database.query(
-    "UPDATE task_groups SET branch_name = $branch WHERE ref = $ref",
+    "UPDATE work_packages SET branch_name = $branch WHERE ref = $ref",
   )
   database.transaction(() => {
-    for (const group of rows) {
+    for (const workPackage of rows) {
       assign.run({
-        $ref: group.ref,
-        $branch: groupBranchNameFor(group.ref, group.name, prefix),
+        $ref: workPackage.ref,
+        $branch: workPackageBranchNameFor(
+          workPackage.ref,
+          workPackage.name,
+          prefix,
+        ),
       })
     }
   })()
@@ -460,10 +487,14 @@ export function getDb(): Database {
   db = new Database(dbPath, { create: true })
   db.exec("PRAGMA journal_mode = WAL")
   db.exec("PRAGMA foreign_keys = ON")
-  for (const statement of SCHEMA) db.exec(statement)
-  applyColumnMigrations(db)
-  for (const statement of POST_MIGRATION_INDEXES) db.exec(statement)
-  backfillCombinedBranches(db)
+  const database = db
+  database.transaction(() => {
+    migrateWorkPackages(database)
+    for (const statement of SCHEMA) database.exec(statement)
+    applyColumnMigrations(database)
+    for (const statement of POST_MIGRATION_INDEXES) database.exec(statement)
+    backfillCombinedBranches(database)
+  })()
 
   return db
 }
@@ -492,9 +523,9 @@ export function nextInvestigationRef(): string {
   return `I-${nextCounter("investigation")}`
 }
 
-/** Next group ref, e.g. `G-2`. Its own counter for the same reason. */
-export function nextGroupRef(): string {
-  return `G-${nextCounter("group")}`
+/** Next work package ref, e.g. `WP-2`. Its own counter for the same reason. */
+export function nextWorkPackageRef(): string {
+  return `WP-${nextCounter("work-package")}`
 }
 
 export function nowIso(): string {

@@ -1,6 +1,7 @@
 import { fileURLToPath, URL } from "node:url"
 import { defineConfig } from "vite"
-import vue from "@vitejs/plugin-vue"
+import solid from "@solidjs/vite-plugin"
+import tailwindcss from "@tailwindcss/vite"
 
 // Port the bun API server listens on. In dev the SPA runs on its own port and
 // proxies /api through, so the frontend talks to a single origin either way.
@@ -8,7 +9,7 @@ const apiPort = Number(process.env.TASKS_API_PORT ?? 5199)
 
 export default defineConfig({
   root: fileURLToPath(new URL("./src/web", import.meta.url)),
-  plugins: [vue()],
+  plugins: [solid(), tailwindcss()],
   resolve: {
     alias: {
       "@shared": fileURLToPath(new URL("./src/shared", import.meta.url)),

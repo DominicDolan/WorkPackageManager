@@ -33,7 +33,7 @@ export interface Workspace {
   distDir: string
   /**
    * Canonical Markdown for the agent commands (`plan-tasks`, `work-task`,
-   * `work-group`), shipped with the package. Inlined into the prompt at
+   * `work-package`), shipped with the package. Inlined into the prompt at
    * `src/server/agents.ts` rather than invoked as a slash command, so a run
    * needs nothing installed beyond the harness binary — see
    * `<promptsDir>/<command>.md`. A workspace may override one by placing its
@@ -96,9 +96,7 @@ export function workspace(startDir = process.cwd()): Workspace {
     notesDir: process.env.TASKS_NOTES_DIR
       ? resolve(process.env.TASKS_NOTES_DIR)
       : resolve(tasksDir, config.notesDir),
-    // The CLI selects the legacy or Solid build before starting the shared API
-    // server. Keeping that choice in the environment also works when this
-    // package is globally installed and the workspace lives elsewhere.
+    // Allow the CLI or a development instance to select its built assets.
     distDir: process.env.TASKS_WEB_DIST
       ? resolve(process.env.TASKS_WEB_DIST)
       : join(packageRoot, "dist", "web"),

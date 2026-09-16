@@ -384,9 +384,15 @@ export function agentEnvironment(): AgentEnvironment {
  */
 function promptTemplate(command: AgentCommand): string {
   const override = join(ws.tasksDir, "prompts", `${command}.md`)
+  const legacyOverride =
+    command === "work-package"
+      ? join(ws.tasksDir, "prompts", "work-group.md")
+      : null
   const path = existsSync(override)
     ? override
-    : join(ws.promptsDir, `${command}.md`)
+    : legacyOverride && existsSync(legacyOverride)
+      ? legacyOverride
+      : join(ws.promptsDir, `${command}.md`)
   return readFileSync(path, "utf8")
 }
 
@@ -400,7 +406,7 @@ function promptTemplate(command: AgentCommand): string {
  * message with everything it needs, and nothing has to be installed beyond the
  * `claude`, `codex` or `pi` binary itself.
  *
- * `work-group` is a loop around `work-task`'s procedure, so its template gets
+ * `work-package` is a loop around `work-task`'s procedure, so its template gets
  * that procedure's own Markdown spliced in whole rather than telling the agent
  * to go find it — there is nowhere reliable for it to look, since the package
  * may not be installed anywhere near the repository being worked on.
@@ -411,9 +417,9 @@ export function buildPrompt(
   extra: string,
 ): string {
   let body = promptTemplate(command).replace(/\$1/g, target.trim())
-  if (command === "work-group") {
+  if (command === "work-package") {
     // Left unsubstituted deliberately: the appendix's `$1` means "whichever
-    // task the loop is on", not the group ref this template's own `$1` means.
+    // task the loop is on", not the work package ref this template's own `$1` means.
     body = body.replace("$WORK_TASK_PROCEDURE", promptTemplate("work-task"))
   }
 
@@ -474,7 +480,7 @@ function readRow(id: number): RunRow {
 /**
  * Told when a run reaches a final state, whatever put it there.
  *
- * This is what makes an unattended group run possible: the agent is a child of
+ * This is what makes an unattended work package run possible: the agent is a child of
  * this process, so its exit is observed directly rather than guessed at from a
  * timer or reported back by a hook. Registered rather than imported so the
  * orchestrator can depend on this module without this module depending on it.

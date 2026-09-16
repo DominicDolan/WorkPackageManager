@@ -172,7 +172,8 @@ export function headSha(branch: string): string | null {
 }
 
 /**
- * Run every configured check against a branch, in order, and report.
+ * Run the configured checks (or one selected check) against a branch and
+ * report. A selected result is merged with prior results for the same commit.
  *
  * The branch is *not* checked out: checks run against the working tree as it
  * stands, which is the normal case (you are on the branch you are about to open
@@ -184,40 +185,72 @@ export function headSha(branch: string): string | null {
 export async function runChecks(input: {
   branch: string
   base: string
+  /** Run only this named check. Omit to run the complete suite. */
+  check?: string
+  /** Results to retain when rerunning one check against the same commit. */
+  previous?: ChecksReport | null
   /** Called as each check starts, so a caller can say what is happening. */
   onProgress?: (current: string, done: number, total: number) => void
 }): Promise<ChecksReport> {
-  const { branch, base, onProgress } = input
+  const { branch, base, check, previous, onProgress } = input
   const definitions = configuredChecks()
+  const selected = check
+    ? definitions.filter((definition) => definition.name === check)
+    : definitions
+  if (check && !selected.length) throw new Error(`Unknown check '${check}'.`)
 
   const onBranch = git(["branch", "--show-current"]).stdout.trim()
   const touched = changedFiles(branch, base)
+  // Capture this before running. If the branch moves during a long check, the
+  // finished report is stale instead of accidentally describing the new head.
+  const checkedHead = headSha(branch)
 
-  const runs: CheckRun[] = []
+  const freshRuns: CheckRun[] = []
 
   // Sequential, not parallel: these are builds and test suites, and running six
   // of them at once on one machine makes all six slower and the output useless.
-  for (const [index, definition] of definitions.entries()) {
+  for (const [index, definition] of selected.entries()) {
     // Announced from inside, immediately before the command is spawned, so a
     // check that turns out to be skipped is never reported as running.
-    runs.push(
+    freshRuns.push(
       await runOne(definition, { branch, base, touched }, () =>
-        onProgress?.(definition.name, index, definitions.length),
+        onProgress?.(definition.name, index, selected.length),
       ),
     )
   }
 
+  // A single-check rerun updates the suite rather than erasing its other
+  // results. Results from another branch commit are never carried forward.
+  const retained =
+    check &&
+    previous?.branch === branch &&
+    previous.base === base &&
+    checkedHead !== null &&
+    previous.headSha === checkedHead
+      ? previous.checks.filter((run) => run.name !== check)
+      : []
+  const byName = new Map(
+    [...retained, ...freshRuns].map((run) => [run.name, run]),
+  )
+  const runs = definitions.flatMap((definition) => {
+    const run = byName.get(definition.name)
+    return run ? [run] : []
+  })
+  const complete = runs.length === definitions.length
+
   return {
     branch,
     base,
-    headSha: headSha(branch),
+    headSha: checkedHead,
     ranAt: new Date().toISOString(),
     // Skips pass: a check that watches `frontend/**` on a backend-only branch
     // has nothing to say, and treating silence as failure would make the gate
     // useless in exactly the repositories path filters exist for.
-    passed: runs.every(
-      (check) => check.status === "passed" || check.status === "skipped",
-    ),
+    passed:
+      complete &&
+      runs.every(
+        (check) => check.status === "passed" || check.status === "skipped",
+      ),
     ranOnBranch: onBranch || null,
     checks: runs,
   }
@@ -331,6 +364,12 @@ export function checksBlockingPr(
 ): string | null {
   if (!configuredChecks().length) return null
   if (!report) return "Checks have not been run on this branch yet."
+  const completed = new Set(report.checks.map((check) => check.name))
+  const missing = configuredChecks().filter(
+    (definition) => !completed.has(definition.name),
+  )
+  if (missing.length)
+    return `Checks have not been run: ${missing.map((check) => check.name).join(", ")}.`
   if (!report.passed) {
     const failed = report.checks.filter(
       (check) => check.status !== "passed" && check.status !== "skipped",
@@ -373,8 +412,12 @@ export function checksProgress(branch: string): ChecksProgress | null {
 export function startChecks(input: {
   branch: string
   base: string
+  check?: string
+  previous?: ChecksReport | null
 }): ChecksProgress {
-  const { branch, base } = input
+  const { branch, base, check, previous } = input
+  if (check && !configuredChecks().some((item) => item.name === check))
+    throw new Error(`Unknown check '${check}'.`)
 
   const existing = inFlight.get(branch)
   if (existing) return existing
@@ -385,13 +428,15 @@ export function startChecks(input: {
     startedAt: new Date().toISOString(),
     current: null,
     done: 0,
-    total: configuredChecks().length,
+    total: check ? 1 : configuredChecks().length,
   }
   inFlight.set(branch, progress)
 
   void runChecks({
     branch,
     base,
+    check,
+    previous,
     onProgress: (current, done, total) => {
       progress.current = current
       progress.done = done

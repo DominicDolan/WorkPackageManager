@@ -20,11 +20,11 @@ export interface TasksConfig {
   /** Prefix for generated branch names, e.g. `feature/t-12-make-it-responsive`. */
   branchPrefix: string
   /**
-   * Prefix for generated group branch names, e.g. `group/g-3-search-rework`.
-   * Kept distinct from `branchPrefix` so a group's shared branch is never
+   * Prefix for generated work package branch names, e.g. `feature/wp-3-search-rework`.
+   * Kept distinct from `branchPrefix` so a work package's shared branch is never
    * mistaken for one task's branch.
    */
-  groupBranchPrefix: string
+  workPackageBranchPrefix: string
   /** Prefix for generated aio-vr checkpoint names, e.g. `task-t-12`. */
   checkpointPrefix: string
   /**
@@ -134,7 +134,7 @@ export interface CheckDefinition {
 
 export const DEFAULT_CONFIG: TasksConfig = {
   branchPrefix: "feature/",
-  groupBranchPrefix: "group/",
+  workPackageBranchPrefix: "feature/",
   checkpointPrefix: "task-",
   baseBranch: null,
   aioVrDir: "../.aio-vr",
@@ -252,11 +252,17 @@ function modelTierMap(
 
 /** Validate and coerce one raw JSON object into a full config. */
 function merge(raw: Record<string, unknown>): TasksConfig {
+  // Existing workspaces may still configure the former group branch prefix.
+  raw = {
+    ...raw,
+    workPackageBranchPrefix:
+      raw.workPackageBranchPrefix ?? raw.groupBranchPrefix,
+  }
   const config = { ...DEFAULT_CONFIG }
 
   for (const key of [
     "branchPrefix",
-    "groupBranchPrefix",
+    "workPackageBranchPrefix",
     "checkpointPrefix",
     "aioVrDir",
     "aioVrBin",
@@ -328,6 +334,12 @@ function merge(raw: Record<string, unknown>): TasksConfig {
     config.checks = raw.checks.map((entry, index) =>
       checkDefinition(entry, index),
     )
+    const names = new Set<string>()
+    for (const check of config.checks) {
+      if (names.has(check.name))
+        fail(`'checks' contains duplicate name '${check.name}'.`)
+      names.add(check.name)
+    }
   }
 
   if (raw.modelTiers !== undefined && raw.modelTiers !== null) {

@@ -241,7 +241,7 @@ export function refreshBaseBranch(base: string): BaseRefresh {
 }
 
 /** True when `ancestor` is already contained in `descendant` — the question
- *  "is this task's work already on the group branch?". */
+ *  "is this task's work already on the work package branch?". */
 export function isAncestor(ancestor: string, descendant: string): boolean {
   return git(["merge-base", "--is-ancestor", ancestor, descendant]).code === 0
 }
@@ -252,9 +252,9 @@ export function isAncestor(ancestor: string, descendant: string): boolean {
  * earlier work as well as this branch's own.
  *
  * The test is against the integration branch's **first-parent** line, not its
- * full history: a task merged into a group branch is reachable from it, but as
+ * full history: a task merged into a work package branch is reachable from it, but as
  * a second parent, and its own commits are exactly what a cherry-pick is
- * supposed to take. The first-parent line is the group branch's trunk, and it
+ * supposed to take. The first-parent line is the work package branch's trunk, and it
  * is linear — so if any of it is behind `branch`, the oldest of it is, which is
  * the only ancestry test needed.
  */
@@ -381,7 +381,7 @@ export function switchBranch(branch: string): void {
   }
 }
 
-/** Create `branch` at `start` without checking it out — how a group branch comes
+/** Create `branch` at `start` without checking it out — how a work package branch comes
  *  into existence, which must not move the user off what they are working on. */
 export function createBranch(branch: string, start: string): void {
   const created = git(["branch", branch, start])
@@ -411,8 +411,8 @@ export interface RebaseOutcome {
  * Replay `branch` on top of `onto`, so it becomes a straight run of commits
  * sitting directly on it.
  *
- * This is what keeps a group branch linear. Two different things make a branch
- * crooked and this handles both: a task cut before the group branch moved on
+ * This is what keeps a work package branch linear. Two different things make a branch
+ * crooked and this handles both: a task cut before the work package branch moved on
  * (replayed onto the new tip), and a task branch that has a merge commit inside
  * it from resolving a collision or pulling a dependency in. A plain rebase drops
  * merge commits and replays the commits themselves, which flattens the second
@@ -424,7 +424,7 @@ export interface RebaseOutcome {
  * **A conflict aborts.** The opposite of how a merge conflict is handled — that
  * one is left in the tree because there is nowhere better to resolve it. A
  * half-finished rebase is different: it is a repository in a mode, with commits
- * partly replayed, and a group run reaches this while nobody is watching. Better
+ * partly replayed, and a work package run reaches this while nobody is watching. Better
  * to leave the branches exactly as they were and say which two collided.
  */
 export function rebaseOnto(branch: string, onto: string): RebaseOutcome {
@@ -451,7 +451,7 @@ export interface MergeOutcome {
 /**
  * Fast-forward the currently checked-out branch to `branch`.
  *
- * `--ff-only` and never a merge commit: the group branch is meant to read as a
+ * `--ff-only` and never a merge commit: the work package branch is meant to read as a
  * straight list of commits by the time it is reviewed, and a merge commit per
  * task is exactly what stops it. This can only succeed because `rebaseOnto` has
  * already put `branch` directly on top — so a refusal here means the caller
@@ -634,7 +634,7 @@ export function generatePrDescription(
     "<body>",
     "",
     "The body should open with a short paragraph on why the change exists, then",
-    'a "## What changed" section grouping related commits into bullets by theme',
+    'a "## What changed" section organizing related commits into bullets by theme',
     'rather than restating every commit. Add a "## Notes for reviewers" section',
     "only when the history genuinely shows something worth flagging. Do not wrap",
     "the response in a code fence.",
@@ -823,6 +823,7 @@ export function toolAvailability(): ToolAvailability {
     prAgent: agent,
     prAgentAvailable,
     checkCount: ws.config.checks.length,
+    checkNames: ws.config.checks.map((check) => check.name),
     gh,
     ghAuthed,
   }

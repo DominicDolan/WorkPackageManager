@@ -13,10 +13,10 @@ import { captureBeforeRetro, resolveRetroTarget } from "../server/retro"
 import {
   addDependency,
   addNote,
-  createGroup,
+  createWorkPackage,
   createInvestigation,
   createTask,
-  deleteGroup,
+  deleteWorkPackage,
   deleteInvestigation,
   deleteTask,
   findCombinedBranch,
@@ -27,19 +27,19 @@ import {
   isPriority,
   isStatus,
   latestRun,
-  listGroups,
+  listWorkPackages,
   listInvestigations,
   listTasks,
   moveTask,
   removeDependency,
-  reorderGroups,
-  requireGroup,
+  reorderWorkPackages,
+  requireWorkPackage,
   requireInvestigation,
   requireTask,
   setInvestigationStatus,
   setStatus,
-  setTaskGroup,
-  updateGroup,
+  setWorkPackage,
+  updateWorkPackage,
   updateCombinedBranch,
   updateInvestigation,
   updateTask,
@@ -54,10 +54,10 @@ import {
   runBaselines,
 } from "../server/baselines"
 import {
-  ensureGroupBranch,
-  groupBranchOf,
-  mergeTaskIntoGroupBranch,
-} from "../server/groupBranch"
+  ensureWorkPackageBranch,
+  workPackageBranchOf,
+  mergeTaskIntoWorkPackageBranch,
+} from "../server/workPackageBranch"
 import { findIssue, issueFacets, listIssues } from "../server/issues"
 import {
   addAttachment,
@@ -78,8 +78,13 @@ import {
   updateNote,
 } from "../server/notes"
 import {
-  GROUP_COLORS,
-  groupTasks,
+  detachDeletedNote,
+  linkedNotes,
+  renameNoteLinks,
+} from "../server/noteLinks"
+import {
+  WORK_PACKAGE_COLORS,
+  workPackageTasks,
   INVESTIGATION_STATUS_LABELS,
   INVESTIGATION_STATUSES,
   dependencyOrder,
@@ -95,7 +100,7 @@ import {
   type Priority,
   type Status,
   type Task,
-  type TaskGroup,
+  type WorkPackage,
 } from "../shared/types"
 
 /* --------------------------------------------------------- arg handling */
@@ -268,11 +273,11 @@ function commandList(args: Args): void {
     status: status as Status | undefined,
     tag: flagList(args, "tag")?.[0],
     investigationRef: flagString(args, "investigation"),
-    groupRef: flagString(args, "group"),
+    workPackageRef: flagString(args, "work-package"),
   })
 
   if (flagBool(args, "json")) {
-    emitJson({ tasks, groups: listGroups() })
+    emitJson({ tasks, workPackages: listWorkPackages() })
     return
   }
 
@@ -285,7 +290,7 @@ function commandList(args: Args): void {
     status ||
     flagList(args, "tag")?.length ||
     flagString(args, "investigation") ||
-    flagString(args, "group"),
+    flagString(args, "work-package"),
   )
   printTaskLines(tasks, {
     grouped: !flagBool(args, "flat"),
@@ -335,16 +340,20 @@ function taskLine(
   return `${dim(String(place).padStart(3))}  ${indent}${bold(task.ref.padEnd(6))} ${priority} ${statusBadge(task.status).padEnd(22)} ${task.title}${tags}${blocked}`
 }
 
-/** The heading above a group's tasks, or above the loose ones. */
-function groupHeading(group: TaskGroup | null, count: number): string {
-  if (!group) return `  ${dim("┌")} ${bold("Ungrouped")} ${dim(`(${count})`)}`
-  return `  ${dim("┌")} ${bold(group.name)} ${dim(`${group.ref} · ${count} task(s)`)}`
+/** The heading above a work package's tasks, or above the loose ones. */
+function workPackageHeading(
+  workPackage: WorkPackage | null,
+  count: number,
+): string {
+  if (!workPackage)
+    return `  ${dim("┌")} ${bold("Unassigned")} ${dim(`(${count})`)}`
+  return `  ${dim("┌")} ${bold(workPackage.name)} ${dim(`${workPackage.ref} · ${count} task(s)`)}`
 }
 
 /**
  * The shared list rendering.
  *
- * Sectioned by group by default, because that is what the groups are for; the
+ * Sectioned by work package by default, because that is what the work packages are for; the
  * queue numbers stay global so a grouped listing and `tasks move` still talk
  * about the same list. `--flat` prints the queue as it is, which is the view
  * that matches what `/work-task` takes from the top of.
@@ -357,13 +366,16 @@ function printTaskLines(
   const place = new Map(tasks.map((task, index) => [task.ref, index + 1]))
   print()
 
-  const groups = options.grouped === false ? [] : listGroups()
+  const workPackages = options.grouped === false ? [] : listWorkPackages()
   // Nothing is grouped yet: sections would be one heading over the whole list.
-  const sections = groups.length
-    ? groupTasks(tasks, groups, (task) => task)
+  const sections = workPackages.length
+    ? workPackageTasks(tasks, workPackages, (task) => task)
     : []
 
-  if (!sections.length || (sections.length === 1 && !sections[0]!.group)) {
+  if (
+    !sections.length ||
+    (sections.length === 1 && !sections[0]!.workPackage)
+  ) {
     for (const task of tasks)
       print(taskLine(task, place.get(task.ref)!, universe))
     print()
@@ -371,11 +383,11 @@ function printTaskLines(
   }
 
   for (const section of sections) {
-    // An empty group still prints in the full list: it is somewhere to drop
-    // work, and a group that has silently emptied is worth seeing. Under a
-    // filter it does not — every group the filter excluded would be empty.
+    // An empty work package still prints in the full list: it is somewhere to drop
+    // work, and a work package that has silently emptied is worth seeing. Under a
+    // filter it does not — every work package the filter excluded would be empty.
     if (!section.items.length && options.showEmpty === false) continue
-    print(groupHeading(section.group, section.items.length))
+    print(workPackageHeading(section.workPackage, section.items.length))
     if (!section.items.length) print(`     ${dim("(empty)")}`)
     for (const task of section.items) {
       print(taskLine(task, place.get(task.ref)!, universe, `${dim("│")} `))
@@ -445,10 +457,10 @@ function commandShow(args: Args): void {
       ),
   )
   if (detail.tags.length) print(`  ${dim(`tags: ${detail.tags.join(", ")}`)}`)
-  if (detail.groupRef) {
-    const group = requireGroup(detail.groupRef)
+  if (detail.workPackageRef) {
+    const workPackage = requireWorkPackage(detail.workPackageRef)
     print(
-      `  ${dim(`group: ${group.name} (${group.ref}) → ${group.branchName}`)}`,
+      `  ${dim(`work package: ${workPackage.name} (${workPackage.ref}) → ${workPackage.branchName}`)}`,
     )
   }
   if (detail.description) {
@@ -458,7 +470,10 @@ function commandShow(args: Args): void {
 
   print()
   print(
-    `  ${dim("branch:")} ${detail.branchName ?? "(none — legacy completed task)"}`,
+    `  ${dim("Git workflow:")} ${detail.useGitWorkflow ? "enabled" : "disabled"}`,
+  )
+  print(
+    `  ${dim("branch:")} ${detail.branchName ?? (detail.useGitWorkflow ? "(none — legacy completed task)" : "(not used)")}`,
   )
   print(`  ${dim("checkpoint:")} ${detail.checkpointName ?? "(none)"}`)
 
@@ -515,7 +530,7 @@ function commandNew(args: Args): void {
   const title = args.positional.slice(1).join(" ")
   if (!title) {
     throw new Error(
-      'Usage: tasks new "<title>" (--group <ref> | --investigation <ref>) [--branch <name>] [--desc <text>] [--priority high] [--tier <t>] [--units <n>]',
+      'Usage: tasks new "<title>" (--work-package <ref> | --investigation <ref>) [--branch <name> | --no-git] [--desc <text>] [--priority high] [--tier <t>] [--units <n>]',
     )
   }
 
@@ -539,9 +554,10 @@ function commandNew(args: Args): void {
     priority: priority as Priority | undefined,
     recommendedTier: tier as ModelTier | undefined,
     tags: flagList(args, "tag"),
+    useGitWorkflow: args.flags.git === false ? false : undefined,
     branchName: flagString(args, "branch"),
     investigationRef: flagString(args, "investigation"),
-    groupRef: flagString(args, "group"),
+    workPackageRef: flagString(args, "work-package"),
     dependsOn: flagList(args, "depends-on"),
     estimateUnits: flagUnits(args),
   })
@@ -554,13 +570,19 @@ function commandNew(args: Args): void {
   print(`${green("created")}  ${bold(task.ref)}  ${task.title}`)
   if (task.investigationRef)
     print(dim(`from investigation ${task.investigationRef}`))
-  if (task.groupRef) {
-    const group = requireGroup(task.groupRef)
-    print(dim(`group: ${group.name} (${group.ref})`))
+  if (task.workPackageRef) {
+    const workPackage = requireWorkPackage(task.workPackageRef)
+    print(dim(`work package: ${workPackage.name} (${workPackage.ref})`))
   }
   if (task.dependsOn.length)
     print(dim(`depends on ${task.dependsOn.join(", ")}`))
-  print(dim(`branch: '${task.branchName}'`))
+  print(
+    dim(
+      task.useGitWorkflow
+        ? `branch: '${task.branchName}'`
+        : "Git workflow: disabled (no task branch or work package merge)",
+    ),
+  )
   print(dim(`checkpoint name will be '${task.checkpointName}'`))
 }
 
@@ -568,7 +590,7 @@ function commandEdit(args: Args): void {
   const ref = args.positional[1]
   if (!ref) {
     throw new Error(
-      "Usage: tasks edit <ref> [--title x] [--desc x] [--priority x] [--tier <t>] [--tag x] [--units <n>]",
+      "Usage: tasks edit <ref> [--title x] [--desc x] [--priority x] [--tier <t>] [--tag x] [--units <n>] [--git | --no-git]",
     )
   }
 
@@ -610,11 +632,16 @@ function commandEdit(args: Args): void {
     priority: priority as Priority | undefined,
     recommendedTier:
       tierFlag === false ? null : (tier as ModelTier | undefined),
+    useGitWorkflow:
+      typeof args.flags.git === "boolean" ? args.flags.git : undefined,
     tags: flagList(args, "tag"),
     investigationRef:
       investigation === false ? null : flagString(args, "investigation"),
-    // `--no-group` takes it out of whatever group it is in.
-    groupRef: args.flags.group === false ? null : flagString(args, "group"),
+    // `--no-work package` takes it out of whatever work package it is in.
+    workPackageRef:
+      args.flags.workPackage === false
+        ? null
+        : flagString(args, "work-package"),
     dependsOn: depends === false ? [] : flagList(args, "depends-on"),
     estimateUnits: flagUnits(args),
   })
@@ -762,27 +789,31 @@ function commandDependency(args: Args): void {
   }
 }
 
-/* --------------------------------------------------------------- groups */
+/* --------------------------------------------------------------- work packages */
 
-const GROUP_USAGE =
-  "Usage: tasks group <list|show|new|edit|rm|add|clear|order|queue> [...]\n" +
-  '       tasks group new "Search rework" [--branch group/search-rework]\n' +
-  "       tasks group queue G-1                      what to work, in order\n" +
-  '       tasks group add "Search rework" T-4 T-5    put tasks in a group\n' +
-  "       tasks group clear T-4                      take a task out of one"
+const WORK_PACKAGE_USAGE =
+  "Usage: tasks work-package <list|show|new|edit|rm|add|clear|order|queue> [...]\n" +
+  '       tasks work-package new "Search rework" [--branch feature/search-rework]\n' +
+  "       tasks work-package queue WP-1                      what to work, in order\n" +
+  '       tasks work-package add "Search rework" T-4 T-5    put tasks in a work package\n' +
+  "       tasks work-package clear T-4                      take a task out of one"
 
-/** Groups are addressed by ref or by name everywhere in the CLI, because the
- *  name is what a human has to hand — `requireGroup` accepts either. */
-function groupList(args: Args): void {
-  const groups = listGroups()
+/** Work packages are addressed by ref or by name everywhere in the CLI, because the
+ *  name is what a human has to hand — `requireWork package` accepts either. */
+function workPackageList(args: Args): void {
+  const workPackages = listWorkPackages()
 
   if (flagBool(args, "json")) {
-    emitJson({ groups })
+    emitJson({ workPackages })
     return
   }
 
-  if (!groups.length) {
-    print(dim('No groups yet. Create one with `tasks group new "<name>"`.'))
+  if (!workPackages.length) {
+    print(
+      dim(
+        'No work packages yet. Create one with `tasks work-package new "<name>"`.',
+      ),
+    )
     print(
       dim(
         "Tasks filed by an investigation are grouped under it automatically.",
@@ -792,41 +823,53 @@ function groupList(args: Args): void {
   }
 
   print()
-  for (const group of groups) {
-    const from = group.investigationRef
-      ? dim(`  from ${group.investigationRef}`)
+  for (const workPackage of workPackages) {
+    const from = workPackage.investigationRef
+      ? dim(`  from ${workPackage.investigationRef}`)
       : ""
     print(
-      `  ${bold(group.ref.padEnd(5))} ${group.name.padEnd(32)} ${dim(
-        `${group.openCount} open / ${group.taskCount} task(s)`,
+      `  ${bold(workPackage.ref.padEnd(5))} ${workPackage.name.padEnd(32)} ${dim(
+        `${workPackage.openCount} open / ${workPackage.taskCount} task(s)`,
       )}${from}`,
     )
-    if (group.description) print(`        ${dim(group.description)}`)
-    print(`        ${dim(group.branchName)}`)
+    if (workPackage.description)
+      print(`        ${dim(workPackage.description)}`)
+    print(`        ${dim(workPackage.branchName)}`)
   }
   print()
-  print(dim("  Groups are listed in the order the task list draws them."))
+  print(
+    dim("  Work packages are listed in the order the task list draws them."),
+  )
   print()
 }
 
-function groupShow(args: Args): void {
+function workPackageShow(args: Args): void {
   const name = args.positional[2]
-  if (!name) throw new Error("Usage: tasks group show <ref|name>")
+  if (!name) throw new Error("Usage: tasks work-package show <ref|name>")
 
-  const group = requireGroup(name)
-  const tasks = listTasks({ groupRef: group.ref, includeClosed: true })
+  const workPackage = requireWorkPackage(name)
+  const tasks = listTasks({
+    workPackageRef: workPackage.ref,
+    includeClosed: true,
+  })
+  const notes = linkedNotes("work-package", workPackage.ref)
 
   if (flagBool(args, "json")) {
-    emitJson({ group, tasks })
+    emitJson({ workPackage: { ...workPackage, notes }, tasks })
     return
   }
 
   print()
-  print(`  ${bold(group.ref)}  ${group.name}`)
-  if (group.description) print(`  ${dim(group.description)}`)
-  print(`  ${dim(`branch: ${group.branchName}`)}`)
-  if (group.investigationRef) {
-    print(`  ${dim(`from investigation ${group.investigationRef}`)}`)
+  print(`  ${bold(workPackage.ref)}  ${workPackage.name}`)
+  if (workPackage.description) print(`  ${dim(workPackage.description)}`)
+  print(`  ${dim(`branch: ${workPackage.branchName}`)}`)
+  if (workPackage.investigationRef) {
+    print(`  ${dim(`from investigation ${workPackage.investigationRef}`)}`)
+  }
+  if (notes.length) {
+    print(`  ${dim("reference notes")}`)
+    for (const note of notes)
+      print(`    ${bold(note.title)}  ${dim(note.path)}`)
   }
   if (!tasks.length) {
     print(`  ${dim("nothing in it yet")}`)
@@ -841,37 +884,44 @@ function groupShow(args: Args): void {
 }
 
 /**
- * `tasks group queue <ref|name>` — the group's unfinished tasks in an order they
+ * `tasks work package queue <ref|name>` — the work package's unfinished tasks in an order they
  * can actually be worked.
  *
- * This is the order `/work-group` follows, and it lives here rather than in the
+ * This is the order `/work-package` follows, and it lives here rather than in the
  * command's prose so that the agent is reading a computed answer instead of
  * doing a topological sort in its head.
  */
-function groupQueue(args: Args): void {
+function workPackageQueue(args: Args): void {
   const name = args.positional[2]
-  if (!name) throw new Error("Usage: tasks group queue <ref|name> [--json]")
+  if (!name)
+    throw new Error("Usage: tasks work-package queue <ref|name> [--json]")
 
-  const group = requireGroup(name)
-  const members = listTasks({ groupRef: group.ref, includeClosed: true })
+  const workPackage = requireWorkPackage(name)
+  const members = listTasks({
+    workPackageRef: workPackage.ref,
+    includeClosed: true,
+  })
   const queue = dependencyOrder(
     members.filter(
       (task) => task.status === "backlog" || task.status === "in_progress",
     ),
   )
-  // Blockers are resolved against every task there is, not just the group's:
-  // a dependency on work outside the group is exactly the case worth knowing
-  // about, because working this group will never clear it.
+  // Blockers are resolved against every task there is, not just the work package's:
+  // a dependency on work outside the work package is exactly the case worth knowing
+  // about, because working this work package will never clear it.
   const universe = allTasks()
   const own = new Set(members.map((task) => task.ref.toLowerCase()))
 
   if (flagBool(args, "json")) {
     emitJson({
-      group,
+      workPackage: {
+        ...workPackage,
+        notes: linkedNotes("work-package", workPackage.ref),
+      },
       queue: queue.map((task) => ({
         ...task,
         blockedBy: blockers(task, universe).map((one) => one.ref),
-        // The ones this group cannot clear by itself.
+        // The ones this work package cannot clear by itself.
         blockedByOutside: blockers(task, universe)
           .filter((one) => !own.has(one.ref.toLowerCase()))
           .map((one) => one.ref),
@@ -881,7 +931,9 @@ function groupQueue(args: Args): void {
   }
 
   print()
-  print(`  ${bold(group.ref)}  ${group.name}  ${dim(group.branchName)}`)
+  print(
+    `  ${bold(workPackage.ref)}  ${workPackage.name}  ${dim(workPackage.branchName)}`,
+  )
   if (!queue.length) {
     print(
       `  ${dim("nothing left to work — everything here is dev complete or beyond")}`,
@@ -897,7 +949,7 @@ function groupQueue(args: Args): void {
       ? yellow(
           `  ⊘ waits for ${waiting.map((one) => one.ref).join(", ")}${
             outside.length
-              ? ` (${outside.map((one) => one.ref).join(", ")} outside this group)`
+              ? ` (${outside.map((one) => one.ref).join(", ")} outside this work package)`
               : ""
           }`,
         )
@@ -915,14 +967,14 @@ function groupQueue(args: Args): void {
   print()
 }
 
-function groupNew(args: Args): void {
+function workPackageNew(args: Args): void {
   const name = args.positional.slice(2).join(" ")
   if (!name)
     throw new Error(
-      'Usage: tasks group new "<name>" [--desc <text>] [--color #rrggbb]',
+      'Usage: tasks work-package new "<name>" [--desc <text>] [--color #rrggbb]',
     )
 
-  const group = createGroup({
+  const workPackage = createWorkPackage({
     name,
     description: flagString(args, "desc") ?? flagString(args, "description"),
     color: flagString(args, "color"),
@@ -931,28 +983,32 @@ function groupNew(args: Args): void {
   })
 
   if (flagBool(args, "json")) {
-    emitJson({ group })
+    emitJson({ workPackage })
     return
   }
   print(
-    `${green("created")}  ${bold(group.ref)}  ${group.name}  ${dim(group.color)}`,
+    `${green("created")}  ${bold(workPackage.ref)}  ${workPackage.name}  ${dim(workPackage.color)}`,
   )
   print(
     dim(
-      `branch: ${group.branchName} — created when the first task in it is branched.`,
+      `branch: ${workPackage.branchName} — created when the first task in it is branched.`,
     ),
   )
-  print(dim(`Put tasks in it with \`tasks group add ${group.ref} <ref>...\`.`))
+  print(
+    dim(
+      `Put tasks in it with \`tasks work-package add ${workPackage.ref} <ref>...\`.`,
+    ),
+  )
 }
 
-function groupEdit(args: Args): void {
+function workPackageEdit(args: Args): void {
   const name = args.positional[2]
   if (!name)
     throw new Error(
-      "Usage: tasks group edit <ref|name> [--name <n>] [--desc <t>] [--color #rrggbb]",
+      "Usage: tasks work-package edit <ref|name> [--name <n>] [--desc <t>] [--color #rrggbb]",
     )
 
-  const group = updateGroup(name, {
+  const workPackage = updateWorkPackage(name, {
     name: flagString(args, "name"),
     description: flagString(args, "desc") ?? flagString(args, "description"),
     color: flagString(args, "color"),
@@ -960,123 +1016,129 @@ function groupEdit(args: Args): void {
   })
 
   if (flagBool(args, "json")) {
-    emitJson({ group })
+    emitJson({ workPackage })
     return
   }
   print(
-    `${green("updated")}  ${bold(group.ref)}  ${group.name}  ${dim(group.branchName)}`,
+    `${green("updated")}  ${bold(workPackage.ref)}  ${workPackage.name}  ${dim(workPackage.branchName)}`,
   )
 }
 
-function groupRemove(args: Args): void {
+function workPackageRemove(args: Args): void {
   const name = args.positional[2]
-  if (!name) throw new Error("Usage: tasks group rm <ref|name>")
+  if (!name) throw new Error("Usage: tasks work-package rm <ref|name>")
 
-  const group = requireGroup(name)
-  const { released } = deleteGroup(group.ref)
+  const workPackage = requireWorkPackage(name)
+  const { released } = deleteWorkPackage(workPackage.ref)
 
   if (flagBool(args, "json")) {
-    emitJson({ deleted: group.ref, released })
+    emitJson({ deleted: workPackage.ref, released })
     return
   }
-  print(`${green("deleted")}  ${bold(group.ref)}  ${group.name}`)
+  print(`${green("deleted")}  ${bold(workPackage.ref)}  ${workPackage.name}`)
   print(
     dim(
       released.length
-        ? `${released.length} task(s) kept, now ungrouped: ${released.join(", ")}`
+        ? `${released.length} task(s) kept, now unassigned: ${released.join(", ")}`
         : "It was empty.",
     ),
   )
 }
 
-/** Put tasks into a group, or — with `remove` — take them out of whatever group
+/** Put tasks into a work package, or — with `remove` — take them out of whatever work package
  *  they are in. Applied one at a time so a bad ref in the middle says which. */
-function groupAssign(args: Args, remove: boolean): void {
+function workPackageAssign(args: Args, remove: boolean): void {
   const name = remove ? null : args.positional[2]
   const refs = args.positional.slice(remove ? 2 : 3)
-  if ((!remove && !name) || !refs.length) throw new Error(GROUP_USAGE)
+  if ((!remove && !name) || !refs.length) throw new Error(WORK_PACKAGE_USAGE)
 
-  const group = name ? requireGroup(name) : null
+  const workPackage = name ? requireWorkPackage(name) : null
   const moved: Task[] = []
-  for (const ref of refs) moved.push(setTaskGroup(ref, group?.ref ?? null))
+  for (const ref of refs)
+    moved.push(setWorkPackage(ref, workPackage?.ref ?? null))
 
   if (flagBool(args, "json")) {
-    emitJson({ group, tasks: moved.map((task) => getTaskDetail(task.ref)) })
+    emitJson({
+      workPackage,
+      tasks: moved.map((task) => getTaskDetail(task.ref)),
+    })
     return
   }
 
   const refList = moved.map((task) => task.ref).join(", ")
   print(
-    group
-      ? `${green("grouped")}  ${refList} → ${bold(group.name)} ${dim(group.ref)}`
-      : `${green("ungrouped")}  ${refList}`,
+    workPackage
+      ? `${green("grouped")}  ${refList} → ${bold(workPackage.name)} ${dim(workPackage.ref)}`
+      : `${green("unassigned")}  ${refList}`,
   )
-  if (group) {
+  if (workPackage) {
     // Said rather than assumed: assigning also moves the rows, and a queue that
     // rearranged itself without warning is the kind of surprise worth a line.
     print(
       dim(
-        "Each task was moved to sit with the rest of its group in the queue.",
+        "Each task was moved to sit with the rest of its work package in the queue.",
       ),
     )
   }
 }
 
-function groupOrder(args: Args): void {
+function workPackageOrder(args: Args): void {
   const refs = args.positional.slice(2)
   if (refs.length < 2)
-    throw new Error("Usage: tasks group order <ref|name> <ref|name>...")
+    throw new Error("Usage: tasks work-package order <ref|name> <ref|name>...")
 
-  const groups = reorderGroups(refs.map((ref) => requireGroup(ref).ref))
+  const workPackages = reorderWorkPackages(
+    refs.map((ref) => requireWorkPackage(ref).ref),
+  )
   if (flagBool(args, "json")) {
-    emitJson({ groups })
+    emitJson({ workPackages })
     return
   }
   print(`${green("reordered")}  ${refs.join(" → ")}`)
   print(
     dim(
-      "This settles the order of empty groups and ties. A group holding work is " +
+      "This settles the order of empty work packages and ties. A work package holding work is " +
         "drawn where its first task sits in the queue — move the tasks to move it.",
     ),
   )
 }
 
-function commandGroup(args: Args): void {
+function commandWorkPackage(args: Args): void {
   switch (args.positional[1]) {
     case "list":
     case "ls":
     case undefined:
-      return groupList(args)
+      return workPackageList(args)
     case "show":
     case "get":
-      return groupShow(args)
+      return workPackageShow(args)
     case "new":
     case "create":
-      return groupNew(args)
+      return workPackageNew(args)
     case "edit":
     case "update":
     case "rename":
-      return groupEdit(args)
+      return workPackageEdit(args)
     case "rm":
     case "delete":
-      return groupRemove(args)
+      return workPackageRemove(args)
     case "add":
     case "assign":
-      return groupAssign(args, false)
+      return workPackageAssign(args, false)
     case "clear":
     case "unassign":
-      return groupAssign(args, true)
+      return workPackageAssign(args, true)
     case "order":
     case "move":
-      return groupOrder(args)
+      return workPackageOrder(args)
     case "queue":
     case "next":
-      return groupQueue(args)
+      return workPackageQueue(args)
     default:
-      // `tasks group "Search rework"` is how anyone actually asks about one.
-      return groupShow({
+      // `tasks work package "Search rework"` is how anyone actually asks about one.
+      return workPackageShow({
         ...args,
-        positional: ["group", "show", args.positional[1]!],
+        positional: ["work-package", "show", args.positional[1]!],
       })
   }
 }
@@ -1172,6 +1234,14 @@ function investigationShow(args: Args): void {
     print()
     print(`  ${dim("findings")}`)
     for (const line of detail.findings.split("\n")) print(`  ${line}`)
+  }
+
+  if (detail.notes.length) {
+    print()
+    print(`  ${dim("reference notes")}`)
+    for (const note of detail.notes) {
+      print(`    ${bold(note.title)}  ${dim(note.path)}`)
+    }
   }
 
   print()
@@ -1450,6 +1520,7 @@ async function notesEdit(args: Args): Promise<void> {
     tags: flagList(args, "tag"),
     path: flagString(args, "rename"),
   })
+  renameNoteLinks(current.path, note.path)
 
   if (flagBool(args, "json")) {
     emitJson({ note })
@@ -1608,6 +1679,7 @@ function notesRemove(args: Args): void {
 
   const note = readNote(path)
   deleteNote(note.path, { keepAttachments: flagBool(args, "keep-attachments") })
+  detachDeletedNote(note.path)
   print(`${green("deleted")}  ${bold(note.path)}  ${note.title}`)
 }
 
@@ -1937,7 +2009,7 @@ function commandInit(args: Args): void {
   print()
   print(
     dim(
-      '  Edit the config, then create a group with: tasks group new "<name>"',
+      '  Edit the config, then create a work package with: tasks work-package new "<name>"',
     ),
   )
   print()
@@ -2275,6 +2347,7 @@ function currentBranch(): string | null {
 }
 
 function requireAssignedBranch(task: Task): void {
+  if (!task.useGitWorkflow) return
   if (!task.branchName)
     throw new Error(
       `${task.ref} has no assigned branch (legacy completed task).`,
@@ -2298,10 +2371,10 @@ const localBranchExists = (name: string): boolean =>
 /**
  * Where a task's branch should be cut from.
  *
- * A task in a group starts from that group's branch: the group's finished work
+ * A task in a work package starts from that work package's branch: the work package's finished work
  * has been merged there, so it is the one branch that has all of it, and
  * starting anywhere else would mean the eventual merge back carries a diff
- * against the wrong base. The group branch is created from the base branch the
+ * against the wrong base. The work package branch is created from the base branch the
  * first time a member needs it.
  *
  * Otherwise, a finished dependency's work is on *its* branch and nowhere else
@@ -2333,24 +2406,24 @@ function branchStartPoint(
     )
     .filter((dep) => localBranchExists(dep.branchName!))
 
-  const group = groupBranchOf(task)
-  if (group) {
-    const { branch } = ensureGroupBranch(group.group)
-    // A dependency outside the group is not on the group branch, and cutting
-    // from the group branch would quietly leave its work out.
+  const workPackage = workPackageBranchOf(task)
+  if (workPackage) {
+    const { branch } = ensureWorkPackageBranch(workPackage.workPackage)
+    // A dependency outside the work package is not on the work package branch, and cutting
+    // from the work package branch would quietly leave its work out.
     const absent = finished.filter(
       (dep) => !isAncestor(dep.branchName!, branch),
     )
     if (absent.length) {
       throw new Error(
-        `${task.ref} is in ${group.group.ref} (${group.group.name}), whose branch '${branch}' does not yet ` +
+        `${task.ref} is in ${workPackage.workPackage.ref} (${workPackage.workPackage.name}), whose branch '${branch}' does not yet ` +
           `contain the finished work of ${absent.map((one) => one.ref).join(", ")}. ` +
           `Merge that in first (tasks merge ${absent[0]!.ref}), or pass --from to choose a start point.`,
       )
     }
     return {
       start: branch,
-      reason: `${group.group.ref} (${group.group.name}) — the group's branch`,
+      reason: `${workPackage.workPackage.ref} (${workPackage.workPackage.name}) — the work package's branch`,
     }
   }
 
@@ -2393,6 +2466,10 @@ function commandBranch(args: Args): void {
   const ref = args.positional[1]
   if (!ref) throw new Error("Usage: tasks branch <ref> [--from <branch>]")
   const task = requireTask(ref)
+  if (!task.useGitWorkflow)
+    throw new Error(
+      `${task.ref} has its Git workflow disabled. Work from the current checkout; no task branch is needed.`,
+    )
   if (!task.branchName)
     throw new Error(
       `${task.ref} has no assigned branch (legacy completed task).`,
@@ -2439,26 +2516,29 @@ function commandBranch(args: Args): void {
 }
 
 /**
- * Merge a task into its group's branch and say what happened.
+ * Merge a task into its work package's branch and say what happened.
  *
  * Shared by `tasks done` (where it runs automatically) and `tasks merge` (where
  * it is the whole command). Returns the message a `--json` caller reports as
  * `mergeError`, or null when all was well — a merge conflict is a real outcome
  * of `done`, not a reason to pretend the status change failed.
  */
-function mergeIntoGroupBranch(ref: string, asJson: boolean): string | null {
-  let result: ReturnType<typeof mergeTaskIntoGroupBranch>
+function mergeIntoWorkPackageBranch(
+  ref: string,
+  asJson: boolean,
+): string | null {
+  let result: ReturnType<typeof mergeTaskIntoWorkPackageBranch>
   try {
-    result = mergeTaskIntoGroupBranch(ref)
+    result = mergeTaskIntoWorkPackageBranch(ref)
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
 
-  if (!result.group) {
+  if (!result.workPackage) {
     if (!asJson)
       print(
         dim(
-          `${ref} is in no group, so there is no group branch to merge into.`,
+          `${ref} is in no work package, so there is no work package branch to merge into.`,
         ),
       )
     return null
@@ -2475,10 +2555,10 @@ function mergeIntoGroupBranch(ref: string, asJson: boolean): string | null {
 
   if (asJson) return null
   if (result.createdBranch)
-    print(dim(`created '${result.branch}' for ${result.group.ref}.`))
+    print(dim(`created '${result.branch}' for ${result.workPackage.ref}.`))
   print(
     `${green(result.alreadyMerged ? "already on" : "merged into")}  ${result.branch}  ${dim(
-      `${result.group.ref} · ${result.group.name}`,
+      `${result.workPackage.ref} · ${result.workPackage.name}`,
     )}`,
   )
   if (result.returnedTo && result.returnedTo !== result.branch) {
@@ -2487,15 +2567,19 @@ function mergeIntoGroupBranch(ref: string, asJson: boolean): string | null {
   return null
 }
 
-/** `tasks merge <ref>` — do the group-branch merge on its own. Useful after
+/** `tasks merge <ref>` — do the work package-branch merge on its own. Useful after
  *  resolving a conflict by hand, and after a `tasks done --no-merge`. */
 function commandMerge(args: Args): void {
   const ref = args.positional[1]
   if (!ref) throw new Error("Usage: tasks merge <ref>")
 
   const task = requireTask(ref)
+  if (!task.useGitWorkflow)
+    throw new Error(
+      `${task.ref} has its Git workflow disabled, so it has no branch to merge.`,
+    )
   const asJson = flagBool(args, "json")
-  const mergeError = mergeIntoGroupBranch(task.ref, asJson)
+  const mergeError = mergeIntoWorkPackageBranch(task.ref, asJson)
 
   if (asJson) {
     emitJson({ task: getTaskDetail(task.ref), mergeError })
@@ -2547,11 +2631,13 @@ async function commandTransition(args: Args, status: Status): Promise<void> {
   }
 
   // Dev complete is the point at which the work is ready to join the rest of
-  // its group's, so it is merged into the group's branch and registered there.
+  // its work package's, so it is merged into the work package's branch and registered there.
   // `--no-merge` is the escape hatch for reviewing it first.
   const mergeError =
-    status === "dev_complete" && flagBool(args, "merge", true)
-      ? mergeIntoGroupBranch(updated.ref, asJson)
+    status === "dev_complete" &&
+    updated.useGitWorkflow &&
+    flagBool(args, "merge", true)
+      ? mergeIntoWorkPackageBranch(updated.ref, asJson)
       : null
 
   if (asJson) {
@@ -2574,12 +2660,11 @@ function requireDevDependencies(what: string): void {
 async function commandWeb(args: Args): Promise<void> {
   const ws = workspace()
   const dev = flagBool(args, "dev")
-  const newUi = flagBool(args, "new")
   const apiPort =
     flagString(args, "port") ??
     process.env.TASKS_API_PORT ??
     String(ws.config.apiPort)
-  const distDir = join(packageRoot, "dist", newUi ? "web-new" : "web")
+  const distDir = join(packageRoot, "dist", "web")
 
   // Both children run with the PACKAGE as their cwd, because that is where
   // their dependencies live — which means they cannot find the workspace by
@@ -2595,11 +2680,7 @@ async function commandWeb(args: Args): Promise<void> {
 
   if (dev) {
     requireDevDependencies("tasks web --dev")
-    print(
-      dim(
-        `Starting the API and the ${newUi ? "Solid" : "Vue"} Vite dev server...`,
-      ),
-    )
+    print(dim("Starting the API and the Solid Vite dev server..."))
     const api = Bun.spawn(["bun", "run", serverPath], {
       cwd: packageRoot,
       env,
@@ -2607,7 +2688,6 @@ async function commandWeb(args: Args): Promise<void> {
       stderr: "inherit",
     })
     const viteArgs = ["bunx", "vite"]
-    if (newUi) viteArgs.push("--config", "vite.new.config.ts")
     const web = Bun.spawn(viteArgs, {
       cwd: packageRoot,
       env,
@@ -2631,7 +2711,6 @@ async function commandWeb(args: Args): Promise<void> {
     requireDevDependencies("Building the web UI")
     print(dim("No build found; building the web UI first..."))
     const buildArgs = ["bunx", "vite", "build"]
-    if (newUi) buildArgs.push("--config", "vite.new.config.ts")
     const build = Bun.spawn(buildArgs, {
       cwd: packageRoot,
       stdout: "inherit",
@@ -2679,47 +2758,48 @@ ${bold("Investigations")}   what to look into, before anyone looks
   Run one with the ${bold("/plan-tasks")} slash command; it files tasks against the ref.
 
 ${bold("Tasks")}
-  tasks list [--status <s>] [--tag <t>] [--investigation <ref>] [--group <g>|none]
+  tasks list [--status <s>] [--tag <t>] [--investigation <ref>] [--work-package <g>|none]
              [--flat] [--json]
   tasks show <ref> [--json]
-  tasks new "<title>" [--branch <name>] [--desc <text>] [--priority low|medium|high]
+  tasks new "<title>" [--branch <name> | --no-git] [--desc <text>] [--priority low|medium|high]
                       [--tier fast|standard|frontier] [--tag <t>]
-                      (--investigation <ref> | --group <g>) [--depends-on <ref>]
+                      (--investigation <ref> | --work-package <g>) [--depends-on <ref>]
   tasks edit <ref> [--title <t>] [--desc <t>] [--priority <p>] [--status <s>] [--tag <t>]
                    [--tier fast|standard|frontier | --no-tier]
                    [--investigation <ref> | --no-investigation]
-                   [--group <g>]
-                   [--depends-on <ref> | --no-depends-on]
+                   [--work-package <g>]
+                   [--depends-on <ref> | --no-depends-on] [--git | --no-git]
   tasks note <ref> <text>
   tasks rm <ref>
-    The list is drawn in sections by group; --flat prints the bare queue.
+    The list is drawn in sections by work package; --flat prints the bare queue.
 
-${bold("Groups")}   a named bundle of tasks — a feature, a release, an investigation
-  tasks group list [--json]
-  tasks group show <ref|name> [--json]      the group and everything in it
-    tasks group "Search rework"             shorthand for show
-  tasks group new "<name>" [--desc <t>] [--color #rrggbb] [--branch <name>]
-  tasks group edit <ref|name> [--name <n>] [--desc <t>] [--color #rrggbb] [--branch <name>]
-  tasks group queue <ref|name> [--json]     what is left, in dependency order
-  tasks group add <ref|name> <task-ref>...  put tasks in it
-  tasks group rm <ref|name>                 delete an empty group
-  tasks group order <ref|name>...           the order of the empty ones
-    Every task belongs to one group; tags stay what they are. Adding a task to a
-    group also moves it beside the rest of that group in the queue, so the
+${bold("Work packages")}   a named bundle of tasks — a feature, a release, an investigation
+  tasks work-package list [--json]
+  tasks work-package show <ref|name> [--json]      the work package and everything in it
+    tasks work-package "Search rework"             shorthand for show
+  tasks work-package new "<name>" [--desc <t>] [--color #rrggbb] [--branch <name>]
+  tasks work-package edit <ref|name> [--name <n>] [--desc <t>] [--color #rrggbb] [--branch <name>]
+  tasks work-package queue <ref|name> [--json]     what is left, in dependency order
+  tasks work-package add <ref|name> <task-ref>...  put tasks in it
+  tasks work-package rm <ref|name>                 delete an empty work package
+  tasks work-package order <ref|name>...           the order of the empty ones
+    Every task belongs to one work package; tags stay what they are. Adding a task to a
+    work package also moves it beside the rest of that work package in the queue, so the
     grouped list reads in the same order as the flat one.
     Tasks filed with --investigation are grouped under that investigation
     automatically, so a run of ${bold("/plan-tasks")} arrives as one bundle.
-    Every group has a ${bold("branch")}, defaulted from its name. Its tasks are cut from
-    that branch and merged back into it, so the group ships as one PR. The
-    branch is created the first time a member needs it, not at group new.
-    Colours: ${GROUP_COLORS.join(" ")}
+    Every work package has a ${bold("branch")}, defaulted from its name. Its tasks are cut from
+    that branch and merged back into it, so the work package ships as one PR. The
+    branch is created the first time a member needs it, not at work package new.
+    Colours: ${WORK_PACKAGE_COLORS.join(" ")}
 
 ${bold("Dependencies")}   "this task waits for that one"
   tasks dep add <ref> <blocker-ref>...   the task waits for each blocker
   tasks dep rm <ref> <blocker-ref>...
   tasks dep list [<ref>] [--json]        the graph, or one task's corner of it
     tasks dep T-4                        shorthand for list
-    A blocker counts as met at Dev Complete: the work is on its branch by then.
+    A blocker counts as met at Dev Complete: its work is finished by then (on
+    its branch when it uses Git, or in its local files when it does not).
     Blocked tasks are marked ⊘ in the list, never hidden or reordered — the
     queue stays yours. Circular dependencies are refused when they are added.
 
@@ -2732,12 +2812,13 @@ ${bold("List order")}   the list is the queue; ${bold("/work-task")} takes the t
 ${bold("Workflow")}   backlog → in_progress → dev_complete → verified
   tasks branch <ref>             create/switch to the task's assigned branch
     --from <branch>              cut it from this branch instead
-    A new branch is cut from its group's branch — or, ungrouped, from the base
+    A new branch is cut from its work package's branch — or, unassigned, from the base
     branch, or from the branch of the task this one depends on when that task is
     finished and its work is only there.
-  tasks start <ref>              move to in_progress (requires assigned branch)
+  tasks start <ref>              move to in_progress (requires its branch only
+                                 when the task uses the Git workflow)
   tasks done <ref>               capture the after-checkpoint, move to dev_complete,
-                                 merge into the group's branch and register it there
+                                 and, for Git tasks, merge into the work package's branch
                                  (--no-checkpoint / --no-merge to skip either)
   tasks merge <ref>              do that merge on its own — after --no-merge, or
                                  after resolving a conflict by hand
@@ -2745,9 +2826,10 @@ ${bold("Workflow")}   backlog → in_progress → dev_complete → verified
   tasks reopen <ref>             back to in_progress
 
 ${bold("Checks")}   the repo's own typecheck/lint/test commands, from \`checks\` in the config
-  tasks checks [<branch>] [--base <b>] [--json]
+  tasks checks [<branch>] [--base <b>] [--check <name>] [--json]
     Runs every configured command whose paths this branch touches, and stores
     the result — a green run is what unblocks the PR button in ${bold("tasks web")}.
+    --check reruns only the named check and retains results for the same commit.
     Exits non-zero when anything fails. Defaults to the current branch.
 
 ${bold("Baselines")} (wraps aio-vr)   how the app looks against the last approved state
@@ -2797,9 +2879,8 @@ ${bold("Issues")}   read from the issue JSON files in the notes folder; never fe
     --raw                        the provider's own JSON, unflattened
 
 ${bold("Web UI")}
-  tasks web [--port <n>]         serve the current Vue UI
-  tasks web --new                serve the Solid 2.0 proof of concept
-  tasks web [--new] --dev        hot-reloading dev server (needs a checkout)
+  tasks web [--port <n>]         serve the Solid web UI
+  tasks web --dev                hot-reloading dev server (needs a checkout)
 
 ${bold("Global")}
   --json                         machine-readable output (for agents)
@@ -2840,6 +2921,13 @@ async function commandChecks(args: Args): Promise<void> {
     flagString(args, "base") ??
     findCombinedBranch(branch)?.baseBranch ??
     defaultBaseBranch()
+  const check = flagString(args, "check")
+  if (check && !definitions.some((definition) => definition.name === check)) {
+    throw new Error(
+      `Unknown check '${check}'. Configured checks: ${definitions.map((definition) => definition.name).join(", ")}.`,
+    )
+  }
+  const stored = findCombinedBranch(branch)
 
   if (!flagBool(args, "json")) {
     print()
@@ -2850,6 +2938,8 @@ async function commandChecks(args: Args): Promise<void> {
   const report = await runChecks({
     branch,
     base,
+    check,
+    previous: stored?.checks,
     // The CLI is the one caller that can afford to say what it is doing as it
     // goes; a long suite with no output looks hung.
     onProgress: flagBool(args, "json")
@@ -2859,8 +2949,7 @@ async function commandChecks(args: Args): Promise<void> {
 
   // Only a registered delivery branch has somewhere to store the result; an
   // ad-hoc branch still gets checked, it just does not gate anything.
-  if (findCombinedBranch(branch))
-    updateCombinedBranch(branch, { checks: report })
+  if (stored) updateCombinedBranch(branch, { checks: report })
 
   if (flagBool(args, "json")) {
     emitJson(report)
@@ -2898,8 +2987,12 @@ async function commandChecks(args: Args): Promise<void> {
   if (report.passed) {
     print(`  ${green("all checks passed")} — the pull request is unblocked.`)
   } else {
+    const completed = new Set(report.checks.map((item) => item.name))
+    const missing = definitions.filter((item) => !completed.has(item.name))
     print(
-      `  ${red("checks failed")} — fix them, or open the pull request with --force in the UI.`,
+      missing.length
+        ? `  ${red("checks incomplete")} — still run: ${missing.map((item) => item.name).join(", ")}.`
+        : `  ${red("checks failed")} — fix them, or open the pull request with --force in the UI.`,
     )
     process.exitCode = 1
   }
@@ -2910,6 +3003,12 @@ async function commandChecks(args: Args): Promise<void> {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
+  // Keep existing scripts and saved agent instructions usable after the rename.
+  if (
+    args.flags.group !== undefined &&
+    args.flags["work-package"] === undefined
+  )
+    args.flags["work-package"] = args.flags.group
   const command = args.positional[0] ?? "help"
 
   switch (command) {
@@ -2937,9 +3036,11 @@ async function main(): Promise<void> {
     case "deps":
     case "depends":
       return commandDependency(args)
+    case "work-package":
+    case "work-packages":
     case "group":
     case "groups":
-      return commandGroup(args)
+      return commandWorkPackage(args)
     case "investigation":
     case "investigations":
     case "inv":

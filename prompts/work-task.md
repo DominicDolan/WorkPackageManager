@@ -26,9 +26,10 @@ If that returns **any** task, work stops here — with one exception.
   Then stop and wait. Only work a different task if the user, having been told,
   says to anyway.
 
-One in-progress task at a time is the whole point: each task owns a branch and a
-visual checkpoint, and two of them in flight means the "before" evidence of one
-has the other's half-finished changes baked into it.
+One in-progress task at a time keeps visual checkpoints attributable: two tasks
+in flight can give one task a "before" state containing the other's half-finished
+changes. Most tasks also own a branch, but tasks with `useGitWorkflow: false` do
+not.
 
 ## 1. Pick the task
 
@@ -53,6 +54,14 @@ agent's judgement of how much capability this task needs — worth a glance if t
 model you are running as is a noticeably different tier, but not a reason to
 stop.
 
+Read `useGitWorkflow` from the task JSON. It decides every Git-specific step in
+this procedure:
+
+- `true` — use the task branch, clean-tree checks, commits, and work package merge.
+- `false` — work in the current checkout. Do not fetch, create or switch branches,
+  commit, merge, or require a clean working tree for this task. This mode is for
+  work in ignored/local files. Visual checkpoints and task status still apply.
+
 ## 1a. Check what the task is waiting for
 
 Tasks can depend on other tasks: "T-4 cannot be done until T-2 is". The
@@ -64,7 +73,8 @@ tasks dep <ref>
 ```
 
 A blocker counts as **met** once it reaches `dev_complete`, `verified` or
-`closed`: by then its work exists on its branch, which is what this task needs.
+`closed`: by then its work is complete. For Git-workflow tasks that work exists
+on their branch; for no-Git tasks it may live only in ignored/local files.
 Anything still `backlog` or `in_progress` is **unmet**.
 
 **If any dependency is unmet, stop here.** Do not branch, do not capture, do not
@@ -106,10 +116,18 @@ docker compose -f Infrastructure/Local/docker/docker-compose.fullstack.yml --pro
 Do not silently skip the checkpoint steps — the visual evidence is the point of
 this workflow.
 
-Also check the working tree is clean (`git status --short`). If it is dirty, ask
-the user what to do rather than sweeping their changes onto a new branch.
+If `useGitWorkflow` is true, also check the working tree is clean
+(`git status --short`). If it is dirty, ask the user what to do rather than
+sweeping their changes onto a new branch. Skip this Git precondition when
+`useGitWorkflow` is false.
 
-## 3. Branch — from the group, from master, or from the dependency
+## 3. Use Git only when this task asks for it
+
+If `useGitWorkflow` is false, skip this entire step. Stay on the current checkout
+and do not run Git commands on the task's behalf.
+
+If `useGitWorkflow` is true, branch from the work package, from master, or from the
+dependency:
 
 ```bash
 git fetch origin
@@ -125,24 +143,24 @@ will only have to delete it and re-branch.
 reports which start point it used; **read that line and repeat it in your final
 report.**
 
-- **the task is in a group** → the **group's branch**. A group owns a branch, and
+- **the task is in a work package** → the **work package's branch**. A work package owns a branch, and
   everything its finished tasks have delivered has been merged there — so it is
   the only start point that has all of it. The branch is created from the base
-  the first time a task in the group needs it.
-- no group, no finished dependencies → the base branch
-- no group, one finished dependency → that task's branch. A finished
+  the first time a task in the work package needs it.
+- no work package, no finished dependencies → the base branch
+- no work package, one finished dependency → that task's branch. A finished
   dependency's work is on _its_ branch and has not been merged anywhere yet, so
   a task that depends on it is cut from that branch — otherwise you would be
   writing against code that is not there.
-- no group, several finished dependencies → `tasks branch` refuses, because one
+- no work package, several finished dependencies → `tasks branch` refuses, because one
   branch cannot be cut from two. Stop and ask the user: the usual answer is to
   combine those tasks into one delivery branch in `tasks web` and then
   `tasks branch <ref> --from <that-branch>`. Do not pick one yourself.
-- a group whose branch is missing a finished dependency's work → `tasks branch`
+- a work package whose branch is missing a finished dependency's work → `tasks branch`
   refuses and names it. Merge it first (`tasks merge <blocker-ref>`) or pass
   `--from`. Ask rather than choosing.
 
-When you are branching off a group branch or a dependency, the baseline you
+When you are branching off a work package branch or a dependency, the baseline you
 capture in step 5 includes that other work's changes. That is correct — the diff
 you are about to produce should show _your_ change and not the one you built on
 top of.
@@ -163,14 +181,14 @@ you would do here. Two things break it:
   merge settled — a commit that edits a file the base has since deleted
   conflicts, even though merging the same branch is clean.
 
-So: **never create a merge commit on a task or group branch.** When you need
+So: **never create a merge commit on a task or work package branch.** When you need
 work from somewhere else, replay onto it instead —
 
 ```bash
 git rebase <that-branch> <your-branch>
 ```
 
-`tasks done` already does exactly this for the task → group step (it rebases,
+`tasks done` already does exactly this for the task → work package step (it rebases,
 then fast-forwards). The gap is everything it does not do for you, and the one
 that comes up is a task whose _job_ is to bring the base branch in. Rebase there
 too; do not `git merge master`, however natural it looks. If the branch has
@@ -244,6 +262,9 @@ scenarios were captured, and which of them you wrote or changed for this task.
 Do the actual work described by the task. Read `tasks show <ref> --json` for the
 description and any notes.
 
+If its `notes` array contains reference notes, read each one with
+`tasks notes show <path> --raw` before editing.
+
 If the task carries `attachments` — screenshots or other files someone attached
 when filing or editing it — each entry's `absolutePath` is a real file on disk.
 Read the images relevant to the change before starting; they often show the bug
@@ -309,10 +330,13 @@ A visible change with no scenario showing it is not finished. Do not report it
 as "no visual difference" and move on — go back and cover it.
 
 Because the change is already written, the starting state has to be recaptured
-from the commit the task began at, which is what `--retro` is for:
+from the commit the task began at, which is what `--retro` is for. For a
+Git-workflow task, commit tracked changes first. For a no-Git task, do not
+commit: its ignored/local changes remain in place while `--retro` visits the
+unchanged repository commit.
 
 ```bash
-# 1. Commit what you have — a retro capture refuses to run on a dirty tree.
+# 1. Git-workflow tasks only: commit tracked work because retro refuses a dirty tree.
 git add -A && git commit -m "<message>"
 
 # 2. Write the missing scenario, or extend the one that stops short.
@@ -347,13 +371,19 @@ tasks checkpoint before <ref> --retro --scenario constraints.edit-dialog \
   --scenario constraints.detail --settle 10
 ```
 
-You committed in step 1 above, so step 8 has nothing left to stage — go straight
-to its straight-line check.
+If this is a Git-workflow task, you committed in step 1 above, so step 8 has
+nothing left to stage — go straight to its straight-line check. For a no-Git
+task, continue to skip step 8.
 
 Say in your final report that the before state was recaptured retroactively, and
 which scenarios you added or changed.
 
-## 8. Commit on the branch
+## 8. Commit only for a Git-workflow task
+
+If `useGitWorkflow` is false, skip this entire step. The task is expected to
+change ignored/local files and those changes must not be forced into Git.
+
+If `useGitWorkflow` is true:
 
 ```bash
 git add -A
@@ -378,19 +408,19 @@ and read "Keep the branch a straight line" in step 3.
 tasks done <ref>
 ```
 
-This captures a final `after` checkpoint, moves the task to `dev_complete`, and —
-**if the task is in a group** — merges its branch into the group's branch and
-registers it there, returning you to the task's branch. All in one step. If you
-just ran step 7 and do not want to re-drive the browser, use
+This captures a final `after` checkpoint and moves the task to `dev_complete`.
+For a Git-workflow task in a work package it also merges the task branch into the
+work package's branch and returns to the task branch. A no-Git task performs no merge.
+If you just ran step 7 and do not want to re-drive the browser, use
 `tasks done <ref> --no-checkpoint`.
 
 Read the output. Two things can go wrong independently of the status change,
 which happens either way:
 
 - **the capture failed** — reported as `captureError` with `--json`. Say so.
-- **the task's commits do not replay onto the group branch** — reported as
-  `mergeError`. Its commits are rebased onto the group branch and fast-forwarded
-  in, so the group branch stays a straight list rather than a chain of merges,
+- **the task's commits do not replay onto the work package branch** — reported as
+  `mergeError`. Its commits are rebased onto the work package branch and fast-forwarded
+  in, so the work package branch stays a straight list rather than a chain of merges,
   and a collision with work already there stops that. **Nothing is left
   half-done**: the rebase is aborted, both branches are as they were, and you are
   back on the branch you started on. **Stop and hand it back.** Do not resolve a
@@ -402,7 +432,7 @@ which happens either way:
   would need a force-push afterwards. Report that and stop.
 
 `tasks done <ref> --no-merge` skips the merge if the user has asked you to leave
-the group branch alone.
+the work package branch alone.
 
 Leave the task at `dev_complete`. **Do not run `tasks verify`** — that is the
 user signing off after looking at the before/after themselves.
@@ -415,10 +445,9 @@ not leave it hanging there.
 Tell the user:
 
 - which task you worked and what you changed
-- the branch name, **and what it was cut from** — say so explicitly when it was
-  a group branch or a dependency's branch rather than the base, because that
-  branch cannot be merged before the one it sits on
-- whether it was merged into a group branch, and which one
+- for a Git-workflow task: the branch name, **what it was cut from**, and whether
+  it was merged into a work package branch
+- for a no-Git task: say that the Git workflow was intentionally skipped
 - the per-scenario checkpoint result (`unchanged` / `changed` + percentage)
 - which scenarios you wrote or extended for this task, and whether the before
   state had to be recaptured with `--retro`; or, if the task changed nothing
