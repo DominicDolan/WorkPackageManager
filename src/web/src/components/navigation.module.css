@@ -1,7 +1,4 @@
 :global(.back-link) {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
     border: 0;
     background: transparent;
     color: var(--steel);

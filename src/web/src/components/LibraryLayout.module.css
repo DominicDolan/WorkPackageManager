@@ -1,65 +1,32 @@
 :global(.empty-copy) {
-    margin: 0.5rem 0 0;
     color: var(--color-slate-400);
     font-size: 0.7rem;
     line-height: 1.45;
 }
-:global(.library-surface) {
-    min-width: 0;
-    padding: 2.2rem clamp(1.3rem, 3.5vw, 4.5rem) 4rem;
-}
 :global(.library-header) {
-    display: flex;
-    max-width: 1500px;
-    align-items: start;
-    justify-content: space-between;
-    gap: 2rem;
-    margin: 0 auto 1.5rem;
-    padding: 1.5rem clamp(1.25rem, 3vw, 3rem) 1.7rem;
     border-top: 5px solid var(--cobalt);
     background: var(--paper);
 }
 :global(.library-header) h1 {
-    margin: 0.45rem 0 0;
     font-size: clamp(2.1rem, 4vw, 3.6rem);
     font-weight: 470;
     line-height: 1;
     letter-spacing: -0.055em;
 }
 :global(.library-header) p:last-child {
-    max-width: 62ch;
-    margin: 0.8rem 0 0;
     color: var(--steel);
     font-size: 0.9rem;
     line-height: 1.6;
 }
-:global(.library-header-actions) {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.5rem;
-}
 :global(.library-layout) {
-    display: grid;
-    grid-template-columns: minmax(260px, 310px) minmax(0, 1fr);
-    max-width: 1500px;
-    min-height: 620px;
-    margin: 0 auto;
     border: 1px solid var(--line);
     background: var(--paper);
 }
 :global(.library-list) {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
     border-right: 1px solid var(--line);
     background: #131923;
 }
 :global(.library-search) {
-    display: grid;
-    gap: 0.45rem;
-    padding: 1rem;
     border-bottom: 1px solid var(--line);
     color: var(--steel);
     font-size: 0.72rem;
@@ -70,61 +37,38 @@
     border: 1px solid var(--line-strong);
     border-radius: 0.3rem;
     background: var(--paper);
-    padding: 0.58rem 0.65rem;
     color: var(--graphite);
     font-size: 0.8rem;
 }
 :global(.library-filters) {
-    display: grid;
-    gap: 0.5rem;
-    padding: 0.75rem 1rem;
     border-bottom: 1px solid var(--line);
 }
 
 :global(.note-detail-pane) {
-    min-width: 0;
     background: var(--workbench);
 }
 :global(.library-empty) {
-    max-width: 48ch;
-    margin: 6rem auto;
-    padding: 0 2rem;
     color: var(--steel);
     text-align: center;
 }
 :global(.library-empty) h2 {
-    margin: 0;
     color: var(--graphite);
     font-size: 1.25rem;
     font-weight: 600;
 }
 :global(.library-empty) p {
-    margin: 0.75rem 0 0;
     font-size: 0.88rem;
     line-height: 1.6;
 }
-:global(.editor-panel),
-:global(.note-editor),
-:global(.issue-detail-pane) {
-    max-width: 980px;
-    padding: clamp(1.25rem, 3vw, 3rem);
-}
 :global(.editor-panel) {
-    margin: 2rem;
     border: 1px solid var(--line);
     background: var(--paper);
 }
 :global(.editor-panel) h2 {
-    margin: 0 0 1.25rem;
     font-size: 1.25rem;
 }
 :global(.note-editor) header,
 :global(.issue-detail-pane) header {
-    display: flex;
-    align-items: start;
-    justify-content: space-between;
-    gap: 1rem;
-    padding-bottom: 1.25rem;
     border-bottom: 1px solid var(--line);
 }
 :global(.note-path),
@@ -135,8 +79,6 @@
 }
 :global(.note-editor) h2,
 :global(.issue-detail-pane) h2 {
-    max-width: 25ch;
-    margin: 0.4rem 0 0;
     font-size: clamp(1.55rem, 2.4vw, 2.4rem);
     font-weight: 480;
     line-height: 1.08;
@@ -144,13 +86,6 @@
 }
 
 @media (max-width: 820px) {
-    :global(.library-surface) {
-        padding: 1.25rem;
-        overflow: hidden;
-    }
-    :global(.library-layout) {
-        grid-template-columns: 1fr;
-    }
     :global(.library-list) {
         border-right: 0;
         border-bottom: 1px solid var(--line);
@@ -158,14 +93,6 @@
 }
 
 @media (max-width: 560px) {
-    :global(.library-header) {
-        display: block;
-        padding: 1.25rem;
-    }
-    :global(.library-header-actions) {
-        margin-top: 1.25rem;
-        justify-content: flex-start;
-    }
     :global(.library-header) h1 {
         font-size: 2.25rem;
     }

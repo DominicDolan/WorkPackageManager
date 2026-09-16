@@ -22,7 +22,10 @@ export function Modal(props: {
                     <h2 class="text-xl font-semibold tracking-tight">
                         {props.title}
                     </h2>
-                    <button class="button" onClick={props.close}>
+                    <button
+                        class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                        onClick={props.close}
+                    >
                         Close
                     </button>
                 </header>

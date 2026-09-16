@@ -1,5 +1,4 @@
 :global(.modal-intro) {
-    margin: 0;
     color: var(--steel);
     font-size: 0.84rem;
     line-height: 1.6;
@@ -18,32 +17,17 @@
     font-family: var(--font-mono);
 }
 .branchPicker {
-    position: relative;
 }
 .branchMenu {
-    position: absolute;
-    z-index: 10;
-    top: calc(100% + 0.3rem);
-    left: 0;
-    right: 0;
-    max-height: 15rem;
-    overflow-y: auto;
     border: 1px solid var(--line-strong);
     border-radius: 0.35rem;
     background: var(--paper);
     box-shadow: 0 14px 34px rgb(0 0 0 / 0.32);
-    padding: 0.3rem;
 }
 .branchOption {
-    display: flex;
-    width: 100%;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
     border: 0;
     border-radius: 0.25rem;
     background: transparent;
-    padding: 0.62rem 0.65rem;
     color: var(--graphite);
     text-align: left;
 }
@@ -52,7 +36,6 @@
     background: var(--color-blue-50);
 }
 .branchOption code {
-    overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -60,22 +43,15 @@
     color: var(--steel);
 }
 .branchBadges {
-    display: flex;
-    flex: none;
-    align-items: center;
-    gap: 0.45rem;
     color: var(--steel);
 }
 .currentBadge {
     border: 1px solid var(--color-blue-200);
     border-radius: 999px;
     background: var(--color-blue-50);
-    padding: 0.12rem 0.42rem;
     color: var(--cobalt-dark);
 }
 .noBranches {
-    margin: 0;
-    padding: 0.75rem;
     color: var(--steel);
     font-size: 0.78rem;
 }

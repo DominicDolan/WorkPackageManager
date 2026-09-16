@@ -82,16 +82,16 @@ export function IssuesWorkspace(props: {
     }
     return (
         <main
-            class={`${layoutStyles.scope} ${styles.scope} app-shell min-h-screen text-slate-950`}
+            class={`${layoutStyles.scope} ${styles.scope} app-shell min-h-screen text-slate-950 grid grid-cols-[220px_minmax(0,_1fr)] max-[820px]:block`}
         >
             <ProductRail active="issues" select={props.select} />
             <Loading fallback={<PageSkeleton />}>
                 <Show when={listing()} keyed>
                     {(data) => (
-                        <section class="library-surface">
-                            <header class="library-header">
+                        <section class="library-surface min-w-0 p-[2.2rem_clamp(1.3rem,_3.5vw,_4.5rem)_4rem] max-[820px]:p-[1.25rem] max-[820px]:overflow-hidden">
+                            <header class="library-header flex max-w-[1500px] items-start justify-between gap-[2rem] m-[0_auto_1.5rem] p-[1.5rem_clamp(1.25rem,_3vw,_3rem)_1.7rem] [&_h1]:m-[0.45rem_0_0] [&_p:last-child]:max-w-[62ch] [&_p:last-child]:m-[0.8rem_0_0] max-[560px]:block max-[560px]:p-[1.25rem]">
                                 <div>
-                                    <p class="eyebrow">Imported context</p>
+                                    <p class="eyebrow m-0">Imported context</p>
                                     <h1>Issues</h1>
                                     <p>
                                         Review provider records from the notes
@@ -99,7 +99,7 @@ export function IssuesWorkspace(props: {
                                         the tracker.
                                     </p>
                                 </div>
-                                <div class="library-header-actions">
+                                <div class="library-header-actions flex flex-wrap items-center justify-end gap-[0.5rem] max-[560px]:mt-[1.25rem] max-[560px]:justify-start">
                                     <Show
                                         when={
                                             data.notes.exists &&
@@ -107,14 +107,14 @@ export function IssuesWorkspace(props: {
                                         }
                                     >
                                         <button
-                                            class="button"
+                                            class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                             disabled={busy()}
                                             onClick={sync}
                                         >
                                             {busy() ? "Syncing…" : "Sync"}
                                         </button>
                                         <button
-                                            class="button"
+                                            class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                             disabled={
                                                 busy() ||
                                                 !data.notes.git.upstream
@@ -131,11 +131,13 @@ export function IssuesWorkspace(props: {
                                 </div>
                             </header>
                             <Show when={error()}>
-                                <p class="banner mb-5">{error()}</p>
+                                <p class="banner mb-5 p-[0.8rem_1rem]">
+                                    {error()}
+                                </p>
                             </Show>
-                            <div class="library-layout">
-                                <aside class="library-list">
-                                    <label class="library-search">
+                            <div class="library-layout grid grid-cols-[minmax(260px,_310px)_minmax(0,_1fr)] max-w-[1500px] min-h-[620px] m-[0_auto] max-[820px]:grid-cols-[1fr]">
+                                <aside class="library-list flex min-w-0 flex-col">
+                                    <label class="library-search grid gap-[0.45rem] p-[1rem] [&_input]:p-[0.58rem_0.65rem]">
                                         <span>Find an issue</span>
                                         <input
                                             value={query()}
@@ -148,7 +150,7 @@ export function IssuesWorkspace(props: {
                                             type="search"
                                         />
                                     </label>
-                                    <div class="library-filters">
+                                    <div class="library-filters [&_select]:p-[0.58rem_0.65rem] grid gap-[0.5rem] p-[0.75rem_1rem]">
                                         <select
                                             value={state()}
                                             onChange={(event) =>
@@ -222,12 +224,12 @@ export function IssuesWorkspace(props: {
                                             </select>
                                         </Show>
                                     </div>
-                                    <p class="issue-total">
+                                    <p class="issue-total m-[0.8rem_1rem]">
                                         {data.issues.length} of{" "}
                                         {data.facets.total} shown
                                     </p>
                                 </aside>
-                                <section class="issue-board">
+                                <section class="issue-board min-w-0 p-[1.25rem]">
                                     <Loading
                                         fallback={<PageSkeleton compact />}
                                     >
@@ -238,7 +240,7 @@ export function IssuesWorkspace(props: {
                                                 <For
                                                     each={data.issues}
                                                     fallback={
-                                                        <div class="library-empty">
+                                                        <div class="library-empty max-w-[48ch] m-[6rem_auto] p-[0_2rem] [&_h2]:m-0 [&_p]:m-[0.75rem_0_0]">
                                                             <h2>
                                                                 No issues found
                                                             </h2>
@@ -285,14 +287,19 @@ export function IssuesWorkspace(props: {
 
 function IssueCard(props: { issue: IssueSummary; open: () => void }) {
     return (
-        <button class="issue-card" onClick={props.open}>
+        <button
+            class="issue-card block w-full mb-[0.8rem] p-[1rem] [&_h2]:m-[0.7rem_0_0] [&_p]:m-[0.5rem_0] [&_footer]:flex [&_footer]:flex-wrap [&_footer]:gap-[0.35rem] [&_footer_span]:p-[0.1rem_0.35rem]"
+            onClick={props.open}
+        >
             <div>
-                <span class="source-badge">
+                <span class="source-badge inline-flex mr-[0.45rem] p-[0.15rem_0.42rem]">
                     {ISSUE_SOURCE_LABELS[props.issue.source] ??
                         props.issue.source}
                 </span>
                 <span class="issue-key">{props.issue.key}</span>
-                <span class={`issue-state issue-${props.issue.state}`}>
+                <span
+                    class={`issue-state issue-${props.issue.state} inline-flex mr-[0.45rem] p-[0.15rem_0.42rem]`}
+                >
                     {props.issue.stateLabel}
                 </span>
             </div>
@@ -314,14 +321,17 @@ function IssueCard(props: { issue: IssueSummary; open: () => void }) {
 function IssueDetailPane(props: { issue: IssueDetail; back: () => void }) {
     const [raw, setRaw] = createSignal(false)
     return (
-        <article class="issue-detail-pane">
-            <button class="back-link" onClick={props.back}>
+        <article class="issue-detail-pane max-[560px]:[&_header]:block max-[560px]:[&_header_.button-primary]:mt-[1rem] max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)] [&_header]:flex [&_header]:items-start [&_header]:justify-between [&_header]:gap-[1rem] [&_header]:pb-[1.25rem] [&_h2]:max-w-[25ch] [&_h2]:m-[0.4rem_0_0] max-w-[1100px] [&>.back-link]:mb-[1.4rem]">
+            <button
+                class="back-link inline-flex items-center gap-[0.35rem]"
+                onClick={props.back}
+            >
                 <BackIcon />
                 All issues
             </button>
             <header>
                 <div>
-                    <span class="source-badge">
+                    <span class="source-badge inline-flex mr-[0.45rem] p-[0.15rem_0.42rem]">
                         {ISSUE_SOURCE_LABELS[props.issue.source] ??
                             props.issue.source}
                     </span>
@@ -331,7 +341,7 @@ function IssueDetailPane(props: { issue: IssueDetail; back: () => void }) {
                 <Show when={props.issue.url}>
                     {(url) => (
                         <a
-                            class="button-primary"
+                            class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                             href={url()}
                             target="_blank"
                             rel="noreferrer"
@@ -341,7 +351,7 @@ function IssueDetailPane(props: { issue: IssueDetail; back: () => void }) {
                     )}
                 </Show>
             </header>
-            <dl class="issue-details">
+            <dl class="issue-details grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-[1px] m-[1.5rem_0] [&>div]:p-[0.8rem] [&_dd]:m-[0.25rem_0_0] max-[560px]:grid-cols-[1fr]">
                 <div>
                     <dt>State</dt>
                     <dd>{props.issue.stateLabel}</dd>
@@ -369,15 +379,18 @@ function IssueDetailPane(props: { issue: IssueDetail; back: () => void }) {
                     <dd>{props.issue.commentCount ?? "—"}</dd>
                 </div>
             </dl>
-            <section class="issue-body">
+            <section class="issue-body m-[1.5rem_0] [&_pre]:overflow-auto [&_pre]:p-[1rem]">
                 <h3>Description</h3>
                 <pre>{props.issue.body || "No description."}</pre>
             </section>
-            <button class="button" onClick={() => setRaw(!raw())}>
+            <button
+                class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                onClick={() => setRaw(!raw())}
+            >
                 {raw() ? "Hide raw JSON" : "Show raw JSON"}
             </button>
             <Show when={raw()}>
-                <pre class="raw-json">
+                <pre class="raw-json overflow-auto p-[1rem] mt-[1rem] max-h-[28rem]">
                     {JSON.stringify(props.issue.raw, null, 2)}
                 </pre>
             </Show>

@@ -3,7 +3,7 @@ import styles from "./navigation.module.css"
 export function BackIcon() {
     return (
         <svg
-            class={`${styles.scope} ui-icon`}
+            class={`${styles.scope} ui-icon w-[1.15rem] h-[1.15rem]`}
             viewBox="0 0 20 20"
             aria-hidden="true"
         >
@@ -15,7 +15,7 @@ export function BackIcon() {
 export function PlusIcon() {
     return (
         <svg
-            class={`${styles.scope} ui-icon`}
+            class={`${styles.scope} ui-icon w-[1.15rem] h-[1.15rem]`}
             viewBox="0 0 20 20"
             aria-hidden="true"
         >

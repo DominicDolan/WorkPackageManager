@@ -116,23 +116,25 @@ export function NotesWorkspace(props: {
 
     return (
         <main
-            class={`${layoutStyles.scope} ${styles.scope} app-shell min-h-screen text-slate-950`}
+            class={`${layoutStyles.scope} ${styles.scope} app-shell min-h-screen text-slate-950 grid grid-cols-[220px_minmax(0,_1fr)] max-[820px]:block`}
         >
             <ProductRail active="notes" select={props.select} />
             <Loading fallback={<PageSkeleton />}>
                 <Show when={listing()} keyed>
                     {(data) => (
-                        <section class="library-surface">
-                            <header class="library-header">
+                        <section class="library-surface min-w-0 p-[2.2rem_clamp(1.3rem,_3.5vw,_4.5rem)_4rem] max-[820px]:p-[1.25rem] max-[820px]:overflow-hidden">
+                            <header class="library-header flex max-w-[1500px] items-start justify-between gap-[2rem] m-[0_auto_1.5rem] p-[1.5rem_clamp(1.25rem,_3vw,_3rem)_1.7rem] [&_h1]:m-[0.45rem_0_0] [&_p:last-child]:max-w-[62ch] [&_p:last-child]:m-[0.8rem_0_0] max-[560px]:block max-[560px]:p-[1.25rem]">
                                 <div>
-                                    <p class="eyebrow">Reference workspace</p>
+                                    <p class="eyebrow m-0">
+                                        Reference workspace
+                                    </p>
                                     <h1>Notes</h1>
                                     <p>
                                         Keep research, decisions and evidence in
                                         a versioned folder beside the work.
                                     </p>
                                 </div>
-                                <div class="library-header-actions">
+                                <div class="library-header-actions flex flex-wrap items-center justify-end gap-[0.5rem] max-[560px]:mt-[1.25rem] max-[560px]:justify-start">
                                     <Show
                                         when={
                                             data.workspace.exists &&
@@ -140,14 +142,14 @@ export function NotesWorkspace(props: {
                                         }
                                     >
                                         <button
-                                            class="button"
+                                            class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                             disabled={busy()}
                                             onClick={sync}
                                         >
                                             {busy() ? "Syncing…" : "Sync"}
                                         </button>
                                         <button
-                                            class="button"
+                                            class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                             disabled={
                                                 busy() ||
                                                 !data.workspace.git.upstream
@@ -162,7 +164,7 @@ export function NotesWorkspace(props: {
                                         </button>
                                     </Show>
                                     <button
-                                        class="button-primary"
+                                        class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                         disabled={
                                             !data.workspace.exists || busy()
                                         }
@@ -174,11 +176,13 @@ export function NotesWorkspace(props: {
                                 </div>
                             </header>
                             <Show when={error()}>
-                                <p class="banner mb-5">{error()}</p>
+                                <p class="banner mb-5 p-[0.8rem_1rem]">
+                                    {error()}
+                                </p>
                             </Show>
-                            <div class="library-layout">
-                                <aside class="library-list">
-                                    <label class="library-search">
+                            <div class="library-layout grid grid-cols-[minmax(260px,_310px)_minmax(0,_1fr)] max-w-[1500px] min-h-[620px] m-[0_auto] max-[820px]:grid-cols-[1fr]">
+                                <aside class="library-list flex min-w-0 flex-col">
+                                    <label class="library-search grid gap-[0.45rem] p-[1rem] [&_input]:p-[0.58rem_0.65rem]">
                                         <span>Find a note</span>
                                         <input
                                             value={query()}
@@ -197,7 +201,7 @@ export function NotesWorkspace(props: {
                                             data.tags.length > 0
                                         }
                                     >
-                                        <div class="library-filters">
+                                        <div class="library-filters [&_select]:p-[0.58rem_0.65rem] grid gap-[0.5rem] p-[0.75rem_1rem]">
                                             <Show
                                                 when={data.folders.length > 0}
                                             >
@@ -250,11 +254,11 @@ export function NotesWorkspace(props: {
                                             </Show>
                                         </div>
                                     </Show>
-                                    <div class="note-list">
+                                    <div class="note-list overflow-auto max-[820px]:flex max-[820px]:overflow-x-auto">
                                         <For
                                             each={data.notes}
                                             fallback={
-                                                <p class="empty-copy p-4">
+                                                <p class="empty-copy p-4 m-[0.5rem_0_0] m-[0.5rem_0_0_1.05rem] ml-0">
                                                     {data.workspace.exists
                                                         ? "No notes match these filters."
                                                         : "The notes folder has not been created yet."}
@@ -263,7 +267,7 @@ export function NotesWorkspace(props: {
                                         >
                                             {(item) => (
                                                 <button
-                                                    class={`note-list-item ${selectedPath() === item.path ? "note-list-active" : ""}`}
+                                                    class={`note-list-item ${selectedPath() === item.path ? "note-list-active" : ""} block w-full p-[0.9rem_1rem] [&>span]:block [&_small]:block [&_strong]:block [&_strong]:mt-[0.25rem] [&_p]:line-clamp-2 [&_p]:m-[0.35rem_0] [&_p]:overflow-hidden max-[820px]:min-w-[13rem]`}
                                                     onClick={() =>
                                                         choose(item.path)
                                                     }
@@ -298,7 +302,7 @@ export function NotesWorkspace(props: {
                                         initialise={initialise}
                                     />
                                 </aside>
-                                <section class="note-detail-pane">
+                                <section class="note-detail-pane min-w-0">
                                     <Show
                                         when={creating()}
                                         fallback={
@@ -311,7 +315,7 @@ export function NotesWorkspace(props: {
                                                     when={selected()}
                                                     keyed
                                                     fallback={
-                                                        <div class="library-empty">
+                                                        <div class="library-empty max-w-[48ch] m-[6rem_auto] p-[0_2rem] [&_h2]:m-0 [&_p]:m-[0.75rem_0_0]">
                                                             <h2>
                                                                 Choose a note
                                                             </h2>
@@ -353,9 +357,9 @@ export function NotesWorkspace(props: {
                                             </Loading>
                                         }
                                     >
-                                        <div class="editor-panel">
+                                        <div class="editor-panel max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)] m-[2rem] [&_h2]:m-[0_0_1.25rem]">
                                             <h2>New note</h2>
-                                            <label class="field">
+                                            <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                                                 <span>Title</span>
                                                 <input
                                                     autofocus
@@ -370,7 +374,7 @@ export function NotesWorkspace(props: {
                                             </label>
                                             <div class="mt-5 flex gap-2">
                                                 <button
-                                                    class="button"
+                                                    class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                                     onClick={() =>
                                                         setCreating(false)
                                                     }
@@ -378,7 +382,7 @@ export function NotesWorkspace(props: {
                                                     Cancel
                                                 </button>
                                                 <button
-                                                    class="button-primary"
+                                                    class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                                     disabled={
                                                         !newTitle().trim() ||
                                                         busy()
@@ -406,7 +410,7 @@ function NotesStatus(props: {
     initialise: () => Promise<void>
 }) {
     return (
-        <div class="notes-status">
+        <div class="notes-status mt-auto p-[1rem] [&_p]:m-[0_0_0.5rem] [&_p]:overflow-hidden max-[820px]:hidden">
             <p>{props.workspace.dir}</p>
             <Show
                 when={!props.workspace.exists}
@@ -422,7 +426,7 @@ function NotesStatus(props: {
             >
                 <p>The notes folder does not exist yet.</p>
                 <button
-                    class="button-primary"
+                    class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                     disabled={props.busy}
                     onClick={props.initialise}
                 >
@@ -535,14 +539,18 @@ function NoteEditor(props: {
     }
 
     return (
-        <article class="note-editor">
+        <article class="note-editor max-[560px]:[&_header]:block max-[560px]:[&_header_.flex]:mt-[1rem] max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)] [&_header]:flex [&_header]:items-start [&_header]:justify-between [&_header]:gap-[1rem] [&_header]:pb-[1.25rem] [&_h2]:max-w-[25ch] [&_h2]:m-[0.4rem_0_0]">
             <header>
                 <div>
                     <p class="note-path">{props.note.path}</p>
                     <h2>{title()}</h2>
                 </div>
                 <div class="flex flex-wrap gap-2">
-                    <div class="note-modes" role="group" aria-label="Note view">
+                    <div
+                        class="note-modes flex [&_button]:min-h-[2.5rem] [&_button]:p-[0.5rem_0.8rem]"
+                        role="group"
+                        aria-label="Note view"
+                    >
                         <button
                             class={props.mode === "write" ? "active" : ""}
                             onClick={() => props.setMode("write")}
@@ -556,11 +564,15 @@ function NoteEditor(props: {
                             Preview
                         </button>
                     </div>
-                    <button class="button" disabled={busy()} onClick={remove}>
+                    <button
+                        class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                        disabled={busy()}
+                        onClick={remove}
+                    >
                         Delete
                     </button>
                     <button
-                        class="button-primary"
+                        class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                         disabled={!title().trim() || busy()}
                         onClick={save}
                     >
@@ -569,16 +581,19 @@ function NoteEditor(props: {
                 </div>
             </header>
             <Show when={error()}>
-                <p class="banner mt-5">{error()}</p>
+                <p class="banner mt-5 p-[0.8rem_1rem]">{error()}</p>
             </Show>
             <Show
                 when={props.mode === "write"}
                 fallback={
-                    <div class="note-rendered markdown" innerHTML={preview()} />
+                    <div
+                        class="note-rendered markdown min-h-[26rem] mt-[1.5rem] p-[clamp(1.25rem,_3vw,_2.25rem)] [&>:first-child]:mt-0 [&_h1]:m-[1.5em_0_0.55em] [&_h2]:m-[1.5em_0_0.55em] [&_h3]:m-[1.5em_0_0.55em] [&_h4]:m-[1.5em_0_0.55em] [&_p]:m-[0_0_1em] [&_code]:p-[0.1rem_0.32rem] [&_pre]:overflow-x-auto [&_pre]:p-[1rem] [&_pre_code]:p-0 [&_blockquote]:m-[0_0_1em] [&_blockquote]:pl-[1rem] [&_ul]:m-[0_0_1em] [&_ul]:pl-[1.5rem] [&_ol]:m-[0_0_1em] [&_ol]:pl-[1.5rem] [&_li.md-task]:ml-[-1.25rem] [&_li.md-task_input]:w-auto [&_li.md-task_input]:mr-[0.5rem] [&_img]:block [&_img]:max-w-full [&_img]:h-auto [&_img]:m-[1rem_0] [&_hr]:m-[1.5em_0] [&_.md-table-wrap]:overflow-x-auto [&_.md-table-wrap]:mb-[1em] [&_table]:min-w-full [&_th]:p-[0.45rem_0.7rem] [&_td]:p-[0.45rem_0.7rem]"
+                        innerHTML={preview()}
+                    />
                 }
             >
-                <div class="editor-fields">
-                    <label class="field">
+                <div class="editor-fields grid gap-[1.1rem] mt-[1.5rem]">
+                    <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                         <span>Title</span>
                         <input
                             value={title()}
@@ -587,7 +602,7 @@ function NoteEditor(props: {
                             }
                         />
                     </label>
-                    <label class="field">
+                    <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                         <span>Tags</span>
                         <input
                             value={tags()}
@@ -597,14 +612,14 @@ function NoteEditor(props: {
                             placeholder="research, decision"
                         />
                     </label>
-                    <label class="field">
+                    <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                         <span>
                             Markdown — paste an image to attach and insert it
                             here
                         </span>
                         <textarea
                             ref={editor}
-                            class="note-body"
+                            class="note-body !min-h-[26rem]"
                             value={body()}
                             onInput={(event) =>
                                 setBody(event.currentTarget.value)

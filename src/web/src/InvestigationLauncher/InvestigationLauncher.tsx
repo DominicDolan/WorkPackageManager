@@ -78,7 +78,9 @@ export function InvestigationLauncher(props: {
     }
     return (
         <Modal title="Run investigation" close={props.close}>
-            <div class={`${styles.scope} investigation-run-summary`}>
+            <div
+                class={`${styles.scope} investigation-run-summary p-[1rem] [&_span]:block [&_strong]:block [&_strong]:mt-[0.25rem] [&_p]:m-[0.5rem_0_0]`}
+            >
                 <span>{props.investigation.ref}</span>
                 <strong>{props.investigation.title}</strong>
                 <p>
@@ -107,7 +109,7 @@ export function InvestigationLauncher(props: {
                     unattended={false}
                 />
             </Loading>
-            <label class="field mt-4">
+            <label class="field mt-4 grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                 <span>Extra instructions</span>
                 <textarea
                     value={extra()}
@@ -116,10 +118,14 @@ export function InvestigationLauncher(props: {
                 />
             </label>
             <Show when={error()}>
-                <p class="banner mt-4">{error()}</p>
+                <p class="banner mt-4 p-[0.8rem_1rem]">{error()}</p>
             </Show>
             <div class="mt-5 flex justify-end">
-                <button class="button-primary" disabled={busy()} onClick={run}>
+                <button
+                    class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                    disabled={busy()}
+                    onClick={run}
+                >
                     {busy() ? "Starting…" : "Start investigation"}
                 </button>
             </div>

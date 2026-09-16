@@ -86,13 +86,16 @@ export function TaskWorkspace(props: {
         <main class={`${styles.scope} task-workspace min-h-screen`}>
             <Loading fallback={<PageSkeleton />}>
                 <div class="mx-auto grid min-h-screen w-full max-w-[1720px] lg:grid-cols-[310px_1fr] xl:grid-cols-[340px_1fr]">
-                    <aside class="task-sidebar">
+                    <aside class="task-sidebar sticky top-0 h-[100vh] overflow-auto p-[1.7rem] max-[820px]:relative max-[820px]:h-auto max-[820px]:p-[1rem_1.25rem] max-[820px]:[&_.brand]:hidden max-[820px]:[&_.back-link]:mt-0">
                         <Brand />
-                        <button class="back-link mt-8" onClick={props.back}>
+                        <button
+                            class="back-link mt-8 inline-flex items-center gap-[0.35rem]"
+                            onClick={props.back}
+                        >
                             <BackIcon />
                             Back to work package
                         </button>
-                        <div class="sidebar-heading">
+                        <div class="sidebar-heading flex items-center justify-between m-[2.2rem_0_0.75rem] pb-[0.65rem] [&_h2]:m-0 [&_span]:m-0 max-[820px]:hidden">
                             <h2>Tasks in this work package</h2>
                             <span>
                                 {workPackage()?.tasks.length ??
@@ -101,7 +104,7 @@ export function TaskWorkspace(props: {
                                     ).length}
                             </span>
                         </div>
-                        <div class="task-navigation">
+                        <div class="task-navigation m-[0_-0.7rem] max-[820px]:hidden">
                             <For
                                 each={
                                     workPackage()?.tasks ??
@@ -112,7 +115,7 @@ export function TaskWorkspace(props: {
                             >
                                 {(item) => (
                                     <button
-                                        class={`task-nav-item ${item.ref === props.taskRef ? "task-nav-active" : ""}`}
+                                        class={`task-nav-item ${item.ref === props.taskRef ? "task-nav-active" : ""} relative block w-full p-[0.75rem_0.8rem] [&>span]:block [&>strong]:block [&>strong]:mt-[0.25rem] [&>strong]:overflow-hidden [&>.task-nav-meta]:flex [&>.task-nav-meta]:items-center [&>.task-nav-meta]:gap-[0.45rem] [&>.task-nav-detail]:mt-[0.25rem] [&>.task-nav-detail]:overflow-hidden`}
                                         onClick={() => props.openTask(item.ref)}
                                     >
                                         <span class="task-nav-meta">
@@ -212,11 +215,11 @@ function TaskDetailPanel(props: {
     let priority!: HTMLSelectElement
     let recommendedTier!: HTMLSelectElement
     return (
-        <article class="task-detail p-5 sm:p-8 lg:p-10">
+        <article class="task-detail p-5 sm:p-8 lg:p-10 min-w-0 max-w-[1320px]">
             <Show when={props.error}>
-                <p class="banner mb-5">{props.error}</p>
+                <p class="banner mb-5 p-[0.8rem_1rem]">{props.error}</p>
             </Show>
-            <div class="task-titlebar flex flex-wrap items-start justify-between gap-4">
+            <div class="task-titlebar flex flex-wrap items-start justify-between gap-4 pb-[1.65rem] [&_h1]:max-w-[25ch] [&_h1]:m-[0.65rem_0_0]">
                 <div>
                     <div class="flex items-center gap-2">
                         <span class="task-ref">{props.task.ref}</span>
@@ -227,14 +230,14 @@ function TaskDetailPanel(props: {
                 <div class="flex gap-2">
                     <Show when={props.workPackage}>
                         <button
-                            class="button-primary"
+                            class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                             onClick={props.openAgent}
                         >
                             Work with agent
                         </button>
                     </Show>
                     <button
-                        class="button"
+                        class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                         onClick={() => props.setEditing(!props.editing)}
                     >
                         {props.editing ? "Cancel" : "Edit"}
@@ -244,18 +247,18 @@ function TaskDetailPanel(props: {
             <Show
                 when={props.editing}
                 fallback={
-                    <p class="task-description whitespace-pre-wrap">
+                    <p class="task-description whitespace-pre-wrap max-w-[76ch] m-[1.5rem_0_0]">
                         {props.task.description ||
                             "Add a description so the expected change is unambiguous."}
                     </p>
                 }
             >
                 <div class="mt-6 rounded-2xl bg-white p-5 ring-1 ring-slate-200">
-                    <label class="field">
+                    <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                         <span>Title</span>
                         <input ref={title} value={props.task.title} />
                     </label>
-                    <label class="field mt-4">
+                    <label class="field mt-4 grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                         <span>Description</span>
                         <textarea
                             ref={description}
@@ -263,7 +266,7 @@ function TaskDetailPanel(props: {
                         />
                     </label>
                     <div class="mt-4 grid gap-4 sm:grid-cols-2">
-                        <label class="field">
+                        <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                             <span>Priority</span>
                             <select ref={priority} value={props.task.priority}>
                                 <option>low</option>
@@ -271,7 +274,7 @@ function TaskDetailPanel(props: {
                                 <option>high</option>
                             </select>
                         </label>
-                        <label class="field">
+                        <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                             <span>Recommended model</span>
                             <select
                                 ref={recommendedTier}
@@ -283,7 +286,7 @@ function TaskDetailPanel(props: {
                                 <option value="frontier">Frontier</option>
                             </select>
                         </label>
-                        <label class="field">
+                        <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                             <span>Work package</span>
                             <select
                                 value={props.task.workPackageRef ?? ""}
@@ -308,7 +311,7 @@ function TaskDetailPanel(props: {
                         </label>
                     </div>
                     <button
-                        class="button-primary mt-4"
+                        class="button-primary mt-4 inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                         onClick={() =>
                             props
                                 .mutate("save", () =>
@@ -337,8 +340,8 @@ function TaskDetailPanel(props: {
                             <button
                                 class={
                                     status === props.task.status
-                                        ? "button-primary"
-                                        : "button"
+                                        ? "button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                                        : "button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                 }
                                 disabled={
                                     !!props.busy ||
@@ -357,7 +360,7 @@ function TaskDetailPanel(props: {
                     </For>
                     <Show when={props.task.status === "verified"}>
                         <button
-                            class="button-primary"
+                            class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                             onClick={() =>
                                 props.mutate("close", () =>
                                     api.closeTask(props.task.ref),
@@ -445,7 +448,7 @@ function TaskDetailPanel(props: {
                     </div>
                     <div class="flex gap-2">
                         <button
-                            class="button"
+                            class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                             disabled={!!props.busy}
                             onClick={() =>
                                 props.mutate("before", () =>
@@ -456,7 +459,7 @@ function TaskDetailPanel(props: {
                             Capture before
                         </button>
                         <button
-                            class="button"
+                            class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                             disabled={!!props.busy}
                             onClick={() =>
                                 props.mutate("after", () =>
@@ -471,7 +474,9 @@ function TaskDetailPanel(props: {
                 <Show
                     when={props.task.runs.at(-1)}
                     fallback={
-                        <div class="empty-panel">No visual runs yet.</div>
+                        <div class="empty-panel p-[2.5rem]">
+                            No visual runs yet.
+                        </div>
                     }
                 >
                     {(run) => (
@@ -509,7 +514,7 @@ function TaskDetailPanel(props: {
                     >
                         {(attachment) => (
                             <a
-                                class="button"
+                                class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                 href={taskAssetUrl(
                                     props.task.ref,
                                     attachment.name,
@@ -545,7 +550,7 @@ function TaskDetailPanel(props: {
                 <div class="rounded-2xl bg-white p-5 ring-1 ring-slate-200">
                     <div class="flex gap-2">
                         <input
-                            class="input flex-1"
+                            class="input flex-1 w-full p-[0.68rem_0.75rem]"
                             value={props.note}
                             onInput={(event) =>
                                 props.setNote(event.currentTarget.value)
@@ -553,7 +558,7 @@ function TaskDetailPanel(props: {
                             placeholder="Add a note…"
                         />
                         <button
-                            class="button-primary"
+                            class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                             disabled={!props.note.trim()}
                             onClick={() =>
                                 props

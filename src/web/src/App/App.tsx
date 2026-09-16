@@ -131,7 +131,10 @@ export function App() {
                         <p class="mt-2 text-sm text-red-700">
                             {String(error())}
                         </p>
-                        <button class="button-primary mt-4" onClick={reset}>
+                        <button
+                            class="button-primary mt-4 inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                            onClick={reset}
+                        >
                             Try again
                         </button>
                     </div>

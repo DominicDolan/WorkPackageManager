@@ -186,7 +186,7 @@ export function AgentLauncher(props: {
                 />
             </Loading>
 
-            <label class="field mt-4">
+            <label class="field mt-4 grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                 <span>Extra instructions</span>
                 <textarea
                     value={extra()}
@@ -228,7 +228,7 @@ export function AgentLauncher(props: {
                                             ).toLocaleString()}
                                         </time>
                                         <button
-                                            class="button px-2 py-1 text-xs"
+                                            class="button px-2 py-1 text-xs inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                             disabled={
                                                 !entry.sessionId ||
                                                 resuming() !== null
@@ -252,10 +252,14 @@ export function AgentLauncher(props: {
                 </Show>
             </Loading>
             <Show when={error()}>
-                <p class="banner mt-4">{error()}</p>
+                <p class="banner mt-4 p-[0.8rem_1rem]">{error()}</p>
             </Show>
             <div class="mt-5 flex justify-end">
-                <button class="button-primary" disabled={busy()} onClick={run}>
+                <button
+                    class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                    disabled={busy()}
+                    onClick={run}
+                >
                     {busy() ? "Starting…" : "Start run"}
                 </button>
             </div>

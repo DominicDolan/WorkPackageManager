@@ -78,7 +78,7 @@ export function AttachedNotes(props: {
                                     </Show>
                                 </button>
                                 <button
-                                    class="button px-2 py-1 text-xs"
+                                    class="button px-2 py-1 text-xs inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                     disabled={!!busy()}
                                     aria-label={`Detach ${note.title}`}
                                     title="Detach note"
@@ -102,7 +102,7 @@ export function AttachedNotes(props: {
             >
                 <div class="mt-3 flex gap-2">
                     <select
-                        class="input min-w-0 flex-1"
+                        class="input min-w-0 flex-1 w-full p-[0.68rem_0.75rem]"
                         value={selected()}
                         disabled={!available().length || !!busy()}
                         onChange={(event) =>
@@ -121,7 +121,7 @@ export function AttachedNotes(props: {
                         </For>
                     </select>
                     <button
-                        class="button"
+                        class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                         disabled={!selected() || !!busy()}
                         onClick={attach}
                     >
@@ -132,7 +132,7 @@ export function AttachedNotes(props: {
                 </div>
             </Show>
             <Show when={error()}>
-                <p class="banner mt-3">{error()}</p>
+                <p class="banner mt-3 p-[0.8rem_1rem]">{error()}</p>
             </Show>
         </div>
     )

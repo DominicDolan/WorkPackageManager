@@ -1,9 +1,6 @@
 :global(.status-badge) {
-    display: inline-flex;
-    align-items: center;
     border: 1px solid currentColor;
     border-radius: 99px;
-    padding: 0.16rem 0.48rem;
     font-size: 0.65rem;
     font-weight: 600;
     line-height: 1.2;

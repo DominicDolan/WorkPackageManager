@@ -59,8 +59,8 @@ export function ComparisonViewer(props: { comparison: VisualComparison }) {
                             <button
                                 class={
                                     option.id === mode()
-                                        ? "button-primary"
-                                        : "button"
+                                        ? "button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                                        : "button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                 }
                                 disabled={!option.enabled}
                                 onClick={() => setMode(option.id)}
@@ -144,7 +144,7 @@ export function ComparisonViewer(props: { comparison: VisualComparison }) {
                     <Show
                         when={singleImage()}
                         fallback={
-                            <div class="empty-panel">
+                            <div class="empty-panel p-[2.5rem]">
                                 This image was not captured.
                             </div>
                         }

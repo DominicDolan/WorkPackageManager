@@ -1,13 +1,7 @@
 :global(.brand) {
-    display: flex;
-    align-items: center;
-    gap: 0.65rem;
     color: white;
 }
 :global(.brand-mark) {
-    width: 2rem;
-    height: 2rem;
-    flex: none;
     fill: var(--cobalt);
 }
 :global(.brand-signal) {
@@ -17,10 +11,6 @@
     font-size: 1.05rem;
     font-weight: 650;
     letter-spacing: -0.035em;
-}
-:global(.brand-compact) :global(.brand-mark) {
-    width: 1.75rem;
-    height: 1.75rem;
 }
 .scope {
 }

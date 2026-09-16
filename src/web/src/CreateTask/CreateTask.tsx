@@ -71,12 +71,12 @@ export function CreateTask(props: {
 
     return (
         <Modal title="Add task" close={props.close}>
-            <p class={`${styles.scope} modal-intro`}>
+            <p class={`${styles.scope} modal-intro m-0`}>
                 Add work directly to <strong>{props.workPackage.name}</strong>.
                 You can keep the normal branch workflow or turn it off for
                 ignored, local-only files.
             </p>
-            <label class="field mt-4">
+            <label class="field mt-4 grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                 <span>
                     Recommended model{" "}
                     <small class={styles.optional}>(optional)</small>
@@ -99,7 +99,7 @@ export function CreateTask(props: {
                     </For>
                 </select>
             </label>
-            <label class="field mt-4">
+            <label class="field mt-4 grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                 <span>Title</span>
                 <input
                     autofocus
@@ -109,7 +109,7 @@ export function CreateTask(props: {
                     placeholder="e.g. Add retry handling to the release step"
                 />
             </label>
-            <label class="field mt-4">
+            <label class="field mt-4 grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                 <span>Description</span>
                 <textarea
                     value={description()}
@@ -119,8 +119,10 @@ export function CreateTask(props: {
                     placeholder="Describe the desired outcome, context, and acceptance criteria."
                 />
             </label>
-            <div class={`${styles.details} mt-4`}>
-                <label class="field">
+            <div
+                class={`${styles.details} mt-4 grid grid-cols-[1fr_1fr] gap-[1rem] max-[520px]:grid-cols-[1fr]`}
+            >
+                <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                     <span>Priority</span>
                     <select
                         value={priority()}
@@ -133,7 +135,7 @@ export function CreateTask(props: {
                         </For>
                     </select>
                 </label>
-                <label class="field">
+                <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                     <span>Estimate units</span>
                     <input
                         type="number"
@@ -146,7 +148,7 @@ export function CreateTask(props: {
                     />
                 </label>
             </div>
-            <label class="field mt-4">
+            <label class="field mt-4 grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                 <span>
                     Tags{" "}
                     <small class={styles.optional}>
@@ -159,7 +161,9 @@ export function CreateTask(props: {
                     placeholder="frontend, reliability"
                 />
             </label>
-            <label class={`${styles.workflowChoice} mt-4`}>
+            <label
+                class={`${styles.workflowChoice} mt-4 flex items-start gap-[0.75rem] p-[0.85rem] [&_input]:w-[1rem] [&_input]:h-[1rem] [&_input]:mt-[0.12rem] [&_span]:grid [&_span]:gap-[0.22rem]`}
+            >
                 <input
                     type="checkbox"
                     checked={useGitWorkflow()}
@@ -176,7 +180,7 @@ export function CreateTask(props: {
                 </span>
             </label>
             <Show when={useGitWorkflow()}>
-                <label class="field mt-4">
+                <label class="field mt-4 grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                     <span>
                         Task branch{" "}
                         <small class={styles.optional}>(optional)</small>
@@ -192,14 +196,18 @@ export function CreateTask(props: {
                 </label>
             </Show>
             <Show when={error()}>
-                <p class="banner mt-4">{error()}</p>
+                <p class="banner mt-4 p-[0.8rem_1rem]">{error()}</p>
             </Show>
             <div class="mt-5 flex justify-end gap-2">
-                <button class="button" disabled={busy()} onClick={props.close}>
+                <button
+                    class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                    disabled={busy()}
+                    onClick={props.close}
+                >
                     Cancel
                 </button>
                 <button
-                    class="button-primary"
+                    class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                     disabled={!title().trim() || !estimateValid() || busy()}
                     onClick={submit}
                 >

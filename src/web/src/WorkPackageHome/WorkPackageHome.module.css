@@ -1,62 +1,27 @@
-:global(.work-surface) {
-    min-width: 0;
-    padding: 2.2rem clamp(1.3rem, 3.5vw, 4.5rem) 4rem;
-}
 :global(.portfolio-header) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 2rem;
-    max-width: 1500px;
-    margin: 0 auto 2.8rem;
-    padding: clamp(1rem, 2vw, 2rem) 0 0;
     border-top: 5px solid var(--cobalt);
     background: var(--paper);
 }
-:global(.portfolio-copy) {
-    min-width: 0;
-    max-width: 760px;
-    padding: 1.6rem clamp(1.5rem, 3vw, 3rem) 2.2rem;
-}
 :global(.eyebrow) {
-    margin: 0;
     font-size: 0.78rem;
     font-weight: 600;
     color: var(--cobalt);
 }
 :global(.portfolio-copy) h1 {
-    max-width: 720px;
-    margin: 0.45rem 0 0;
     font-size: clamp(2.25rem, 4vw, 4rem);
     font-weight: 430;
     line-height: 0.98;
     letter-spacing: -0.058em;
 }
 :global(.portfolio-copy) > p:last-child {
-    max-width: 590px;
-    margin: 1.25rem 0 0;
     color: var(--steel);
     font-size: 0.98rem;
     line-height: 1.65;
 }
-:global(.header-action) {
-    align-self: start;
-    margin: 1.7rem clamp(1.5rem, 3vw, 3rem) 0 0;
-}
 :global(.portfolio-stats) {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    margin: 0;
     border-top: 1px solid var(--line);
 }
 :global(.portfolio-stats) > div {
-    display: flex;
-    min-width: 0;
-    min-height: 5.5rem;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 1.45rem clamp(1.5rem, 3vw, 3rem);
     border-right: 1px solid var(--line);
 }
 :global(.portfolio-stats) > div:last-child {
@@ -67,49 +32,27 @@
     font-size: 0.78rem;
 }
 :global(.portfolio-stats) dd {
-    margin: 0;
     font-size: 1.8rem;
     font-weight: 500;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.04em;
 }
-
-:global(.ledger-heading) {
-    display: flex;
-    max-width: 1500px;
-    align-items: end;
-    justify-content: space-between;
-    gap: 1rem;
-    margin: 0 auto 0.9rem;
-}
 :global(.ledger-heading) h2 {
-    margin: 0;
     font-size: 1.25rem;
     font-weight: 600;
     letter-spacing: -0.025em;
 }
 :global(.ledger-heading) p,
 :global(.ledger-heading) > span {
-    margin: 0.2rem 0 0;
     color: var(--steel);
     font-size: 0.75rem;
 }
 :global(.work-package-ledger) {
-    max-width: 1500px;
-    margin: 0 auto;
     border: 1px solid var(--line);
     border-bottom: 0;
     background: var(--paper);
 }
-:global(.closed-work-packages) {
-    max-width: 1500px;
-    margin: 1.5rem auto 0;
-}
 :global(.closed-work-packages) > summary {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.85rem 1rem;
     border: 1px solid var(--line);
     background: var(--paper);
     color: var(--steel);
@@ -118,34 +61,17 @@
     cursor: pointer;
     list-style: none;
 }
-:global(.closed-work-packages) > summary::-webkit-details-marker {
-    display: none;
-}
 :global(.closed-work-packages) > summary::before {
     content: "\25B8";
-    margin-right: 0.6rem;
     color: var(--cobalt);
 }
 :global(.closed-work-packages)[open] > summary::before {
     content: "\25BE";
 }
 :global(.closed-work-packages) > summary span {
-    margin-left: auto;
     font-variant-numeric: tabular-nums;
 }
-:global(.closed-work-packages) > .work-package-ledger {
-    margin-top: 0.5rem;
-}
 :global(.work-package-card) {
-    position: relative;
-    display: grid;
-    width: 100%;
-    grid-template-columns:
-        6px minmax(240px, 1.2fr) minmax(220px, 1fr)
-        150px 38px;
-    align-items: center;
-    gap: clamp(1rem, 2vw, 2.5rem);
-    overflow: hidden;
     border: 0;
     border-bottom: 1px solid var(--line);
     border-radius: 0;
@@ -159,16 +85,8 @@
     background: #1d2530;
 }
 :global(.work-package-card):focus-visible {
-    z-index: 1;
     outline: 3px solid color-mix(in srgb, var(--cobalt) 38%, transparent);
     outline-offset: -3px;
-}
-:global(.work-package-stripe) {
-    align-self: stretch;
-}
-:global(.work-package-identity) {
-    min-width: 0;
-    padding: 1.55rem 0;
 }
 :global(.work-package-ref),
 :global(.task-ref) {
@@ -177,58 +95,33 @@
     font-weight: 600;
 }
 :global(.work-package-identity) h3 {
-    margin: 0.35rem 0 0;
     font-size: 1.12rem;
     font-weight: 600;
     letter-spacing: -0.025em;
 }
 :global(.work-package-identity) p {
-    display: -webkit-box;
-    max-width: 52ch;
-    margin: 0.45rem 0 0;
-    overflow: hidden;
     color: var(--steel);
     font-size: 0.8rem;
     line-height: 1.5;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-}
-:global(.task-preview) {
-    min-width: 0;
-    padding: 1.25rem 0;
 }
 :global(.task-preview-row) {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    gap: 0.6rem;
-    margin: 0.45rem 0;
     color: var(--color-slate-600);
     font-size: 0.76rem;
 }
 :global(.task-preview-row) > span:last-child {
-    overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 :global(.status-dot) {
-    width: 0.45rem;
-    height: 0.45rem;
-    flex: none;
     border-radius: 50%;
 }
 :global(.more-count),
 :global(.empty-copy) {
-    margin: 0.5rem 0 0 1.05rem;
     color: var(--color-slate-400);
     font-size: 0.7rem;
 }
 :global(.empty-copy) {
-    margin-left: 0;
     line-height: 1.45;
-}
-:global(.work-package-progress) {
-    padding: 1.25rem 0;
 }
 :global(.progress-copy) {
     color: var(--color-slate-400);
@@ -241,30 +134,16 @@
     font-weight: 500;
 }
 :global(.progress-track) {
-    height: 3px;
-    margin-top: 0.65rem;
-    overflow: hidden;
     background: var(--color-slate-200);
 }
-:global(.progress-track) span {
-    display: block;
-    height: 100%;
-}
 :global(.work-package-progress) small {
-    display: block;
-    margin-top: 0.38rem;
     color: var(--steel);
     font-size: 0.68rem;
 }
 :global(.open-cue) {
-    display: grid;
-    width: 2rem;
-    height: 2rem;
-    place-items: center;
     color: var(--color-slate-400);
 }
 :global(.open-cue) svg {
-    width: 1.15rem;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.5;
@@ -273,89 +152,20 @@
     color: var(--cobalt);
 }
 
-@media (max-width: 1050px) {
-    :global(.work-package-card) {
-        grid-template-columns:
-            6px minmax(230px, 1.25fr) minmax(180px, 1fr)
-            120px 30px;
-        gap: 1.2rem;
-    }
-}
-
 @media (max-width: 820px) {
-    :global(.work-surface) {
-        width: 100%;
-        min-width: 0;
-        max-width: 100%;
-        padding: 1.25rem;
-        overflow: hidden;
-    }
-    :global(.portfolio-header),
-    :global(.portfolio-stats),
-    :global(.work-package-ledger),
-    :global(.work-package-card) {
-        width: 100%;
-        min-width: 0;
-        max-width: 100%;
-    }
-    :global(.portfolio-header) {
-        margin-bottom: 2rem;
-    }
     :global(.portfolio-copy) h1 {
         font-size: clamp(2.15rem, 8vw, 3.25rem);
-    }
-    :global(.work-package-card) {
-        grid-template-columns: 6px minmax(0, 1fr) 100px 28px;
-    }
-    :global(.work-package-identity) {
-        overflow: hidden;
-    }
-    :global(.task-preview) {
-        display: none;
     }
 }
 
 @media (max-width: 560px) {
-    :global(.portfolio-header) {
-        display: block;
-    }
-    :global(.portfolio-copy) {
-        padding: 1.35rem 1.25rem 1.75rem;
-    }
-    :global(.header-action) {
-        margin: 0 1.25rem 1.5rem;
-    }
-    :global(.portfolio-stats) > div {
-        display: block;
-        min-height: 4.5rem;
-        padding: 0.9rem 0.75rem;
-        overflow: hidden;
-    }
     :global(.portfolio-stats) dt {
-        overflow: hidden;
         font-size: 0.68rem;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
     :global(.portfolio-stats) dd {
-        margin-top: 0.2rem;
         font-size: 1.45rem;
-    }
-    :global(.ledger-heading) > span {
-        display: none;
-    }
-    :global(.work-package-card) {
-        grid-template-columns: 5px minmax(0, 1fr);
-        gap: 1rem;
-    }
-    :global(.work-package-progress) {
-        display: none;
-    }
-    :global(.open-cue) {
-        display: none;
-    }
-    :global(.work-package-identity) {
-        padding: 1.2rem 0;
     }
 }
 .scope {

@@ -7,7 +7,7 @@ Before editing:
 
 1. Run `git status --short` and `git branch --show-current`.
 2. Confirm the working tree is on `$1` and does not contain unrelated user
-   changes. If it is on another branch and there are no uncommitted changes to `$1`.
+   changes. If it is on another branch and there are no uncommitted changes to `$1` change to that branch.
    Other than that, stop and tell the user; do not stash, reset, or discard their work.
 3. Read the relevant code and reproduce each failed check from its reported
    working directory.

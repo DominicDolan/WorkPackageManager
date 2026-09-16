@@ -74,12 +74,12 @@ export function CreateWorkPackage(props: {
 
     return (
         <Modal title="Create work package" close={props.close}>
-            <p class={`${styles.scope} modal-intro`}>
+            <p class={`${styles.scope} modal-intro m-0`}>
                 Define the outcome, then give an agent the question and context
                 it needs to investigate. The tasks it creates will be filed into
                 this work package.
             </p>
-            <label class="field mt-4">
+            <label class="field mt-4 grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                 <span>Work package name</span>
                 <input
                     autofocus
@@ -88,7 +88,7 @@ export function CreateWorkPackage(props: {
                     placeholder="e.g. Improve release confidence"
                 />
             </label>
-            <label class="field mt-4">
+            <label class="field mt-4 grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                 <span>Investigation</span>
                 <textarea
                     value={description()}
@@ -98,12 +98,12 @@ export function CreateWorkPackage(props: {
                     placeholder="What should the agent investigate? Include the problem, context and any constraints."
                 />
             </label>
-            <div class="field mt-4">
+            <div class="field mt-4 grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                 <label class="field-label" for="create-work-package-branch">
                     Existing branch{" "}
                     <small class={styles.optional}>(optional)</small>
                 </label>
-                <div class={styles.branchPicker}>
+                <div class={`${styles.branchPicker} relative`}>
                     <input
                         id="create-work-package-branch"
                         class={styles.branchInput}
@@ -139,13 +139,15 @@ export function CreateWorkPackage(props: {
                     <Show when={branchMenuOpen()}>
                         <div
                             id="create-work-package-branch-options"
-                            class={styles.branchMenu}
+                            class={`${styles.branchMenu} absolute z-[10] top-[calc(100%_+_0.3rem)] left-0 right-0 max-h-[15rem] overflow-y-auto p-[0.3rem]`}
                             role="listbox"
                         >
                             <For
                                 each={matchingBranches()}
                                 fallback={
-                                    <p class={styles.noBranches}>
+                                    <p
+                                        class={`${styles.noBranches} m-0 p-[0.75rem]`}
+                                    >
                                         No branches match your search.
                                     </p>
                                 }
@@ -158,7 +160,7 @@ export function CreateWorkPackage(props: {
                                     return (
                                         <button
                                             type="button"
-                                            class={`${styles.branchOption} ${claimed() ? styles.claimed : ""}`}
+                                            class={`${styles.branchOption} ${claimed() ? styles.claimed : ""} flex w-full items-center justify-between gap-[1rem] p-[0.62rem_0.65rem] [&_code]:overflow-hidden`}
                                             disabled={claimed()}
                                             role="option"
                                             aria-selected={
@@ -172,7 +174,9 @@ export function CreateWorkPackage(props: {
                                             }}
                                         >
                                             <code>{branch}</code>
-                                            <span class={styles.branchBadges}>
+                                            <span
+                                                class={`${styles.branchBadges} flex flex-none items-center gap-[0.45rem]`}
+                                            >
                                                 <Show
                                                     when={
                                                         branch ===
@@ -181,9 +185,7 @@ export function CreateWorkPackage(props: {
                                                     }
                                                 >
                                                     <small
-                                                        class={
-                                                            styles.currentBadge
-                                                        }
+                                                        class={`${styles.currentBadge} p-[0.12rem_0.42rem]`}
                                                     >
                                                         Current
                                                     </small>
@@ -223,14 +225,17 @@ export function CreateWorkPackage(props: {
                 </div>
             </div>
             <Show when={error()}>
-                <p class="banner mt-4">{error()}</p>
+                <p class="banner mt-4 p-[0.8rem_1rem]">{error()}</p>
             </Show>
             <div class="mt-5 flex justify-end gap-2">
-                <button class="button" onClick={props.close}>
+                <button
+                    class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
+                    onClick={props.close}
+                >
                     Cancel
                 </button>
                 <button
-                    class="button-primary"
+                    class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                     disabled={
                         !name().trim() || !selectedBranchValid() || busy()
                     }

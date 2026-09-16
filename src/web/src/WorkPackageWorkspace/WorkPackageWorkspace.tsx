@@ -137,14 +137,14 @@ export function WorkPackageWorkspace(props: {
                     return (
                         <>
                             <header class="workspace-header">
-                                <div class="workspace-topbar">
+                                <div class="workspace-topbar flex min-h-[3.6rem] items-center gap-[0.8rem] p-[0_clamp(1.25rem,_3vw,_2.5rem)]">
                                     <Brand compact />
-                                    <span class="topbar-divider" />
+                                    <span class="topbar-divider w-px h-[1rem]" />
                                     <span>{detail.name}</span>
                                 </div>
                                 <div class="mx-auto max-w-[1600px] px-5 pb-0 pt-5 sm:px-8">
                                     <button
-                                        class="back-link"
+                                        class="back-link inline-flex items-center gap-[0.35rem]"
                                         onClick={props.back}
                                     >
                                         <BackIcon />
@@ -152,7 +152,7 @@ export function WorkPackageWorkspace(props: {
                                     </button>
                                     <div class="mt-5 flex flex-wrap items-end justify-between gap-5">
                                         <div>
-                                            <div class="work-package-context">
+                                            <div class="work-package-context flex items-center gap-[0.5rem] [&>span:first-child]:w-[0.65rem] [&>span:first-child]:h-[0.65rem]">
                                                 <span
                                                     style={{
                                                         background:
@@ -161,17 +161,17 @@ export function WorkPackageWorkspace(props: {
                                                 />
                                                 <span>{detail.ref}</span>
                                             </div>
-                                            <h1 class="workspace-title">
+                                            <h1 class="workspace-title m-[0.55rem_0_0]">
                                                 {detail.name}
                                             </h1>
-                                            <p class="workspace-description">
+                                            <p class="workspace-description max-w-[70ch] m-[0.8rem_0_0]">
                                                 {detail.description ||
                                                     "Add a description to define the outcome for this work package."}
                                             </p>
                                         </div>
                                         <div class="flex flex-wrap items-center justify-end gap-2">
                                             <button
-                                                class="button"
+                                                class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                                 onClick={() =>
                                                     setCreateTaskOpen(true)
                                                 }
@@ -183,7 +183,7 @@ export function WorkPackageWorkspace(props: {
                                                 when={detail.tasks.length > 0}
                                                 fallback={
                                                     <button
-                                                        class="button-primary"
+                                                        class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                                         onClick={() =>
                                                             investigation()
                                                                 ? setInvestigationRunOpen(
@@ -203,7 +203,7 @@ export function WorkPackageWorkspace(props: {
                                                 }
                                             >
                                                 <button
-                                                    class="button-primary"
+                                                    class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                                     disabled={
                                                         !detail.queue.length ||
                                                         workPackageRunActive(
@@ -223,7 +223,7 @@ export function WorkPackageWorkspace(props: {
                                             </Show>
                                         </div>
                                     </div>
-                                    <nav class="workspace-tabs">
+                                    <nav class="workspace-tabs flex gap-[1.5rem] mt-[2rem] max-[560px]:gap-[1rem]">
                                         <Tab
                                             active={tab() === "overview"}
                                             onClick={() => setTab("overview")}
@@ -249,7 +249,9 @@ export function WorkPackageWorkspace(props: {
                             </header>
                             <div class="mx-auto max-w-[1600px] px-5 py-8 sm:px-8">
                                 <Show when={error()}>
-                                    <p class="banner mb-5">{error()}</p>
+                                    <p class="banner mb-5 p-[0.8rem_1rem]">
+                                        {error()}
+                                    </p>
                                 </Show>
                                 <Show when={tab() === "overview"}>
                                     <WorkPackageOverview
@@ -340,7 +342,7 @@ function Tab(props: {
 }) {
     return (
         <button
-            class={`workspace-tab ${props.active ? "workspace-tab-active" : ""}`}
+            class={`workspace-tab ${props.active ? "workspace-tab-active" : ""} relative min-h-[2.75rem] after:absolute after:right-0 after:bottom-[-1px] after:left-0 after:h-[2px]`}
             onClick={props.onClick}
         >
             {props.children}
@@ -476,7 +478,7 @@ function WorkPackageOverview(props: {
                     </p>
                     <div class="grid gap-2">
                         <button
-                            class="button"
+                            class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                             disabled={!ready() || !!props.busy}
                             onClick={() =>
                                 props.mutate("verify", () =>
@@ -490,7 +492,7 @@ function WorkPackageOverview(props: {
                             Verify all ({ready()})
                         </button>
                         <button
-                            class="button-primary"
+                            class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                             disabled={!closeable() || !!props.busy}
                             onClick={() =>
                                 confirm(
@@ -570,7 +572,7 @@ function InvestigationPanel(props: {
     }
     return (
         <section class="mx-auto max-w-4xl">
-            <div class="investigation-heading">
+            <div class="investigation-heading flex items-end justify-between mb-[1rem] [&_h2]:m-0 [&_p]:m-[0.3rem_0_0]">
                 <div>
                     <h2>Investigation</h2>
                     <p>
@@ -582,7 +584,7 @@ function InvestigationPanel(props: {
             <Show
                 when={props.investigation}
                 fallback={
-                    <div class="investigation-setup">
+                    <div class="investigation-setup p-[clamp(1.25rem,_3vw,_2rem)] [&_h3]:m-0 [&>p]:max-w-[65ch] [&>p]:m-[0.55rem_0_1.1rem]">
                         <h3>Add an investigation to this work package</h3>
                         <p>
                             This is an older work package. Its current
@@ -590,7 +592,7 @@ function InvestigationPanel(props: {
                             without moving or changing any existing tasks.
                         </p>
                         <button
-                            class="button-primary"
+                            class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                             disabled={busy()}
                             onClick={attach}
                         >
@@ -599,7 +601,7 @@ function InvestigationPanel(props: {
                                 : "Use description as investigation"}
                         </button>
                         <Show when={error()}>
-                            <p class="banner mt-4">{error()}</p>
+                            <p class="banner mt-4 p-[0.8rem_1rem]">{error()}</p>
                         </Show>
                     </div>
                 }
@@ -608,34 +610,34 @@ function InvestigationPanel(props: {
                     <Show when={detail()} keyed>
                         {(investigation) => (
                             <>
-                                <div class="investigation-flow">
-                                    <div class="flow-step flow-step-current">
+                                <div class="investigation-flow grid grid-cols-[repeat(3,_minmax(0,_1fr))] mb-[1rem] max-[560px]:grid-cols-[1fr]">
+                                    <div class="flow-step flow-step-current relative grid grid-cols-[1.6rem_1fr] gap-[0.15rem_0.65rem] p-[0.85rem_1rem] [&>span]:row-[1_/_3] [&>span]:grid [&>span]:w-[1.55rem] [&>span]:h-[1.55rem] [&>span]:place-items-center [&_strong]:self-end">
                                         <span>1</span>
                                         <strong>Brief</strong>
                                         <small>Define the question</small>
                                     </div>
                                     <div
-                                        class={`flow-step ${investigation.status !== "draft" ? "flow-step-current" : ""}`}
+                                        class={`flow-step ${investigation.status !== "draft" ? "flow-step-current" : ""} relative grid grid-cols-[1.6rem_1fr] gap-[0.15rem_0.65rem] p-[0.85rem_1rem] [&>span]:row-[1_/_3] [&>span]:grid [&>span]:w-[1.55rem] [&>span]:h-[1.55rem] [&>span]:place-items-center [&_strong]:self-end`}
                                     >
                                         <span>2</span>
                                         <strong>Investigate</strong>
                                         <small>Agent researches</small>
                                     </div>
                                     <div
-                                        class={`flow-step ${investigation.status === "complete" ? "flow-step-current" : ""}`}
+                                        class={`flow-step ${investigation.status === "complete" ? "flow-step-current" : ""} relative grid grid-cols-[1.6rem_1fr] gap-[0.15rem_0.65rem] p-[0.85rem_1rem] [&>span]:row-[1_/_3] [&>span]:grid [&>span]:w-[1.55rem] [&>span]:h-[1.55rem] [&>span]:place-items-center [&_strong]:self-end`}
                                     >
                                         <span>3</span>
                                         <strong>Tasks</strong>
                                         <small>Work lands here</small>
                                     </div>
                                 </div>
-                                <div class="investigation-panel">
+                                <div class="investigation-panel [&>header]:flex [&>header]:items-start [&>header]:justify-between [&>header]:gap-[1rem] [&>header]:p-[1.25rem_1.5rem] [&>header_h3]:m-[0.3rem_0_0]">
                                     <header>
                                         <div>
                                             <span>{investigation.ref}</span>
                                             <h3>{props.workPackage.name}</h3>
                                         </div>
-                                        <span class="investigation-status">
+                                        <span class="investigation-status p-[0.2rem_0.55rem]">
                                             {
                                                 INVESTIGATION_STATUS_LABELS[
                                                     investigation.status
@@ -650,7 +652,7 @@ function InvestigationPanel(props: {
                                             props.changed()
                                         }}
                                     />
-                                    <div class="investigation-actions">
+                                    <div class="investigation-actions flex items-center justify-between gap-[1.5rem] p-[1.2rem_1.5rem] [&_p]:max-w-[62ch] [&_p]:m-[0.25rem_0_0] max-[560px]:block max-[560px]:[&_.button-primary]:mt-[1rem]">
                                         <div>
                                             <strong>
                                                 {investigation.status ===
@@ -666,7 +668,7 @@ function InvestigationPanel(props: {
                                             </p>
                                         </div>
                                         <button
-                                            class="button-primary"
+                                            class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                             disabled={
                                                 !investigation.brief.trim() ||
                                                 investigation.status ===
@@ -685,7 +687,7 @@ function InvestigationPanel(props: {
                                         </button>
                                     </div>
                                     <Show when={investigation.findings}>
-                                        <div class="investigation-findings">
+                                        <div class="investigation-findings p-[1.5rem] [&_h4]:m-0 [&_p]:m-[0.65rem_0_0]">
                                             <h4>Findings</h4>
                                             <p>{investigation.findings}</p>
                                         </div>
@@ -735,8 +737,8 @@ function InvestigationBrief(props: {
         }
     }
     return (
-        <div class="investigation-brief">
-            <label class="field">
+        <div class="investigation-brief p-[1.5rem] [&_textarea]:min-h-[13rem] [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-[1rem] [&>div]:mt-[0.75rem]">
+            <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                 <span>Investigation brief</span>
                 <textarea
                     value={brief()}
@@ -748,14 +750,14 @@ function InvestigationBrief(props: {
                 />
             </label>
             <Show when={error()}>
-                <p class="banner mt-4">{error()}</p>
+                <p class="banner mt-4 p-[0.8rem_1rem]">{error()}</p>
             </Show>
             <div>
                 <span>
                     {saved() ? "Saved" : `${brief().length} characters`}
                 </span>
                 <button
-                    class="button"
+                    class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                     disabled={busy() || brief() === props.investigation.brief}
                     onClick={save}
                 >
@@ -984,8 +986,8 @@ function BranchPanel(props: {
     }
 
     return (
-        <section class="branch-workspace mx-auto max-w-4xl">
-            <div class="branch-heading">
+        <section class="branch-workspace mx-auto max-w-4xl grid gap-[1.1rem]">
+            <div class="branch-heading flex items-start justify-between gap-[1rem] mb-[0.15rem] [&_h2]:m-[0_0_0.55rem] [&_div>span]:ml-[0.65rem] max-[560px]:block">
                 <div>
                     <h2>Delivery branch</h2>
                     <code>{props.workPackage.branchName}</code>
@@ -994,7 +996,7 @@ function BranchPanel(props: {
                     </span>
                 </div>
                 <span
-                    class={`branch-state ${props.workPackage.git.exists ? "branch-state-ready" : ""}`}
+                    class={`branch-state ${props.workPackage.git.exists ? "branch-state-ready" : ""} p-[0.3rem_0.7rem] max-[560px]:inline-block max-[560px]:mt-[0.8rem]`}
                 >
                     {props.workPackage.git.exists
                         ? "Local branch ready"
@@ -1003,23 +1005,30 @@ function BranchPanel(props: {
             </div>
 
             <Show when={error()}>
-                <p class="banner">{error()}</p>
+                <p class="banner p-[0.8rem_1rem]">{error()}</p>
             </Show>
             <Show when={notice()}>
-                <p class="branch-notice" role="status">
+                <p class="branch-notice m-0 p-[0.8rem_1rem]" role="status">
                     {notice()}
                 </p>
             </Show>
 
             <BranchSection
                 variant="tonal"
-                title="Local branch name"
+                title="Branch name"
                 description="Rename the local delivery branch while preserving its commit history."
             >
-                <div class="branch-name-editor">
+                <div class="grid grid-cols-[1fr_250px] gap-x-3 gap-y-1">
+                    <label
+                        class="field-label col-start-1"
+                        for="local-branch-name-input"
+                    >
+                        Local Branch Name
+                    </label>
                     <input
+                        id="local-branch-name-input"
                         aria-label="Local delivery branch name"
-                        class="branch-name-input"
+                        class="branch-name-input col-start-1 min-w-0 flex-[1_1_18rem] p-[0.6rem_0.7rem]"
                         value={branchName()}
                         disabled={!!busy()}
                         onInput={(event) =>
@@ -1030,7 +1039,7 @@ function BranchPanel(props: {
                         }}
                     />
                     <button
-                        class="button"
+                        class="button col-start-2 inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                         disabled={
                             !!busy() ||
                             !branchName().trim() ||
@@ -1043,17 +1052,20 @@ function BranchPanel(props: {
                             : "Rename local branch"}
                     </button>
                 </div>
-                <p class="branch-name-help">
-                    If the branch has not been created yet, this only sets the
-                    name it will use when first created.
-                </p>
                 <Show when={current()} keyed>
                     {(branch) => (
                         <>
-                            <div class="branch-name-editor">
+                            <div class="grid grid-cols-[1fr_250px] gap-x-3 gap-y-1 mt-4">
+                                <label
+                                    class="field-label col-start-1"
+                                    for="remote-branch-name-input"
+                                >
+                                    Remote Branch Name
+                                </label>
                                 <input
+                                    id="remote-branch-name-input"
                                     aria-label="Remote branch name"
-                                    class="branch-name-input"
+                                    class="branch-name-input col-start-1 min-w-0 flex-[1_1_18rem] p-[0.6rem_0.7rem]"
                                     value={remoteBranch()}
                                     disabled={!!busy()}
                                     onInput={(event) =>
@@ -1068,7 +1080,7 @@ function BranchPanel(props: {
                                     placeholder={branch.branchName}
                                 />
                                 <button
-                                    class="button"
+                                    class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                     disabled={
                                         !!busy() ||
                                         remoteBranch().trim() ===
@@ -1081,11 +1093,6 @@ function BranchPanel(props: {
                                         : "Save remote branch"}
                                 </button>
                             </div>
-                            <p class="branch-name-help">
-                                Leave this blank to push under the local branch
-                                name. Changing it does not rename or move the
-                                local branch.
-                            </p>
                         </>
                     )}
                 </Show>
@@ -1096,7 +1103,7 @@ function BranchPanel(props: {
                 title="Contents"
                 description="The commits currently unique to this work package branch."
             >
-                <div class="branch-metrics">
+                <div class="branch-metrics grid grid-cols-[repeat(3,_minmax(0,_1fr))] gap-[0.75rem] max-[560px]:grid-cols-[1fr]">
                     <Metric
                         label="Commits"
                         value={props.workPackage.git.commits.length}
@@ -1113,12 +1120,12 @@ function BranchPanel(props: {
                 <Show
                     when={props.workPackage.git.commits.length}
                     fallback={
-                        <p class="branch-empty">
+                        <p class="branch-empty m-[1rem_0_0]">
                             No commits have landed on this branch yet.
                         </p>
                     }
                 >
-                    <ul class="branch-commits">
+                    <ul class="branch-commits overflow-hidden m-[1rem_0_0] p-0 [&_li]:flex [&_li]:gap-[0.8rem] [&_li]:p-[0.65rem_0.8rem] [&_code]:flex-[0_0_auto]">
                         <For each={props.workPackage.git.commits}>
                             {(commit) => (
                                 <li>
@@ -1134,7 +1141,7 @@ function BranchPanel(props: {
             <Show
                 when={current()}
                 fallback={
-                    <div class="branch-section branch-unavailable">
+                    <div class="branch-section branch-unavailable overflow-hidden [&>header]:p-[1.15rem_1.25rem_0.35rem] [&>header_h3]:m-0 [&>header_p]:m-[0.28rem_0_0] [&_h3]:m-0 [&_p]:m-[0.28rem_0_0] p-[1.25rem]">
                         <h3>Pull request description and checks</h3>
                         <p>
                             These controls become available once the branch has
@@ -1151,9 +1158,9 @@ function BranchPanel(props: {
                             title="Pull request description"
                             description="Generate from the commits, then review or edit before opening a pull request."
                         >
-                            <div class="branch-section-actions">
+                            <div class="branch-section-actions flex flex-wrap items-center gap-[0.75rem]">
                                 <button
-                                    class="button"
+                                    class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                     disabled={
                                         !!busy() ||
                                         !branch.git.commits.length ||
@@ -1176,14 +1183,14 @@ function BranchPanel(props: {
                                 </Show>
                             </div>
                             <Show when={!props.tools.prAgentAvailable}>
-                                <p class="branch-warning">
+                                <p class="branch-warning m-[1rem_0_0] p-[0.65rem_0.8rem]">
                                     The configured PR-description agent is
                                     unavailable. You can still write the
                                     description manually.
                                 </p>
                             </Show>
                             <div
-                                class="description-modes"
+                                class="description-modes inline-flex gap-[0.2rem] m-[1rem_0_0.75rem] p-[0.2rem] [&_button]:p-[0.38rem_0.7rem]"
                                 role="group"
                                 aria-label="Description view"
                             >
@@ -1203,7 +1210,7 @@ function BranchPanel(props: {
                             <Show
                                 when={mode() === "write"}
                                 fallback={
-                                    <div class="branch-preview markdown">
+                                    <div class="branch-preview markdown [&>:first-child]:mt-0 [&_h1]:m-[1.5em_0_0.55em] [&_h2]:m-[1.5em_0_0.55em] [&_h3]:m-[1.5em_0_0.55em] [&_h4]:m-[1.5em_0_0.55em] [&_p]:m-[0_0_1em] [&_code]:p-[0.1rem_0.32rem] [&_pre]:overflow-x-auto [&_pre]:p-[1rem] [&_pre_code]:p-0 [&_blockquote]:m-[0_0_1em] [&_blockquote]:pl-[1rem] [&_ul]:m-[0_0_1em] [&_ul]:pl-[1.5rem] [&_ol]:m-[0_0_1em] [&_ol]:pl-[1.5rem] [&_li.md-task]:ml-[-1.25rem] [&_li.md-task_input]:w-auto [&_li.md-task_input]:mr-[0.5rem] [&_img]:block [&_img]:max-w-full [&_img]:h-auto [&_img]:m-[1rem_0] [&_hr]:m-[1.5em_0] [&_.md-table-wrap]:overflow-x-auto [&_.md-table-wrap]:mb-[1em] [&_table]:min-w-full [&_th]:p-[0.45rem_0.7rem] [&_td]:p-[0.45rem_0.7rem] grid gap-[1rem] min-h-[10rem] p-[1rem] [&>div>:first-child]:mt-0 [&_code]:p-[0.1rem_0.3rem] [&_pre]:p-[0.8rem]">
                                         <Show
                                             when={body().trim()}
                                             fallback={
@@ -1219,8 +1226,8 @@ function BranchPanel(props: {
                                     </div>
                                 }
                             >
-                                <div class="branch-description-fields">
-                                    <label class="field">
+                                <div class="branch-description-fields grid gap-[1rem] [&_textarea]:min-h-[14rem]">
+                                    <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                                         <span>Title</span>
                                         <input
                                             value={title()}
@@ -1232,7 +1239,7 @@ function BranchPanel(props: {
                                             placeholder="Pull request title"
                                         />
                                     </label>
-                                    <label class="field">
+                                    <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                                         <span>Body (Markdown)</span>
                                         <textarea
                                             value={body()}
@@ -1246,9 +1253,9 @@ function BranchPanel(props: {
                                     </label>
                                 </div>
                             </Show>
-                            <div class="branch-footer">
+                            <div class="branch-footer flex flex-wrap items-center gap-[0.75rem] mt-[0.8rem] [&_.spacer]:flex-1">
                                 <button
-                                    class="button"
+                                    class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                     disabled={!!busy() || !descriptionDirty()}
                                     onClick={save}
                                 >
@@ -1266,9 +1273,9 @@ function BranchPanel(props: {
                             title="Checks"
                             description={`${props.tools.checkCount} configured command(s) · typecheck, lint and tests.`}
                         >
-                            <div class="branch-section-actions">
+                            <div class="branch-section-actions flex flex-wrap items-center gap-[0.75rem]">
                                 <button
-                                    class="button"
+                                    class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                     disabled={
                                         !!busy() ||
                                         !!branch.checksRunning ||
@@ -1286,7 +1293,10 @@ function BranchPanel(props: {
                             </div>
                             <Show when={branch.checksRunning}>
                                 {(progress) => (
-                                    <p class="branch-progress" role="status">
+                                    <p
+                                        class="branch-progress m-0 p-[0.8rem_1rem] mt-[1rem]"
+                                        role="status"
+                                    >
                                         Running{" "}
                                         <strong>
                                             {progress().current ??
@@ -1300,7 +1310,7 @@ function BranchPanel(props: {
                                 )}
                             </Show>
                             <Show when={props.tools.checkCount === 0}>
-                                <p class="branch-empty">
+                                <p class="branch-empty m-[1rem_0_0]">
                                     No pre-PR checks are configured for this
                                     repository.
                                 </p>
@@ -1313,20 +1323,20 @@ function BranchPanel(props: {
                                 }
                             >
                                 <div>
-                                    <p class="branch-empty">
+                                    <p class="branch-empty m-[1rem_0_0]">
                                         Checks have not been run on this branch
                                         yet.
                                     </p>
-                                    <ul class="branch-checks">
+                                    <ul class="branch-checks overflow-hidden m-[1rem_0_0] p-0 [&_.check-row]:flex [&_.check-row]:items-start [&_.check-row_details]:min-w-0 [&_.check-row_details]:flex-1 [&_.check-run-button]:flex-[0_0_auto] [&_.check-run-button]:m-[0.45rem_0.7rem_0.45rem_0] [&_.check-not-run-row]:items-center [&_.check-not-run-row]:gap-[0.7rem] [&_.check-not-run-row]:pl-[0.8rem] [&_.check-not-run-row_strong]:min-w-[7rem] [&_.check-not-run-row_strong]:flex-1 [&_summary]:grid [&_summary]:min-h-[3.4rem] [&_summary]:grid-cols-[auto_minmax(7rem,_1fr)_minmax(10rem,_2fr)_auto] [&_summary]:items-center [&_summary]:gap-[0.7rem] [&_summary]:p-[0.7rem_0.8rem] [&_summary_code]:overflow-hidden [&_details>p]:m-0 [&_details>p]:p-[0_0.8rem_0.7rem] [&_pre]:max-h-[26rem] [&_pre]:m-0 [&_pre]:overflow-auto [&_pre]:p-[0.9rem] max-[560px]:[&_summary]:grid-cols-[auto_1fr_auto] max-[560px]:[&_summary_code]:col-[2_/_-1] max-[560px]:[&_summary_code]:row-[2]">
                                         <For each={props.tools.checkNames}>
                                             {(check) => (
                                                 <li class="check-row check-not-run-row">
-                                                    <span class="check-result check-not-run">
+                                                    <span class="check-result check-not-run inline-flex items-center p-[0.18rem_0.5rem]">
                                                         Not run
                                                     </span>
                                                     <strong>{check}</strong>
                                                     <button
-                                                        class="button check-run-button"
+                                                        class="button check-run-button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                                         disabled={
                                                             !!busy() ||
                                                             !branch.git.exists
@@ -1345,10 +1355,10 @@ function BranchPanel(props: {
                             </Show>
                             <Show when={report()}>
                                 {(checks) => (
-                                    <div class="check-report">
-                                        <div class="check-summary">
+                                    <div class="check-report mt-[1rem]">
+                                        <div class="check-summary flex flex-wrap items-center gap-[0.75rem]">
                                             <span
-                                                class={`check-result ${checks().passed ? "check-passed" : "check-failed"}`}
+                                                class={`check-result ${checks().passed ? "check-passed" : "check-failed"} inline-flex items-center p-[0.18rem_0.5rem]`}
                                             >
                                                 {checks().passed
                                                     ? "Passed"
@@ -1364,7 +1374,7 @@ function BranchPanel(props: {
                                             </span>
                                             <Show when={!checks().passed}>
                                                 <button
-                                                    class="button check-agent-button"
+                                                    class="button check-agent-button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem] ml-auto max-[560px]:w-full max-[560px]:ml-0"
                                                     disabled={!!busy()}
                                                     onClick={() =>
                                                         setCheckAgentOpen(true)
@@ -1375,13 +1385,13 @@ function BranchPanel(props: {
                                             </Show>
                                         </div>
                                         <Show when={checksStale()}>
-                                            <p class="branch-warning">
+                                            <p class="branch-warning m-[1rem_0_0] p-[0.65rem_0.8rem]">
                                                 The branch has new commits since
                                                 this report was produced, so
                                                 these results are stale.
                                             </p>
                                         </Show>
-                                        <ul class="branch-checks">
+                                        <ul class="branch-checks overflow-hidden m-[1rem_0_0] p-0 [&_.check-row]:flex [&_.check-row]:items-start [&_.check-row_details]:min-w-0 [&_.check-row_details]:flex-1 [&_.check-run-button]:flex-[0_0_auto] [&_.check-run-button]:m-[0.45rem_0.7rem_0.45rem_0] [&_.check-not-run-row]:items-center [&_.check-not-run-row]:gap-[0.7rem] [&_.check-not-run-row]:pl-[0.8rem] [&_.check-not-run-row_strong]:min-w-[7rem] [&_.check-not-run-row_strong]:flex-1 [&_summary]:grid [&_summary]:min-h-[3.4rem] [&_summary]:grid-cols-[auto_minmax(7rem,_1fr)_minmax(10rem,_2fr)_auto] [&_summary]:items-center [&_summary]:gap-[0.7rem] [&_summary]:p-[0.7rem_0.8rem] [&_summary_code]:overflow-hidden [&_details>p]:m-0 [&_details>p]:p-[0_0.8rem_0.7rem] [&_pre]:max-h-[26rem] [&_pre]:m-0 [&_pre]:overflow-auto [&_pre]:p-[0.9rem] max-[560px]:[&_summary]:grid-cols-[auto_1fr_auto] max-[560px]:[&_summary_code]:col-[2_/_-1] max-[560px]:[&_summary_code]:row-[2]">
                                             <For each={checks().checks}>
                                                 {(check) => (
                                                     <li class="check-row">
@@ -1395,7 +1405,7 @@ function BranchPanel(props: {
                                                         >
                                                             <summary>
                                                                 <span
-                                                                    class={`check-result check-${check.status}`}
+                                                                    class={`check-result check-${check.status} inline-flex items-center p-[0.18rem_0.5rem]`}
                                                                 >
                                                                     {
                                                                         checkLabel[
@@ -1442,7 +1452,7 @@ function BranchPanel(props: {
                                                             </Show>
                                                         </details>
                                                         <button
-                                                            class="button check-run-button"
+                                                            class="button check-run-button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                                             disabled={
                                                                 !!busy() ||
                                                                 !!branch.checksRunning ||
@@ -1463,12 +1473,12 @@ function BranchPanel(props: {
                                             <For each={missingChecks()}>
                                                 {(check) => (
                                                     <li class="check-row check-not-run-row">
-                                                        <span class="check-result check-not-run">
+                                                        <span class="check-result check-not-run inline-flex items-center p-[0.18rem_0.5rem]">
                                                             Not run
                                                         </span>
                                                         <strong>{check}</strong>
                                                         <button
-                                                            class="button check-run-button"
+                                                            class="button check-run-button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                                             disabled={
                                                                 !!busy() ||
                                                                 !!branch.checksRunning ||
@@ -1498,23 +1508,23 @@ function BranchPanel(props: {
                             <Show
                                 when={branch.prUrl}
                                 fallback={
-                                    <div class="pull-request-step">
+                                    <div class="pull-request-step grid gap-[0.8rem]">
                                         <Show when={checksBlocking()}>
                                             {(reason) => (
-                                                <p class="branch-step-note">
+                                                <p class="branch-step-note m-0">
                                                     {reason()}
                                                 </p>
                                             )}
                                         </Show>
                                         <Show when={!title().trim()}>
-                                            <p class="branch-step-note">
+                                            <p class="branch-step-note m-0">
                                                 Add a pull request title before
                                                 opening it.
                                             </p>
                                         </Show>
-                                        <div class="branch-pr-actions">
+                                        <div class="branch-pr-actions flex flex-wrap gap-[0.5rem]">
                                             <button
-                                                class="button"
+                                                class="button inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                                 disabled={
                                                     !!busy() ||
                                                     !title().trim() ||
@@ -1528,7 +1538,7 @@ function BranchPanel(props: {
                                                     : "Open as draft"}
                                             </button>
                                             <button
-                                                class="button-primary"
+                                                class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                                 disabled={
                                                     !!busy() ||
                                                     !title().trim() ||
@@ -1545,10 +1555,10 @@ function BranchPanel(props: {
                                     </div>
                                 }
                             >
-                                <div class="pull-request-open">
+                                <div class="pull-request-open flex flex-wrap items-center justify-between gap-[1rem]">
                                     <span>Pull request opened</span>
                                     <a
-                                        class="button-primary"
+                                        class="button-primary inline-flex min-h-[2.5rem] items-center justify-center gap-[0.45rem] p-[0.5rem_0.9rem]"
                                         href={branch.prUrl!}
                                         target="_blank"
                                         rel="noreferrer"
@@ -1590,7 +1600,7 @@ function BranchSection(props: {
 }) {
     return (
         <section
-            class={`branch-section branch-section-${props.variant ?? "elevated"}`}
+            class={`branch-section branch-section-${props.variant ?? "elevated"} overflow-hidden [&>header]:p-[1.15rem_1.25rem_0.35rem] [&>header_h3]:m-0 [&>header_p]:m-[0.28rem_0_0]`}
         >
             <header>
                 <div>
@@ -1598,7 +1608,9 @@ function BranchSection(props: {
                     <p>{props.description}</p>
                 </div>
             </header>
-            <div class="branch-section-body">{props.children}</div>
+            <div class="branch-section-body p-[1rem_1.25rem_1.25rem]">
+                {props.children}
+            </div>
         </section>
     )
 }

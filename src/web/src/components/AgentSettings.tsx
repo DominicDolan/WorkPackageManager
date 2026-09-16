@@ -68,7 +68,7 @@ export function AgentSettings(props: {
     )
     return (
         <div class={`${styles.scope} mt-5 grid gap-4 sm:grid-cols-2`}>
-            <label class="field">
+            <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                 <span>Agent</span>
                 <select
                     value={props.harness}
@@ -95,7 +95,7 @@ export function AgentSettings(props: {
                 }
             />
             <Show when={!props.unattended}>
-                <label class="field">
+                <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                     <span>Run mode</span>
                     <select
                         value={props.mode}
@@ -115,7 +115,7 @@ export function AgentSettings(props: {
                     </select>
                 </label>
             </Show>
-            <label class="field">
+            <label class="field grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]">
                 <span>Permissions</span>
                 <select
                     value={
@@ -182,7 +182,10 @@ function ModelPicker(props: {
         return () => document.removeEventListener("pointerdown", dismiss)
     })
     return (
-        <label ref={picker} class="field relative">
+        <label
+            ref={picker}
+            class="field relative grid gap-[0.45rem] [&_input]:w-full [&_input]:p-[0.68rem_0.75rem] [&_select]:w-full [&_select]:p-[0.68rem_0.75rem] [&_textarea]:w-full [&_textarea]:p-[0.68rem_0.75rem] [&_textarea]:min-h-[7rem]"
+        >
             <span>Model</span>
             <input
                 role="combobox"
@@ -210,7 +213,7 @@ function ModelPicker(props: {
                 <div class="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white p-1 shadow-2xl">
                     <button
                         type="button"
-                        class="model-option"
+                        class="model-option flex w-full items-center justify-between gap-[1rem] p-[0.6rem_0.75rem] [&_small]:flex-none"
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => choose()}
                     >
@@ -227,7 +230,7 @@ function ModelPicker(props: {
                         {(entry) => (
                             <button
                                 type="button"
-                                class="model-option"
+                                class="model-option flex w-full items-center justify-between gap-[1rem] p-[0.6rem_0.75rem] [&_small]:flex-none"
                                 onMouseDown={(event) => event.preventDefault()}
                                 onClick={() => choose(entry)}
                             >
