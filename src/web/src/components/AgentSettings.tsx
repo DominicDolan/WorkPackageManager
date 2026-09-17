@@ -1,12 +1,19 @@
 import {
     AGENT_PERMISSION_MODE_LABELS,
     type AgentEnvironment,
-    type AgentModel,
     type AgentPermissionMode,
     type AgentRunMode,
     type ModelTier,
 } from "@shared/types"
-import { For, Show, createEffect, createSignal } from "solid-js"
+import {
+    For,
+    Show,
+    Loading,
+    createEffect,
+    createMemo,
+    isPending,
+    latest,
+} from "solid-js"
 import { api } from "../api"
 import { ModelPicker } from "./ModelPicker"
 
@@ -26,36 +33,30 @@ export function AgentSettings(props: {
     const available = () =>
         props.environment.harnesses.filter((item) => item.available)
     const selectedHarness = () =>
-        props.environment.harnesses.find((item) => item.id === props.harness)
-    const [models, setModels] = createSignal<AgentModel[]>([])
-    // A model catalogue belongs to one harness. Keeping that request here lets us
-    // clear the previous catalogue immediately and ignore a late response from a
-    // harness the person has since switched away from.
-    createEffect(
-        () => props.harness,
-        (harness) => {
-            let current = true
-            setModels([])
-            if (harness) {
-                api.agentModels(harness)
-                    .then((entries) => {
-                        if (current) setModels(entries)
-                    })
-                    .catch(() => {
-                        if (current) setModels([])
-                    })
-            }
-            return () => {
-                current = false
-            }
-        },
-    )
+        props.environment.harnesses.find(
+            (item) => item.id === latest(() => props.harness),
+        )
+    // Solid owns request ordering. Failed catalogues retain the harness-default
+    // option; a pending catalogue must never offer another harness's models.
+    const models = createMemo(async () => {
+        const harness = props.harness
+        const entries = harness
+            ? await api.agentModels(harness).catch(() => [])
+            : []
+        return { harness, entries }
+    })
+    const defaultLabel = () =>
+        selectedHarness()
+            ? `Default (${selectedHarness()!.label}'s configured model)`
+            : "Harness default"
     // A recommendation is a starting point, not a restriction. Resolve it only
     // after this harness's catalogue arrives; a user choosing the harness default
     // later leaves the value empty and is not overwritten.
     createEffect(
         () => [props.harness, models()] as const,
-        ([harness, catalogue]) => {
+        ([harness, result]) => {
+            if (result.harness !== harness) return
+            const catalogue = result.entries
             if (props.model || !props.recommendedTier || !catalogue.length)
                 return
             const candidate =
@@ -71,7 +72,7 @@ export function AgentSettings(props: {
             <label class="field">
                 <span>Agent</span>
                 <select
-                    value={props.harness}
+                    value={latest(() => props.harness)}
                     onChange={(event) => {
                         props.setHarness(event.currentTarget.value)
                         props.setModel("")
@@ -84,16 +85,25 @@ export function AgentSettings(props: {
                     </For>
                 </select>
             </label>
-            <ModelPicker
-                models={models()}
-                value={props.model}
-                setValue={props.setModel}
-                defaultLabel={
-                    selectedHarness()
-                        ? `Default (${selectedHarness()!.label}'s configured model)`
-                        : "Harness default"
+            <Loading
+                fallback={
+                    <ModelPicker
+                        models={[]}
+                        value=""
+                        setValue={props.setModel}
+                        defaultLabel={defaultLabel()}
+                        busy
+                    />
                 }
-            />
+            >
+                <ModelPicker
+                    models={isPending(models) ? [] : models().entries}
+                    busy={isPending(models)}
+                    value={props.model}
+                    setValue={props.setModel}
+                    defaultLabel={defaultLabel()}
+                />
+            </Loading>
             <Show when={!props.unattended}>
                 <label class="field">
                     <span>Run mode</span>

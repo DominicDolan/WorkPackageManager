@@ -697,10 +697,10 @@ details.collection > summary span {
 }
 /* Cards and rows may have opaque children (for example check output). Keep
    their bottom line above those children without intercepting interaction. */
-:is(article, li)[aria-busy="true"] {
+:is(article, li, section, div)[aria-busy="true"] {
     position: relative;
 }
-:is(article, li)[aria-busy="true"]::after {
+:is(article, li, section, div)[aria-busy="true"]::after {
     content: "";
     position: absolute;
     inset-inline: 0;

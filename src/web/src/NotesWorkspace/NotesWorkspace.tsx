@@ -9,6 +9,8 @@ import {
     createMemo,
     createSignal,
     refresh,
+    isPending,
+    latest,
 } from "solid-js"
 import { api } from "../api"
 import { PageSkeleton } from "../components/PageSkeleton"
@@ -197,7 +199,7 @@ export function NotesWorkspace(props: {
                                     <label class="search grid gap-[0.45rem] p-[1rem] [&_input]:p-[0.58rem_0.65rem]">
                                         <span>Find a note</span>
                                         <input
-                                            value={query()}
+                                            value={latest(query)}
                                             onInput={(event) =>
                                                 setQuery(
                                                     event.currentTarget.value,
@@ -218,7 +220,7 @@ export function NotesWorkspace(props: {
                                                 when={data.folders.length > 0}
                                             >
                                                 <select
-                                                    value={folder()}
+                                                    value={latest(folder)}
                                                     onChange={(event) =>
                                                         setFolder(
                                                             event.currentTarget
@@ -242,7 +244,7 @@ export function NotesWorkspace(props: {
                                             </Show>
                                             <Show when={data.tags.length > 0}>
                                                 <select
-                                                    value={tag()}
+                                                    value={latest(tag)}
                                                     onChange={(event) =>
                                                         setTag(
                                                             event.currentTarget
@@ -266,7 +268,14 @@ export function NotesWorkspace(props: {
                                             </Show>
                                         </div>
                                     </Show>
-                                    <div class="note-list overflow-auto max-[820px]:flex max-[820px]:overflow-x-auto">
+                                    <div
+                                        aria-busy={
+                                            isPending(listing)
+                                                ? "true"
+                                                : "false"
+                                        }
+                                        class="note-list overflow-auto max-[820px]:flex max-[820px]:overflow-x-auto"
+                                    >
                                         <For
                                             each={data.notes}
                                             fallback={
@@ -281,10 +290,17 @@ export function NotesWorkspace(props: {
                                                 <button
                                                     class={`card-item row compact  block w-full p-[0.9rem_1rem] [&>span]:block [&_small]:block [&_strong]:block [&_strong]:mt-[0.25rem] [&_p]:line-clamp-2 [&_p]:m-[0.35rem_0] [&_p]:overflow-hidden max-[820px]:min-w-[13rem]`}
                                                     aria-current={
-                                                        selectedPath() ===
+                                                        latest(selectedPath) ===
                                                         item.path
                                                             ? "page"
                                                             : undefined
+                                                    }
+                                                    aria-busy={
+                                                        latest(selectedPath) ===
+                                                            item.path &&
+                                                        isPending(selected)
+                                                            ? "true"
+                                                            : "false"
                                                     }
                                                     onClick={() =>
                                                         choose(item.path)
@@ -330,51 +346,65 @@ export function NotesWorkspace(props: {
                                                     <PageSkeleton compact />
                                                 }
                                             >
-                                                <Show
-                                                    when={selected()}
-                                                    keyed
-                                                    fallback={
-                                                        <section class="empty max-w-[48ch] m-[6rem_auto] p-[0_2rem] [&_h2]:m-0 [&_p]:m-[0.75rem_0_0]">
-                                                            <h2>
-                                                                Choose a note
-                                                            </h2>
-                                                            <p>
-                                                                Select a note to
-                                                                read or edit it.
-                                                                Notes remain
-                                                                ordinary
-                                                                Markdown files
-                                                                in the shared
-                                                                folder.
-                                                            </p>
-                                                        </section>
+                                                <div
+                                                    aria-busy={
+                                                        isPending(selected)
+                                                            ? "true"
+                                                            : "false"
                                                     }
+                                                    inert={isPending(selected)}
                                                 >
-                                                    {(note) => (
-                                                        <NoteEditor
-                                                            note={note}
-                                                            mode={noteMode()}
-                                                            setMode={
-                                                                setNoteMode
-                                                            }
-                                                            saved={() =>
-                                                                Promise.all([
-                                                                    refresh(
-                                                                        selected,
-                                                                    ),
-                                                                    refresh(
-                                                                        listing,
-                                                                    ),
-                                                                ])
-                                                            }
-                                                            close={() =>
-                                                                setSelectedPath(
-                                                                    "",
-                                                                )
-                                                            }
-                                                        />
-                                                    )}
-                                                </Show>
+                                                    <Show
+                                                        when={selected()}
+                                                        keyed
+                                                        fallback={
+                                                            <section class="empty max-w-[48ch] m-[6rem_auto] p-[0_2rem] [&_h2]:m-0 [&_p]:m-[0.75rem_0_0]">
+                                                                <h2>
+                                                                    Choose a
+                                                                    note
+                                                                </h2>
+                                                                <p>
+                                                                    Select a
+                                                                    note to read
+                                                                    or edit it.
+                                                                    Notes remain
+                                                                    ordinary
+                                                                    Markdown
+                                                                    files in the
+                                                                    shared
+                                                                    folder.
+                                                                </p>
+                                                            </section>
+                                                        }
+                                                    >
+                                                        {(note) => (
+                                                            <NoteEditor
+                                                                note={note}
+                                                                mode={noteMode()}
+                                                                setMode={
+                                                                    setNoteMode
+                                                                }
+                                                                saved={() =>
+                                                                    Promise.all(
+                                                                        [
+                                                                            refresh(
+                                                                                selected,
+                                                                            ),
+                                                                            refresh(
+                                                                                listing,
+                                                                            ),
+                                                                        ],
+                                                                    )
+                                                                }
+                                                                close={() =>
+                                                                    setSelectedPath(
+                                                                        "",
+                                                                    )
+                                                                }
+                                                            />
+                                                        )}
+                                                    </Show>
+                                                </div>
                                             </Loading>
                                         }
                                     >

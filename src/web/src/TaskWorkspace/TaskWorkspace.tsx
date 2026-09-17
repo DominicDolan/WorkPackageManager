@@ -9,6 +9,8 @@ import {
     createMemo,
     createSignal,
     refresh,
+    isPending,
+    latest,
 } from "solid-js"
 import { AgentLauncher } from "../AgentLauncher/AgentLauncher"
 import { api } from "../api"
@@ -63,7 +65,7 @@ export function TaskWorkspace(props: {
         request: () => Promise<unknown>,
         onSuccess?: () => void,
     ) {
-        if (busy()) return
+        if (busy() || isPending(task) || isPending(workPackage)) return
 
         setBusy(label)
         setError("")
@@ -114,11 +116,19 @@ export function TaskWorkspace(props: {
                                     <button
                                         class={`task-nav-item  relative block w-full p-[0.75rem_0.8rem] [&>span]:block [&>strong]:block [&>strong]:mt-[0.25rem] [&>strong]:overflow-hidden [&>.task-nav-meta]:flex [&>.task-nav-meta]:items-center [&>.task-nav-meta]:gap-[0.45rem] [&>.task-nav-detail]:mt-[0.25rem] [&>.task-nav-detail]:overflow-hidden`}
                                         aria-current={
-                                            item.ref === props.taskRef
+                                            item.ref ===
+                                            latest(() => props.taskRef)
                                                 ? "page"
                                                 : undefined
                                         }
                                         onClick={() => props.openTask(item.ref)}
+                                        aria-busy={
+                                            item.ref ===
+                                                latest(() => props.taskRef) &&
+                                            isPending(task)
+                                                ? "true"
+                                                : "false"
+                                        }
                                     >
                                         <span class="task-nav-meta">
                                             {item.ref}
@@ -157,24 +167,34 @@ export function TaskWorkspace(props: {
                             </For>
                         </div>
                     </aside>
-                    <TaskDetailPanel
-                        task={task()}
-                        workPackage={workPackage()}
-                        workPackages={props.snapshot.workPackages}
-                        busy={busy()}
-                        error={error()}
-                        editing={editing()}
-                        setEditing={setEditing}
-                        note={note()}
-                        setNote={setNote}
-                        mutate={mutate}
-                        openAgent={() => setAgentOpen(true)}
-                        openNote={props.openNote}
-                        notesChanged={() => {
-                            refresh(task)
-                            props.changed()
-                        }}
-                    />
+                    <div
+                        class="min-w-0"
+                        aria-busy={
+                            isPending(task) || isPending(workPackage)
+                                ? "true"
+                                : "false"
+                        }
+                        inert={isPending(task) || isPending(workPackage)}
+                    >
+                        <TaskDetailPanel
+                            task={task()}
+                            workPackage={workPackage()}
+                            workPackages={props.snapshot.workPackages}
+                            busy={busy()}
+                            error={error()}
+                            editing={editing()}
+                            setEditing={setEditing}
+                            note={note()}
+                            setNote={setNote}
+                            mutate={mutate}
+                            openAgent={() => setAgentOpen(true)}
+                            openNote={props.openNote}
+                            notesChanged={() => {
+                                refresh(task)
+                                props.changed()
+                            }}
+                        />
+                    </div>
                 </div>
                 <Show when={agentOpen()}>
                     <Show when={workPackage()}>

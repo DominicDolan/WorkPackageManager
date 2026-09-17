@@ -13,6 +13,8 @@ import {
     createMemo,
     createSignal,
     refresh,
+    isPending,
+    latest,
 } from "solid-js"
 import { api } from "../api"
 import { PageSkeleton } from "../components/PageSkeleton"
@@ -148,7 +150,7 @@ export function IssuesWorkspace(props: {
                                     <label class="search grid gap-[0.45rem] p-[1rem] [&_input]:p-[0.58rem_0.65rem]">
                                         <span>Find an issue</span>
                                         <input
-                                            value={query()}
+                                            value={latest(query)}
                                             onInput={(event) =>
                                                 setQuery(
                                                     event.currentTarget.value,
@@ -160,7 +162,7 @@ export function IssuesWorkspace(props: {
                                     </label>
                                     <div class="filters [&_select]:p-[0.58rem_0.65rem] grid gap-[0.5rem] p-[0.75rem_1rem]">
                                         <select
-                                            value={state()}
+                                            value={latest(state)}
                                             onChange={(event) =>
                                                 setState(
                                                     event.currentTarget
@@ -183,7 +185,7 @@ export function IssuesWorkspace(props: {
                                             }
                                         >
                                             <select
-                                                value={source()}
+                                                value={latest(source)}
                                                 onChange={(event) =>
                                                     setSource(
                                                         event.currentTarget
@@ -211,7 +213,7 @@ export function IssuesWorkspace(props: {
                                         </Show>
                                         <Show when={data.facets.labels.length}>
                                             <select
-                                                value={label()}
+                                                value={latest(label)}
                                                 onChange={(event) =>
                                                     setLabel(
                                                         event.currentTarget
@@ -241,47 +243,78 @@ export function IssuesWorkspace(props: {
                                     <Loading
                                         fallback={<PageSkeleton compact />}
                                     >
-                                        <Show
-                                            when={selected()}
-                                            keyed
-                                            fallback={
-                                                <For
-                                                    each={data.issues}
-                                                    fallback={
-                                                        <section class="empty max-w-[48ch] m-[6rem_auto] p-[0_2rem] [&_h2]:m-0 [&_p]:m-[0.75rem_0_0]">
-                                                            <h2>
-                                                                No issues found
-                                                            </h2>
-                                                            <p>
-                                                                Place provider
-                                                                JSON files in
-                                                                the notes folder
-                                                                to see them
-                                                                here.
-                                                            </p>
-                                                        </section>
-                                                    }
-                                                >
-                                                    {(issue) => (
-                                                        <IssueCard
-                                                            issue={issue}
-                                                            open={() =>
-                                                                choose(issue.id)
-                                                            }
-                                                        />
-                                                    )}
-                                                </For>
+                                        <div
+                                            aria-busy={
+                                                isPending(listing) ||
+                                                isPending(selected)
+                                                    ? "true"
+                                                    : "false"
                                             }
                                         >
-                                            {(issue) => (
-                                                <IssueDetailPane
-                                                    issue={issue}
-                                                    back={() =>
-                                                        setSelectedId("")
-                                                    }
-                                                />
-                                            )}
-                                        </Show>
+                                            <Show
+                                                when={selected()}
+                                                keyed
+                                                fallback={
+                                                    <For
+                                                        each={data.issues}
+                                                        fallback={
+                                                            <section class="empty max-w-[48ch] m-[6rem_auto] p-[0_2rem] [&_h2]:m-0 [&_p]:m-[0.75rem_0_0]">
+                                                                <h2>
+                                                                    No issues
+                                                                    found
+                                                                </h2>
+                                                                <p>
+                                                                    Place
+                                                                    provider
+                                                                    JSON files
+                                                                    in the notes
+                                                                    folder to
+                                                                    see them
+                                                                    here.
+                                                                </p>
+                                                            </section>
+                                                        }
+                                                    >
+                                                        {(issue) => (
+                                                            <IssueCard
+                                                                issue={issue}
+                                                                busy={
+                                                                    latest(
+                                                                        selectedId,
+                                                                    ) ===
+                                                                        issue.id &&
+                                                                    isPending(
+                                                                        selected,
+                                                                    )
+                                                                }
+                                                                open={() =>
+                                                                    choose(
+                                                                        issue.id,
+                                                                    )
+                                                                }
+                                                            />
+                                                        )}
+                                                    </For>
+                                                }
+                                            >
+                                                {(issue) => (
+                                                    <div
+                                                        inert={isPending(
+                                                            selected,
+                                                        )}
+                                                    >
+                                                        <IssueDetailPane
+                                                            issue={issue}
+                                                            back={() =>
+                                                                setSelectedId(
+                                                                    "",
+                                                                )
+                                                            }
+                                                        />
+                                                    </div>
+                                                )}
+                                            </Show>
+                                        </div>
                                     </Loading>
                                 </section>
                             </section>

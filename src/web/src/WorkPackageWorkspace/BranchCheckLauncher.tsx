@@ -3,6 +3,7 @@ import {
     createOptimistic,
     For,
     Loading,
+    isPending,
     Show,
     createEffect,
     createMemo,
@@ -86,7 +87,7 @@ export function BranchCheckLauncher(props: {
         )
 
     const run = action(function* () {
-        if (busy()) return
+        if (busy() || isPending(harness)) return
 
         setBusy(true)
         setError("")
@@ -173,7 +174,7 @@ export function BranchCheckLauncher(props: {
                 <button
                     aria-busy={busy() ? "true" : "false"}
                     class="primary"
-                    disabled={busy()}
+                    disabled={busy() || isPending(harness)}
                     onClick={run}
                 >
                     Start agent

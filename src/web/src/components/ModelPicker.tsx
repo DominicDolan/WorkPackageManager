@@ -1,11 +1,12 @@
 import { type AgentModel } from "@shared/types"
-import { For, Show, createSignal, onSettled } from "solid-js"
+import { For, Show, createEffect, createSignal, onSettled } from "solid-js"
 
 export function ModelPicker(props: {
     models: AgentModel[]
     value: string
     setValue: (value: string) => void
     defaultLabel: string
+    busy?: boolean
 }) {
     // The empty id means "use this harness's default". Do not borrow the label
     // from the last model response: while a new harness's models load, that can
@@ -16,6 +17,15 @@ export function ModelPicker(props: {
             : undefined
     const [query, setQuery] = createSignal("")
     const [open, setOpen] = createSignal(false)
+    createEffect(
+        () => props.busy,
+        (busy) => {
+            if (busy) {
+                setOpen(false)
+                setQuery("")
+            }
+        },
+    )
     let picker: HTMLLabelElement | undefined
     const filtered = () => {
         const needle = query().trim().toLowerCase()
@@ -31,6 +41,7 @@ export function ModelPicker(props: {
         ).slice(0, 80)
     }
     const choose = (entry?: AgentModel) => {
+        if (props.busy) return
         props.setValue(entry?.id ?? "")
         setQuery(entry?.label ?? "")
         setOpen(false)
@@ -47,9 +58,13 @@ export function ModelPicker(props: {
             <span>Model</span>
             <input
                 role="combobox"
-                aria-expanded={open() ? "true" : "false"}
+                disabled={props.busy}
+                aria-busy={props.busy ? "true" : "false"}
+                aria-expanded={open() && !props.busy ? "true" : "false"}
                 value={
-                    open() ? query() : (selected()?.label ?? props.defaultLabel)
+                    open() && !props.busy
+                        ? query()
+                        : (selected()?.label ?? props.defaultLabel)
                 }
                 placeholder={
                     props.models.length ? "Search models…" : "Harness default"
@@ -67,7 +82,7 @@ export function ModelPicker(props: {
                     if (event.key === "Escape") setOpen(false)
                 }}
             />
-            <Show when={open()}>
+            <Show when={open() && !props.busy}>
                 <div class="menu absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto p-1">
                     <button
                         type="button"
