@@ -9,8 +9,7 @@ export function IssueCard(props: {
         <button
             class="card-item block w-full mb-[0.8rem] p-[1rem] [&_h2]:m-[0.7rem_0_0] [&_p]:m-[0.5rem_0] [&_footer]:flex [&_footer]:flex-wrap [&_footer]:gap-[0.35rem] [&_footer_span]:p-[0.1rem_0.35rem]"
             onClick={props.open}
-            aria-busy={props.busy ? "true" : "false"}
-        >
+            aria-busy={props.busy ? "true" : "false"}>
             <div>
                 <span class="badge info inline-flex mr-[0.45rem] p-[0.15rem_0.42rem]">
                     {ISSUE_SOURCE_LABELS[props.issue.source] ??
@@ -19,8 +18,7 @@ export function IssueCard(props: {
                 <span class="reference">{props.issue.key}</span>
                 <span
                     class="badge success inline-flex mr-[0.45rem] p-[0.15rem_0.42rem]"
-                    data-status={props.issue.state}
-                >
+                    data-status={props.issue.state}>
                     {props.issue.stateLabel}
                 </span>
             </div>

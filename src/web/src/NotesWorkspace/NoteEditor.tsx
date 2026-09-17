@@ -124,22 +124,19 @@ export function NoteEditor(props: {
                     <div
                         class="segmented flex [&_button]:min-h-[2.5rem] [&_button]:p-[0.5rem_0.8rem]"
                         role="group"
-                        aria-label="Note view"
-                    >
+                        aria-label="Note view">
                         <button
                             aria-pressed={
                                 props.mode === "write" ? "true" : "false"
                             }
-                            onClick={() => props.setMode("write")}
-                        >
+                            onClick={() => props.setMode("write")}>
                             Write
                         </button>
                         <button
                             aria-pressed={
                                 props.mode === "preview" ? "true" : "false"
                             }
-                            onClick={() => props.setMode("preview")}
-                        >
+                            onClick={() => props.setMode("preview")}>
                             Preview
                         </button>
                     </div>
@@ -147,16 +144,14 @@ export function NoteEditor(props: {
                         aria-busy={busy() === "remove" ? "true" : "false"}
                         class="outlined"
                         disabled={!!busy()}
-                        onClick={remove}
-                    >
+                        onClick={remove}>
                         Delete
                     </button>
                     <button
                         aria-busy={busy() === "save" ? "true" : "false"}
                         class="primary"
                         disabled={!title().trim() || !!busy()}
-                        onClick={save}
-                    >
+                        onClick={save}>
                         Save changes
                     </button>
                 </div>
@@ -171,8 +166,7 @@ export function NoteEditor(props: {
                         class="prose min-h-[26rem] mt-[1.5rem] p-[clamp(1.25rem,_3vw,_2.25rem)]"
                         innerHTML={preview()}
                     />
-                }
-            >
+                }>
                 <div class="editor-fields grid gap-[1.1rem] mt-[1.5rem]">
                     <label class="field">
                         <span>Title</span>

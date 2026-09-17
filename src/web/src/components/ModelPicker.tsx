@@ -88,8 +88,7 @@ export function ModelPicker(props: {
                         type="button"
                         class="option flex w-full items-center justify-between gap-[1rem] p-[0.6rem_0.75rem] [&_small]:flex-none"
                         onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => choose()}
-                    >
+                        onClick={() => choose()}>
                         <span>{props.defaultLabel}</span>
                     </button>
                     <For
@@ -98,15 +97,13 @@ export function ModelPicker(props: {
                             <p class="px-3 py-5 text-center caption muted">
                                 No matching models.
                             </p>
-                        }
-                    >
+                        }>
                         {(entry) => (
                             <button
                                 type="button"
                                 class="option flex w-full items-center justify-between gap-[1rem] p-[0.6rem_0.75rem] [&_small]:flex-none"
                                 onMouseDown={(event) => event.preventDefault()}
-                                onClick={() => choose(entry)}
-                            >
+                                onClick={() => choose(entry)}>
                                 <span class="truncate">{entry.label}</span>
                                 <small>{entry.group ?? entry.id}</small>
                             </button>

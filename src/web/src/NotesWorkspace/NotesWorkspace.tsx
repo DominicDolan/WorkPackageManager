@@ -145,8 +145,7 @@ export function NotesWorkspace(props: {
                                         when={
                                             data.workspace.exists &&
                                             data.workspace.git.repo
-                                        }
-                                    >
+                                        }>
                                         <button
                                             aria-busy={
                                                 busy() === "sync"
@@ -155,8 +154,7 @@ export function NotesWorkspace(props: {
                                             }
                                             class="outlined"
                                             disabled={!!busy()}
-                                            onClick={sync}
-                                        >
+                                            onClick={sync}>
                                             Sync
                                         </button>
                                         <button
@@ -174,8 +172,7 @@ export function NotesWorkspace(props: {
                                                 data.workspace.git.upstream ??
                                                 "No upstream configured for this repository."
                                             }
-                                            onClick={push}
-                                        >
+                                            onClick={push}>
                                             Push
                                         </button>
                                     </Show>
@@ -184,8 +181,7 @@ export function NotesWorkspace(props: {
                                         disabled={
                                             !data.workspace.exists || !!busy()
                                         }
-                                        onClick={() => setCreating(true)}
-                                    >
+                                        onClick={() => setCreating(true)}>
                                         <PlusIcon />
                                         New note
                                     </button>
@@ -213,12 +209,10 @@ export function NotesWorkspace(props: {
                                         when={
                                             data.folders.length > 0 ||
                                             data.tags.length > 0
-                                        }
-                                    >
+                                        }>
                                         <div class="filters [&_select]:p-[0.58rem_0.65rem] grid gap-[0.5rem] p-[0.75rem_1rem]">
                                             <Show
-                                                when={data.folders.length > 0}
-                                            >
+                                                when={data.folders.length > 0}>
                                                 <select
                                                     value={latest(folder)}
                                                     onChange={(event) =>
@@ -226,16 +220,14 @@ export function NotesWorkspace(props: {
                                                             event.currentTarget
                                                                 .value,
                                                         )
-                                                    }
-                                                >
+                                                    }>
                                                     <option value="">
                                                         All folders
                                                     </option>
                                                     <For each={data.folders}>
                                                         {(item) => (
                                                             <option
-                                                                value={item}
-                                                            >
+                                                                value={item}>
                                                                 {item}
                                                             </option>
                                                         )}
@@ -250,16 +242,14 @@ export function NotesWorkspace(props: {
                                                             event.currentTarget
                                                                 .value,
                                                         )
-                                                    }
-                                                >
+                                                    }>
                                                     <option value="">
                                                         All tags
                                                     </option>
                                                     <For each={data.tags}>
                                                         {(item) => (
                                                             <option
-                                                                value={item}
-                                                            >
+                                                                value={item}>
                                                                 #{item}
                                                             </option>
                                                         )}
@@ -274,8 +264,7 @@ export function NotesWorkspace(props: {
                                                 ? "true"
                                                 : "false"
                                         }
-                                        class="note-list overflow-auto max-[820px]:flex max-[820px]:overflow-x-auto"
-                                    >
+                                        class="note-list overflow-auto max-[820px]:flex max-[820px]:overflow-x-auto">
                                         <For
                                             each={data.notes}
                                             fallback={
@@ -284,8 +273,7 @@ export function NotesWorkspace(props: {
                                                         ? "No notes match these filters."
                                                         : "The notes folder has not been created yet."}
                                                 </p>
-                                            }
-                                        >
+                                            }>
                                             {(item) => (
                                                 <button
                                                     class={`card-item row compact  block w-full p-[0.9rem_1rem] [&>span]:block [&_small]:block [&_strong]:block [&_strong]:mt-[0.25rem] [&_p]:line-clamp-2 [&_p]:m-[0.35rem_0] [&_p]:overflow-hidden max-[820px]:min-w-[13rem]`}
@@ -304,8 +292,7 @@ export function NotesWorkspace(props: {
                                                     }
                                                     onClick={() =>
                                                         choose(item.path)
-                                                    }
-                                                >
+                                                    }>
                                                     <span>
                                                         {item.folder
                                                             ? `${item.folder}/`
@@ -344,16 +331,14 @@ export function NotesWorkspace(props: {
                                             <Loading
                                                 fallback={
                                                     <PageSkeleton compact />
-                                                }
-                                            >
+                                                }>
                                                 <div
                                                     aria-busy={
                                                         isPending(selected)
                                                             ? "true"
                                                             : "false"
                                                     }
-                                                    inert={isPending(selected)}
-                                                >
+                                                    inert={isPending(selected)}>
                                                     <Show
                                                         when={selected()}
                                                         keyed
@@ -375,8 +360,7 @@ export function NotesWorkspace(props: {
                                                                     folder.
                                                                 </p>
                                                             </section>
-                                                        }
-                                                    >
+                                                        }>
                                                         {(note) => (
                                                             <NoteEditor
                                                                 note={note}
@@ -406,8 +390,7 @@ export function NotesWorkspace(props: {
                                                     </Show>
                                                 </div>
                                             </Loading>
-                                        }
-                                    >
+                                        }>
                                         <article class="max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)] m-[2rem] [&_h2]:m-[0_0_1.25rem]">
                                             <h2>New note</h2>
                                             <label class="field">
@@ -428,8 +411,7 @@ export function NotesWorkspace(props: {
                                                     class="outlined"
                                                     onClick={() =>
                                                         setCreating(false)
-                                                    }
-                                                >
+                                                    }>
                                                     Cancel
                                                 </button>
                                                 <button
@@ -443,8 +425,7 @@ export function NotesWorkspace(props: {
                                                         busy() === "create"
                                                             ? "true"
                                                             : "false"
-                                                    }
-                                                >
+                                                    }>
                                                     Create note
                                                 </button>
                                             </div>

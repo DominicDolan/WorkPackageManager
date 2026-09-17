@@ -42,8 +42,7 @@ export function WorkPackageOverview(props: {
                             <p class="p-10 text-center text-sm text-slate-400">
                                 This work package has no tasks yet.
                             </p>
-                        }
-                    >
+                        }>
                         {(task, index) => (
                             <TaskRow
                                 task={task}
@@ -71,13 +70,11 @@ export function WorkPackageOverview(props: {
                             <p class="description">
                                 Nothing is currently ready to start.
                             </p>
-                        }
-                    >
+                        }>
                         {(task) => (
                             <button
                                 class="w-full text-left"
-                                onClick={() => props.openTask(task().ref)}
-                            >
+                                onClick={() => props.openTask(task().ref)}>
                                 <span class="font-mono caption muted">
                                     {task().ref}
                                 </span>
@@ -149,8 +146,7 @@ export function WorkPackageOverview(props: {
                                         "verified",
                                     ),
                                 )
-                            }
-                        >
+                            }>
                             Verify all ({ready()})
                         </button>
                         <button
@@ -169,8 +165,7 @@ export function WorkPackageOverview(props: {
                                         "closed",
                                     ),
                                 )
-                            }
-                        >
+                            }>
                             Verify and close ({closeable()})
                         </button>
                     </div>

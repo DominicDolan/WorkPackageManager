@@ -56,8 +56,7 @@ export function ComparisonViewer(props: { comparison: VisualComparison }) {
                 <div
                     role="group"
                     aria-label="Comparison view"
-                    class="segmented inset ml-auto flex flex-wrap gap-1 p-1"
-                >
+                    class="segmented inset ml-auto flex flex-wrap gap-1 p-1">
                     <For each={modes()}>
                         {(option) => (
                             <button
@@ -66,8 +65,7 @@ export function ComparisonViewer(props: { comparison: VisualComparison }) {
                                     option.id === mode() ? "true" : "false"
                                 }
                                 disabled={!option.enabled}
-                                onClick={() => setMode(option.id)}
-                            >
+                                onClick={() => setMode(option.id)}>
                                 {option.label}
                             </button>
                         )}
@@ -122,8 +120,7 @@ export function ComparisonViewer(props: { comparison: VisualComparison }) {
                             />
                             <div
                                 class="pointer-events-none absolute inset-y-0 w-0.5 bg-white shadow"
-                                style={{ left: `${position()}%` }}
-                            >
+                                style={{ left: `${position()}%` }}>
                                 <span class="absolute left-1/2 top-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-blue-600 shadow-lg" />
                             </div>
                         </div>
@@ -150,8 +147,7 @@ export function ComparisonViewer(props: { comparison: VisualComparison }) {
                             <div class="empty outlined p-[2.5rem]">
                                 This image was not captured.
                             </div>
-                        }
-                    >
+                        }>
                         {(src) => (
                             <img
                                 class="framed block w-full"

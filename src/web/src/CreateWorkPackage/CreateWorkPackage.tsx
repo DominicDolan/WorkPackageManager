@@ -147,16 +147,14 @@ export function CreateWorkPackage(props: {
                         <div
                             id="create-work-package-branch-options"
                             class="menu absolute z-[10] top-[calc(100%_+_0.3rem)] left-0 right-0 max-h-[15rem] overflow-y-auto p-[0.3rem]"
-                            role="listbox"
-                        >
+                            role="listbox">
                             <For
                                 each={matchingBranches()}
                                 fallback={
                                     <p class="hint m-0 p-[0.75rem]">
                                         No branches match your search.
                                     </p>
-                                }
-                            >
+                                }>
                                 {(branch) => {
                                     const claimed = () =>
                                         claimedBranches().has(
@@ -176,8 +174,7 @@ export function CreateWorkPackage(props: {
                                             onMouseDown={(event) => {
                                                 event.preventDefault()
                                                 chooseBranch(branch)
-                                            }}
-                                        >
+                                            }}>
                                             <code>{branch}</code>
                                             <span class="muted flex flex-none items-center gap-[0.45rem]">
                                                 <Show
@@ -185,8 +182,7 @@ export function CreateWorkPackage(props: {
                                                         branch ===
                                                         props.snapshot
                                                             .currentBranch
-                                                    }
-                                                >
+                                                    }>
                                                     <small class="badge info p-[0.12rem_0.42rem]">
                                                         Current
                                                     </small>
@@ -241,8 +237,7 @@ export function CreateWorkPackage(props: {
                     disabled={
                         !name().trim() || !selectedBranchValid() || busy()
                     }
-                    onClick={submit}
-                >
+                    onClick={submit}>
                     Create work package
                 </button>
             </div>

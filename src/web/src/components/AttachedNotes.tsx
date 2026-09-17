@@ -62,16 +62,14 @@ export function AttachedNotes(props: {
                 when={props.notes.length}
                 fallback={
                     <p class="description">No reference notes attached.</p>
-                }
-            >
+                }>
                 <ul class="space-y-2">
                     <For each={props.notes}>
                         {(note) => (
                             <li class="flex items-start gap-3 tonal p-3">
                                 <button
                                     class="min-w-0 flex-1 text-left"
-                                    onClick={() => props.open(note.path)}
-                                >
+                                    onClick={() => props.open(note.path)}>
                                     <strong class="block truncate text-sm text-slate-800">
                                         {note.title}
                                     </strong>
@@ -92,8 +90,7 @@ export function AttachedNotes(props: {
                                     }
                                     aria-label={`Detach ${note.title}`}
                                     title="Detach note"
-                                    onClick={() => detach(note.path)}
-                                >
+                                    onClick={() => detach(note.path)}>
                                     Detach
                                 </button>
                             </li>
@@ -108,8 +105,7 @@ export function AttachedNotes(props: {
                         Create the notes workspace before attaching reference
                         material.
                     </p>
-                }
-            >
+                }>
                 <div class="mt-3 flex gap-2">
                     <select
                         class="min-w-0 flex-1 w-full p-[0.68rem_0.75rem]"
@@ -117,8 +113,7 @@ export function AttachedNotes(props: {
                         disabled={!available().length || !!busy()}
                         onChange={(event) =>
                             setSelected(event.currentTarget.value)
-                        }
-                    >
+                        }>
                         <option value="">
                             {available().length
                                 ? "Choose a note…"
@@ -136,8 +131,7 @@ export function AttachedNotes(props: {
                         }
                         class="outlined"
                         disabled={!selected() || !!busy()}
-                        onClick={attach}
-                    >
+                        onClick={attach}>
                         Attach
                     </button>
                 </div>

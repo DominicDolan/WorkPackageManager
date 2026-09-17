@@ -109,8 +109,7 @@ function StoryPage(props) {
                 <CollapsibleComment cid={p.cid}>
                     {p.children}
                 </CollapsibleComment>
-            )}
-        >
+            )}>
             <ShareBar />
         </Story>
     )

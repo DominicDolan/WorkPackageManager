@@ -89,8 +89,7 @@ export function WorkPackageWorkspace(props: {
             when={props.snapshot.investigations.find(
                 (item) => item.ref === workPackage()?.investigationRef,
             )}
-            keyed
-        >
+            keyed>
             {(item) => (
                 <InvestigationLauncher
                     investigation={item}
@@ -130,8 +129,7 @@ export function WorkPackageWorkspace(props: {
 
     return (
         <main
-            class={`${styles.scope} workspace-page min-h-screen text-slate-950`}
-        >
+            class={`${styles.scope} workspace-page min-h-screen text-slate-950`}>
             <Loading fallback={<PageSkeleton />}>
                 <Show when={legacy()} fallback={<WorkPackageContent />}>
                     <LegacyWorkPackage
@@ -184,8 +182,7 @@ export function WorkPackageWorkspace(props: {
                                 <div class="mx-auto max-w-[1600px] px-5 pb-0 pt-5 sm:px-8">
                                     <button
                                         class="back inline-flex items-center gap-[0.35rem]"
-                                        onClick={props.back}
-                                    >
+                                        onClick={props.back}>
                                         <BackIcon />
                                         All work packages
                                     </button>
@@ -212,8 +209,9 @@ export function WorkPackageWorkspace(props: {
                                         <div class="flex flex-wrap items-center justify-end gap-2">
                                             <button
                                                 class="outlined"
-                                                onClick={() => openCreateTask()}
-                                            >
+                                                onClick={() =>
+                                                    openCreateTask()
+                                                }>
                                                 <PlusIcon />
                                                 Add task
                                             </button>
@@ -228,16 +226,14 @@ export function WorkPackageWorkspace(props: {
                                                                 : setTab(
                                                                       "investigation",
                                                                   )
-                                                        }
-                                                    >
+                                                        }>
                                                         {investigation()
                                                             ?.status ===
                                                         "complete"
                                                             ? "Run investigation again"
                                                             : "Run investigation"}
                                                     </button>
-                                                }
-                                            >
+                                                }>
                                                 <button
                                                     class="primary"
                                                     disabled={
@@ -253,8 +249,7 @@ export function WorkPackageWorkspace(props: {
                                                         )
                                                             ? "true"
                                                             : "false"
-                                                    }
-                                                >
+                                                    }>
                                                     Work with an agent
                                                 </button>
                                             </Show>
@@ -263,8 +258,7 @@ export function WorkPackageWorkspace(props: {
                                     <nav
                                         role="tablist"
                                         aria-label="Work package"
-                                        class="underlined flex gap-[1.5rem] mt-[2rem] max-[560px]:gap-[1rem]"
-                                    >
+                                        class="underlined flex gap-[1.5rem] mt-[2rem] max-[560px]:gap-[1rem]">
                                         <button ref={tabProps("overview")}>
                                             Tasks
                                         </button>

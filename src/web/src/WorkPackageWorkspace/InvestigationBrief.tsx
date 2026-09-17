@@ -51,8 +51,7 @@ export function InvestigationBrief(props: {
                     aria-busy={busy() ? "true" : "false"}
                     class="outlined"
                     disabled={busy() || brief() === props.investigation.brief}
-                    onClick={save}
-                >
+                    onClick={save}>
                     Save brief
                 </button>
             </div>

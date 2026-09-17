@@ -11,8 +11,7 @@ export function LegacyWorkPackage(props: {
         <div class="mx-auto max-w-5xl px-5 py-8 sm:px-8">
             <button
                 class="mb-5 text-sm font-medium text-slate-500"
-                onClick={props.back}
-            >
+                onClick={props.back}>
                 ← All work packages
             </button>
             <div class="border border-amber-200 p-5 notice warning">

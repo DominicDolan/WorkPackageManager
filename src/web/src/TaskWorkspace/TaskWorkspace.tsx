@@ -89,8 +89,7 @@ export function TaskWorkspace(props: {
                         <Brand />
                         <button
                             class="back mt-8 inline-flex items-center gap-[0.35rem]"
-                            onClick={props.back}
-                        >
+                            onClick={props.back}>
                             <BackIcon />
                             Back to work package
                         </button>
@@ -110,8 +109,7 @@ export function TaskWorkspace(props: {
                                     props.snapshot.tasks.filter(
                                         (item) => !item.workPackageRef,
                                     )
-                                }
-                            >
+                                }>
                                 {(item) => (
                                     <button
                                         class={`task-nav-item  relative block w-full p-[0.75rem_0.8rem] [&>span]:block [&>strong]:block [&>strong]:mt-[0.25rem] [&>strong]:overflow-hidden [&>.task-nav-meta]:flex [&>.task-nav-meta]:items-center [&>.task-nav-meta]:gap-[0.45rem] [&>.task-nav-detail]:mt-[0.25rem] [&>.task-nav-detail]:overflow-hidden`}
@@ -128,8 +126,7 @@ export function TaskWorkspace(props: {
                                             isPending(task)
                                                 ? "true"
                                                 : "false"
-                                        }
-                                    >
+                                        }>
                                         <span class="task-nav-meta">
                                             {item.ref}
                                             <StatusBadge status={item.status} />
@@ -140,14 +137,12 @@ export function TaskWorkspace(props: {
                                             title={
                                                 statusSince(item)?.at ??
                                                 undefined
-                                            }
-                                        >
+                                            }>
                                             <Show
                                                 when={
                                                     blockers().get(item.ref)
                                                         ?.length
-                                                }
-                                            >
+                                                }>
                                                 <em>
                                                     Blocked by{" "}
                                                     {blockers()
@@ -174,8 +169,7 @@ export function TaskWorkspace(props: {
                                 ? "true"
                                 : "false"
                         }
-                        inert={isPending(task) || isPending(workPackage)}
-                    >
+                        inert={isPending(task) || isPending(workPackage)}>
                         <TaskDetailPanel
                             task={task()}
                             workPackage={workPackage()}

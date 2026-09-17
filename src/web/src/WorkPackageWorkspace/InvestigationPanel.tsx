@@ -72,16 +72,14 @@ export function InvestigationPanel(props: {
                             aria-busy={busy() ? "true" : "false"}
                             class="primary"
                             disabled={busy()}
-                            onClick={attach}
-                        >
+                            onClick={attach}>
                             Use description as investigation
                         </button>
                         <Show when={error()}>
                             <p class="notice error mt-4">{error()}</p>
                         </Show>
                     </article>
-                }
-            >
+                }>
                 <Loading fallback={<PageSkeleton compact />}>
                     <Show when={detail()} keyed>
                         {(investigation) => (
@@ -92,8 +90,7 @@ export function InvestigationPanel(props: {
                                             investigation.status === "draft"
                                                 ? "step"
                                                 : undefined
-                                        }
-                                    >
+                                        }>
                                         <strong>Brief</strong>
                                         <small>Define the question</small>
                                     </li>
@@ -103,8 +100,7 @@ export function InvestigationPanel(props: {
                                             "investigating"
                                                 ? "step"
                                                 : undefined
-                                        }
-                                    >
+                                        }>
                                         <strong>Investigate</strong>
                                         <small>Agent researches</small>
                                     </li>
@@ -113,8 +109,7 @@ export function InvestigationPanel(props: {
                                             investigation.status === "complete"
                                                 ? "step"
                                                 : undefined
-                                        }
-                                    >
+                                        }>
                                         <strong>Tasks</strong>
                                         <small>Work lands here</small>
                                     </li>
@@ -170,8 +165,7 @@ export function InvestigationPanel(props: {
                                             }
                                             onClick={() =>
                                                 setLauncherOpen(true)
-                                            }
-                                        >
+                                            }>
                                             {investigation.status === "complete"
                                                 ? "Run again"
                                                 : "Run investigation"}

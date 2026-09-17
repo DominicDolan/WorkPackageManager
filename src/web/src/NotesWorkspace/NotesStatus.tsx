@@ -20,15 +20,13 @@ export function NotesStatus(props: {
                                 : "Not yet a Git repository"}
                         </p>
                     </>
-                }
-            >
+                }>
                 <p>The notes folder does not exist yet.</p>
                 <button
                     class="primary"
                     disabled={props.busy}
                     aria-busy={props.initialising ? "true" : "false"}
-                    onClick={props.initialise}
-                >
+                    onClick={props.initialise}>
                     Create folder
                 </button>
             </Show>

@@ -11,8 +11,7 @@ export function IssueDetailPane(props: {
         <article class="document max-[560px]:[&_header]:block max-[560px]:[&_header_.primary]:mt-[1rem] max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)] [&_header]:flex [&_header]:items-start [&_header]:justify-between [&_header]:gap-[1rem] [&_header]:pb-[1.25rem] [&_h2]:max-w-[25ch] [&_h2]:m-[0.4rem_0_0] max-w-[1100px] [&>.back]:mb-[1.4rem]">
             <button
                 class="back inline-flex items-center gap-[0.35rem]"
-                onClick={props.back}
-            >
+                onClick={props.back}>
                 <BackIcon />
                 All issues
             </button>
@@ -31,8 +30,7 @@ export function IssueDetailPane(props: {
                             class="primary"
                             href={url()}
                             target="_blank"
-                            rel="noreferrer"
-                        >
+                            rel="noreferrer">
                             Open source
                         </a>
                     )}

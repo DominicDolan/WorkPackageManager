@@ -68,8 +68,7 @@ export function WorkPackageHome(props: {
     }
     return (
         <main
-            class={`${styles.scope} app-shell min-h-screen text-slate-950 grid grid-cols-[220px_minmax(0,_1fr)] max-[820px]:block`}
-        >
+            class={`${styles.scope} app-shell min-h-screen text-slate-950 grid grid-cols-[220px_minmax(0,_1fr)] max-[820px]:block`}>
             <ProductRail active="work-packages" select={props.select} />
             <section class="work-surface min-w-0 p-[2.2rem_clamp(1.3rem,_3.5vw,_4.5rem)_4rem] max-[820px]:w-full max-[820px]:min-w-0 max-[820px]:max-w-full max-[820px]:p-[1.25rem] max-[820px]:overflow-hidden">
                 <header class="portfolio grid grid-cols-[minmax(0,_1fr)_auto] gap-[2rem] max-w-[1500px] m-[0_auto_2.8rem] p-[clamp(1rem,_2vw,_2rem)_0_0] max-[820px]:w-full max-[820px]:min-w-0 max-[820px]:max-w-full max-[820px]:mb-[2rem] max-[560px]:block">
@@ -83,8 +82,7 @@ export function WorkPackageHome(props: {
                     </hgroup>
                     <button
                         class="primary header-action self-start m-[1.7rem_clamp(1.5rem,_3vw,_3rem)_0_0] max-[560px]:m-[0_1.25rem_1.5rem]"
-                        onClick={props.create}
-                    >
+                        onClick={props.create}>
                         <PlusIcon />
                         New work package
                     </button>

@@ -99,8 +99,7 @@ export function InvestigationLauncher(props: {
             <Loading
                 fallback={
                     <p class="mt-5 description">Checking installed agents…</p>
-                }
-            >
+                }>
                 <AgentSettings
                     environment={environment()}
                     harness={chosenHarness()}
@@ -130,8 +129,7 @@ export function InvestigationLauncher(props: {
                     aria-busy={busy() ? "true" : "false"}
                     class="primary"
                     disabled={busy() || isPending(harness)}
-                    onClick={run}
-                >
+                    onClick={run}>
                     Start investigation
                 </button>
             </div>

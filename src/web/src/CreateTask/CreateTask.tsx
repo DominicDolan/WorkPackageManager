@@ -88,8 +88,7 @@ export function CreateTask(props: {
                         setRecommendedTier(
                             event.currentTarget.value as ModelTier | "",
                         )
-                    }
-                >
+                    }>
                     <option value="">No preference</option>
                     <For each={MODEL_TIERS}>
                         {(tier) => (
@@ -127,8 +126,7 @@ export function CreateTask(props: {
                         value={priority()}
                         onChange={(event) =>
                             setPriority(event.currentTarget.value as Priority)
-                        }
-                    >
+                        }>
                         <For each={PRIORITIES}>
                             {(value) => <option value={value}>{value}</option>}
                         </For>
@@ -198,16 +196,14 @@ export function CreateTask(props: {
                 <button
                     class="outlined"
                     disabled={busy()}
-                    onClick={props.close}
-                >
+                    onClick={props.close}>
                     Cancel
                 </button>
                 <button
                     aria-busy={busy() ? "true" : "false"}
                     class="primary"
                     disabled={!title().trim() || !estimateValid() || busy()}
-                    onClick={submit}
-                >
+                    onClick={submit}>
                     Add task
                 </button>
             </div>

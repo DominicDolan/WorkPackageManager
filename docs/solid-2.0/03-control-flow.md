@@ -137,8 +137,7 @@ The reset function is an action: pass it to event handlers or other imperative c
             <pre>{String(err())}</pre>
             <button onClick={reset}>Retry</button>
         </div>
-    )}
->
+    )}>
     <Page />
 </Errored>
 ```

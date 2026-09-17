@@ -170,8 +170,7 @@ export function AgentLauncher(props: {
             <Loading
                 fallback={
                     <p class="mt-5 description">Checking installed agents…</p>
-                }
-            >
+                }>
                 <AgentSettings
                     environment={environment()}
                     harness={chosenHarness()}
@@ -244,8 +243,7 @@ export function AgentLauncher(props: {
                                                     ? `Reopen this ${entry.harness} conversation in a terminal`
                                                     : "This run has no recorded conversation ID. Interactive Codex runs cannot be reopened here."
                                             }
-                                            onClick={() => resume(entry)}
-                                        >
+                                            onClick={() => resume(entry)}>
                                             Resume
                                         </button>
                                     </li>
@@ -263,8 +261,7 @@ export function AgentLauncher(props: {
                     aria-busy={busy() ? "true" : "false"}
                     class="primary"
                     disabled={busy() || isPending(harness)}
-                    onClick={run}
-                >
+                    onClick={run}>
                     Start run
                 </button>
             </div>
@@ -282,8 +279,7 @@ function RunChoice(props: {
         <button
             class="card-item p-4"
             aria-pressed={props.selected ? "true" : "false"}
-            onClick={props.onClick}
-        >
+            onClick={props.onClick}>
             <strong class="block text-sm">{props.title}</strong>
             <span class="mt-1 block caption muted">{props.detail}</span>
         </button>

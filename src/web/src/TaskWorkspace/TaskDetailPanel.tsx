@@ -57,8 +57,7 @@ export function TaskDetailPanel(props: {
                     </Show>
                     <button
                         class="outlined"
-                        onClick={() => props.setEditing(!props.editing)}
-                    >
+                        onClick={() => props.setEditing(!props.editing)}>
                         {props.editing ? "Cancel" : "Edit"}
                     </button>
                 </div>
@@ -70,8 +69,7 @@ export function TaskDetailPanel(props: {
                         {props.task.description ||
                             "Add a description so the expected change is unambiguous."}
                     </p>
-                }
-            >
+                }>
                 <article class="mt-6 p-5">
                     <label class="field">
                         <span>Title</span>
@@ -97,8 +95,7 @@ export function TaskDetailPanel(props: {
                             <span>Recommended model</span>
                             <select
                                 ref={recommendedTier}
-                                value={props.task.recommendedTier ?? ""}
-                            >
+                                value={props.task.recommendedTier ?? ""}>
                                 <option value="">No preference</option>
                                 <option value="fast">Fast</option>
                                 <option value="standard">Standard</option>
@@ -117,8 +114,7 @@ export function TaskDetailPanel(props: {
                                         ),
                                     )
                                 }
-                                disabled={!props.task.workPackageRef}
-                            >
+                                disabled={!props.task.workPackageRef}>
                                 <For each={props.workPackages}>
                                     {(workPackage) => (
                                         <option value={workPackage.ref}>
@@ -147,8 +143,7 @@ export function TaskDetailPanel(props: {
                                     }),
                                 () => props.setEditing(false),
                             )
-                        }
-                    >
+                        }>
                         Save changes
                     </button>
                 </article>
@@ -174,8 +169,7 @@ export function TaskDetailPanel(props: {
                                     props.mutate(status, () =>
                                         api.setStatus(props.task.ref, status),
                                     )
-                                }
-                            >
+                                }>
                                 {STATUS_LABELS[status]}
                             </button>
                         )}
@@ -187,8 +181,7 @@ export function TaskDetailPanel(props: {
                                 props.mutate("close", () =>
                                     api.closeTask(props.task.ref),
                                 )
-                            }
-                        >
+                            }>
                             Close task
                         </button>
                     </Show>
@@ -237,8 +230,7 @@ export function TaskDetailPanel(props: {
                 <InfoCard title="Dependencies">
                     <Show
                         when={props.task.dependsOn.length}
-                        fallback={<p class="description">No blockers.</p>}
-                    >
+                        fallback={<p class="description">No blockers.</p>}>
                         <div class="flex flex-wrap gap-2">
                             <For each={props.task.dependsOn}>
                                 {(ref) => (
@@ -277,8 +269,7 @@ export function TaskDetailPanel(props: {
                                 props.mutate("before", () =>
                                     api.capture(props.task.ref, "before"),
                                 )
-                            }
-                        >
+                            }>
                             Capture before
                         </button>
                         <button
@@ -291,8 +282,7 @@ export function TaskDetailPanel(props: {
                                 props.mutate("after", () =>
                                     api.capture(props.task.ref, "after"),
                                 )
-                            }
-                        >
+                            }>
                             Capture after
                         </button>
                     </div>
@@ -303,8 +293,7 @@ export function TaskDetailPanel(props: {
                         <div class="empty outlined p-[2.5rem]">
                             No visual runs yet.
                         </div>
-                    }
-                >
+                    }>
                     {(run) => (
                         <div class="space-y-5">
                             <div class="flex justify-between caption muted">
@@ -334,8 +323,7 @@ export function TaskDetailPanel(props: {
                         each={props.task.attachments}
                         fallback={
                             <span class="description">No attachments.</span>
-                        }
-                    >
+                        }>
                         {(attachment) => (
                             <a
                                 class="outlined"
@@ -343,8 +331,7 @@ export function TaskDetailPanel(props: {
                                     props.task.ref,
                                     attachment.name,
                                 )}
-                                target="_blank"
-                            >
+                                target="_blank">
                                 {attachment.name}
                             </a>
                         )}
@@ -392,8 +379,7 @@ export function TaskDetailPanel(props: {
                                         api.addNote(props.task.ref, props.note),
                                     () => props.setNote(""),
                                 )
-                            }
-                        >
+                            }>
                             Add note
                         </button>
                     </div>

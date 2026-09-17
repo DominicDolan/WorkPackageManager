@@ -18,8 +18,7 @@ export function WorkPackageCard(props: {
     return (
         <button
             class="card-item row text-left relative grid w-full grid-cols-[6px_minmax(240px,_1.2fr)_minmax(220px,_1fr)_150px_38px] items-center gap-[clamp(1rem,_2vw,_2.5rem)] overflow-hidden focus-visible:z-[1] max-[1050px]:grid-cols-[6px_minmax(230px,_1.25fr)_minmax(180px,_1fr)_120px_30px] max-[1050px]:gap-[1.2rem] max-[820px]:w-full max-[820px]:min-w-0 max-[820px]:max-w-full max-[820px]:grid-cols-[6px_minmax(0,_1fr)_100px_28px] max-[560px]:grid-cols-[5px_minmax(0,_1fr)] max-[560px]:gap-[1rem]"
-            onClick={props.open}
-        >
+            onClick={props.open}>
             <span
                 class="work-package-stripe self-stretch"
                 style={{ background: props.workPackage.color }}
@@ -43,8 +42,7 @@ export function WorkPackageCard(props: {
                                 ? "All tasks are closed."
                                 : "No tasks yet. Open the work package to add the first one."}
                         </p>
-                    }
-                >
+                    }>
                     {(task) => (
                         <div class="task-preview-row flex min-w-0 items-center gap-[0.6rem] m-[0.45rem_0] [&>span:last-child]:overflow-hidden">
                             <span
@@ -78,8 +76,7 @@ export function WorkPackageCard(props: {
             </div>
             <span
                 class="open-cue grid w-[2rem] h-[2rem] place-items-center [&_svg]:w-[1.15rem] max-[560px]:hidden"
-                aria-hidden="true"
-            >
+                aria-hidden="true">
                 <svg viewBox="0 0 24 24">
                     <path d="m9 5 7 7-7 7" />
                 </svg>

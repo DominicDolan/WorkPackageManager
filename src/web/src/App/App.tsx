@@ -136,8 +136,7 @@ export function App() {
                         </button>
                     </article>
                 </main>
-            )}
-        >
+            )}>
             <Loading fallback={<PageSkeleton />}>
                 <Show when={view() === "notes"}>
                     <NotesWorkspace
@@ -162,8 +161,7 @@ export function App() {
                                 create={() => setCreating(true)}
                                 select={selectView}
                             />
-                        }
-                    >
+                        }>
                         {(workPackage) => (
                             <Show
                                 when={taskRef()}
@@ -177,8 +175,7 @@ export function App() {
                                         changed={reload}
                                         revision={workspaceRevision()}
                                     />
-                                }
-                            >
+                                }>
                                 {(task) => (
                                     <TaskWorkspace
                                         workPackageRef={workPackage()}

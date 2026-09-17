@@ -76,8 +76,7 @@ export function AgentSettings(props: {
                     onChange={(event) => {
                         props.setHarness(event.currentTarget.value)
                         props.setModel("")
-                    }}
-                >
+                    }}>
                     <For each={available()}>
                         {(item) => (
                             <option value={item.id}>{item.label}</option>
@@ -94,8 +93,7 @@ export function AgentSettings(props: {
                         defaultLabel={defaultLabel()}
                         busy
                     />
-                }
-            >
+                }>
                 <ModelPicker
                     models={isPending(models) ? [] : models().entries}
                     busy={isPending(models)}
@@ -113,12 +111,10 @@ export function AgentSettings(props: {
                             props.setMode(
                                 event.currentTarget.value as AgentRunMode,
                             )
-                        }
-                    >
+                        }>
                         <option
                             value="terminal"
-                            disabled={!props.environment.terminalAvailable}
-                        >
+                            disabled={!props.environment.terminalAvailable}>
                             Interactive terminal
                         </option>
                         <option value="print">Headless log</option>
@@ -137,8 +133,7 @@ export function AgentSettings(props: {
                         props.setPermission(
                             event.currentTarget.value as AgentPermissionMode,
                         )
-                    }
-                >
+                    }>
                     <For each={Object.entries(AGENT_PERMISSION_MODE_LABELS)}>
                         {([value, label]) => (
                             <option value={value}>{label}</option>

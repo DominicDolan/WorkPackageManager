@@ -106,8 +106,7 @@ export function IssuesWorkspace(props: {
                                         when={
                                             data.notes.exists &&
                                             data.notes.git.repo
-                                        }
-                                    >
+                                        }>
                                         <button
                                             aria-busy={
                                                 busy() === "sync"
@@ -116,8 +115,7 @@ export function IssuesWorkspace(props: {
                                             }
                                             class="outlined"
                                             disabled={!!busy()}
-                                            onClick={sync}
-                                        >
+                                            onClick={sync}>
                                             Sync
                                         </button>
                                         <button
@@ -135,8 +133,7 @@ export function IssuesWorkspace(props: {
                                                 data.notes.git.upstream ??
                                                 "No upstream configured for this repository."
                                             }
-                                            onClick={push}
-                                        >
+                                            onClick={push}>
                                             Push
                                         </button>
                                     </Show>
@@ -169,8 +166,7 @@ export function IssuesWorkspace(props: {
                                                         .value as
                                                         IssueState | "all",
                                                 )
-                                            }
-                                        >
+                                            }>
                                             <option value="all">
                                                 All states
                                             </option>
@@ -182,8 +178,7 @@ export function IssuesWorkspace(props: {
                                         <Show
                                             when={
                                                 data.facets.sources.length > 1
-                                            }
-                                        >
+                                            }>
                                             <select
                                                 value={latest(source)}
                                                 onChange={(event) =>
@@ -191,16 +186,14 @@ export function IssuesWorkspace(props: {
                                                         event.currentTarget
                                                             .value,
                                                     )
-                                                }
-                                            >
+                                                }>
                                                 <option value="">
                                                     All sources
                                                 </option>
                                                 <For each={data.facets.sources}>
                                                     {(item) => (
                                                         <option
-                                                            value={item.source}
-                                                        >
+                                                            value={item.source}>
                                                             {ISSUE_SOURCE_LABELS[
                                                                 item.source
                                                             ] ??
@@ -219,8 +212,7 @@ export function IssuesWorkspace(props: {
                                                         event.currentTarget
                                                             .value,
                                                     )
-                                                }
-                                            >
+                                                }>
                                                 <option value="">
                                                     All labels
                                                 </option>
@@ -241,16 +233,14 @@ export function IssuesWorkspace(props: {
                                 </aside>
                                 <section class="detail min-w-0 p-[1.25rem]">
                                     <Loading
-                                        fallback={<PageSkeleton compact />}
-                                    >
+                                        fallback={<PageSkeleton compact />}>
                                         <div
                                             aria-busy={
                                                 isPending(listing) ||
                                                 isPending(selected)
                                                     ? "true"
                                                     : "false"
-                                            }
-                                        >
+                                            }>
                                             <Show
                                                 when={selected()}
                                                 keyed
@@ -273,8 +263,7 @@ export function IssuesWorkspace(props: {
                                                                     here.
                                                                 </p>
                                                             </section>
-                                                        }
-                                                    >
+                                                        }>
                                                         {(issue) => (
                                                             <IssueCard
                                                                 issue={issue}
@@ -295,14 +284,12 @@ export function IssuesWorkspace(props: {
                                                             />
                                                         )}
                                                     </For>
-                                                }
-                                            >
+                                                }>
                                                 {(issue) => (
                                                     <div
                                                         inert={isPending(
                                                             selected,
-                                                        )}
-                                                    >
+                                                        )}>
                                                         <IssueDetailPane
                                                             issue={issue}
                                                             back={() =>

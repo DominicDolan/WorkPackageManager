@@ -263,8 +263,7 @@ export function BranchPanel(props: {
                     </span>
                 </div>
                 <span
-                    class={`badge ${props.workPackage.git.exists ? "success" : ""} p-[0.3rem_0.7rem] max-[560px]:inline-block max-[560px]:mt-[0.8rem]`}
-                >
+                    class={`badge ${props.workPackage.git.exists ? "success" : ""} p-[0.3rem_0.7rem] max-[560px]:inline-block max-[560px]:mt-[0.8rem]`}>
                     {props.workPackage.git.exists
                         ? "Local branch ready"
                         : "Not created yet"}
@@ -283,13 +282,11 @@ export function BranchPanel(props: {
             <BranchSection
                 variant="tonal"
                 title="Branch name"
-                description="Rename the local delivery branch while preserving its commit history."
-            >
+                description="Rename the local delivery branch while preserving its commit history.">
                 <div class="grid grid-cols-1 gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,_1fr)_250px]">
                     <label
                         class="label col-start-1"
-                        for="local-branch-name-input"
-                    >
+                        for="local-branch-name-input">
                         Local Branch Name
                     </label>
                     <input
@@ -313,8 +310,7 @@ export function BranchPanel(props: {
                             !branchName().trim() ||
                             branchName().trim() === props.workPackage.branchName
                         }
-                        onClick={() => void saveBranchName()}
-                    >
+                        onClick={() => void saveBranchName()}>
                         Rename local branch
                     </button>
                 </div>
@@ -324,8 +320,7 @@ export function BranchPanel(props: {
                             <div class="grid grid-cols-1 gap-x-3 gap-y-1 mt-4 sm:grid-cols-[minmax(0,_1fr)_250px]">
                                 <label
                                     class="label col-start-1"
-                                    for="remote-branch-name-input"
-                                >
+                                    for="remote-branch-name-input">
                                     Remote Branch Name
                                 </label>
                                 <input
@@ -357,8 +352,7 @@ export function BranchPanel(props: {
                                         remoteBranch().trim() ===
                                             (branch.remoteBranch ?? "")
                                     }
-                                    onClick={() => void saveRemoteBranch()}
-                                >
+                                    onClick={() => void saveRemoteBranch()}>
                                     Save remote branch
                                 </button>
                             </div>
@@ -370,8 +364,7 @@ export function BranchPanel(props: {
             <BranchSection
                 variant="elevated"
                 title="Contents"
-                description="The commits currently unique to this work package branch."
-            >
+                description="The commits currently unique to this work package branch.">
                 <div class="branch-metrics grid grid-cols-[repeat(3,_minmax(0,_1fr))] gap-[0.75rem] max-[560px]:grid-cols-[1fr]">
                     <Metric
                         label="Commits"
@@ -392,8 +385,7 @@ export function BranchPanel(props: {
                         <p class="hint m-[1rem_0_0]">
                             No commits have landed on this branch yet.
                         </p>
-                    }
-                >
+                    }>
                     <ul class="branch-commits overflow-hidden m-[1rem_0_0] p-0 [&_li]:flex [&_li]:gap-[0.8rem] [&_li]:p-[0.65rem_0.8rem] [&_code]:flex-[0_0_auto]">
                         <For each={props.workPackage.git.commits}>
                             {(commit) => (
@@ -418,15 +410,13 @@ export function BranchPanel(props: {
                         </p>
                     </article>
                 }
-                keyed
-            >
+                keyed>
                 {(branch) => (
                     <>
                         <BranchSection
                             variant="elevated"
                             title="Pull request description"
-                            description="Generate from the commits, then review or edit before opening a pull request."
-                        >
+                            description="Generate from the commits, then review or edit before opening a pull request.">
                             <div class="branch-section-actions flex flex-wrap items-center gap-[0.75rem]">
                                 <button
                                     aria-busy={
@@ -438,8 +428,7 @@ export function BranchPanel(props: {
                                         !branch.git.commits.length ||
                                         !props.tools.prAgentAvailable
                                     }
-                                    onClick={generate}
-                                >
+                                    onClick={generate}>
                                     {branch.prTitle
                                         ? "Regenerate description"
                                         : "Generate description"}
@@ -462,22 +451,19 @@ export function BranchPanel(props: {
                             <div
                                 class="segmented inset inline-flex gap-[0.2rem] m-[1rem_0_0.75rem] p-[0.2rem] [&_button]:p-[0.38rem_0.7rem]"
                                 role="group"
-                                aria-label="Description view"
-                            >
+                                aria-label="Description view">
                                 <button
                                     aria-pressed={
                                         mode() === "write" ? "true" : "false"
                                     }
-                                    onClick={() => setMode("write")}
-                                >
+                                    onClick={() => setMode("write")}>
                                     Write
                                 </button>
                                 <button
                                     aria-pressed={
                                         mode() === "preview" ? "true" : "false"
                                     }
-                                    onClick={() => setMode("preview")}
-                                >
+                                    onClick={() => setMode("preview")}>
                                     Preview
                                 </button>
                             </div>
@@ -489,8 +475,7 @@ export function BranchPanel(props: {
                                             when={body().trim()}
                                             fallback={
                                                 <p>Nothing written yet.</p>
-                                            }
-                                        >
+                                            }>
                                             <div
                                                 innerHTML={renderMarkdown(
                                                     body(),
@@ -498,8 +483,7 @@ export function BranchPanel(props: {
                                             />
                                         </Show>
                                     </article>
-                                }
-                            >
+                                }>
                                 <div class="branch-description-fields grid gap-[1rem] [&_textarea]:min-h-[14rem]">
                                     <label class="field">
                                         <span>Title</span>
@@ -534,8 +518,7 @@ export function BranchPanel(props: {
                                     aria-busy={
                                         busy() === "save" ? "true" : "false"
                                     }
-                                    onClick={save}
-                                >
+                                    onClick={save}>
                                     Save description
                                 </button>
                             </div>
@@ -544,8 +527,7 @@ export function BranchPanel(props: {
                         <BranchSection
                             variant="tonal"
                             title="Checks"
-                            description={`${props.tools.checkCount} configured command(s) · typecheck, lint and tests.`}
-                        >
+                            description={`${props.tools.checkCount} configured command(s) · typecheck, lint and tests.`}>
                             <div class="branch-section-actions flex flex-wrap items-center gap-[0.75rem]">
                                 <button
                                     aria-busy={
@@ -561,8 +543,7 @@ export function BranchPanel(props: {
                                         !branch.git.exists ||
                                         props.tools.checkCount === 0
                                     }
-                                    onClick={() => runChecks()}
-                                >
+                                    onClick={() => runChecks()}>
                                     {report()
                                         ? "Run all again"
                                         : "Run all checks"}
@@ -572,8 +553,7 @@ export function BranchPanel(props: {
                                 {(progress) => (
                                     <p
                                         class="notice success m-0 mt-[1rem]"
-                                        role="status"
-                                    >
+                                        role="status">
                                         Running{" "}
                                         <strong>
                                             {progress().current ??
@@ -593,8 +573,7 @@ export function BranchPanel(props: {
                                 </p>
                             </Show>
                             <Show
-                                when={props.tools.checkCount > 0 && !report()}
-                            >
+                                when={props.tools.checkCount > 0 && !report()}>
                                 <div>
                                     <p class="hint m-[1rem_0_0]">
                                         Checks have not been run on this branch
@@ -609,16 +588,14 @@ export function BranchPanel(props: {
                                                         checkRunning(check)
                                                             ? "true"
                                                             : "false"
-                                                    }
-                                                >
+                                                    }>
                                                     <span
                                                         data-status={
                                                             checkRunning(check)
                                                                 ? "running"
                                                                 : "not-run"
                                                         }
-                                                        class="badge inline-flex items-center p-[0.18rem_0.5rem]"
-                                                    >
+                                                        class="badge inline-flex items-center p-[0.18rem_0.5rem]">
                                                         {checkRunning(check)
                                                             ? "Running"
                                                             : "Not run"}
@@ -633,8 +610,7 @@ export function BranchPanel(props: {
                                                         }
                                                         onClick={() =>
                                                             runChecks(check)
-                                                        }
-                                                    >
+                                                        }>
                                                         Run
                                                     </button>
                                                 </li>
@@ -653,8 +629,7 @@ export function BranchPanel(props: {
                                                     checks().passed
                                                         ? "passed"
                                                         : "failed"
-                                                }
-                                            >
+                                                }>
                                                 {checks().passed
                                                     ? "Passed"
                                                     : missingChecks().length
@@ -673,8 +648,7 @@ export function BranchPanel(props: {
                                                     disabled={!!busy()}
                                                     onClick={() =>
                                                         setCheckAgentOpen(true)
-                                                    }
-                                                >
+                                                    }>
                                                     Investigate with agent
                                                 </button>
                                             </Show>
@@ -697,16 +671,14 @@ export function BranchPanel(props: {
                                                             )
                                                                 ? "true"
                                                                 : "false"
-                                                        }
-                                                    >
+                                                        }>
                                                         <details
                                                             open={
                                                                 check.status !==
                                                                     "passed" &&
                                                                 check.status !==
                                                                     "skipped"
-                                                            }
-                                                        >
+                                                            }>
                                                             <summary>
                                                                 <span
                                                                     class="badge inline-flex items-center p-[0.18rem_0.5rem]"
@@ -716,8 +688,7 @@ export function BranchPanel(props: {
                                                                         )
                                                                             ? "running"
                                                                             : check.status
-                                                                    }
-                                                                >
+                                                                    }>
                                                                     {checkRunning(
                                                                         check.name,
                                                                     )
@@ -744,8 +715,7 @@ export function BranchPanel(props: {
                                                             <Show
                                                                 when={
                                                                     check.reason
-                                                                }
-                                                            >
+                                                                }>
                                                                 <p>
                                                                     {
                                                                         check.reason
@@ -755,8 +725,7 @@ export function BranchPanel(props: {
                                                             <Show
                                                                 when={
                                                                     check.output
-                                                                }
-                                                            >
+                                                                }>
                                                                 <pre>
                                                                     {
                                                                         check.output
@@ -776,8 +745,7 @@ export function BranchPanel(props: {
                                                                 runChecks(
                                                                     check.name,
                                                                 )
-                                                            }
-                                                        >
+                                                            }>
                                                             Run
                                                         </button>
                                                     </li>
@@ -791,8 +759,7 @@ export function BranchPanel(props: {
                                                             checkRunning(check)
                                                                 ? "true"
                                                                 : "false"
-                                                        }
-                                                    >
+                                                        }>
                                                         <span
                                                             data-status={
                                                                 checkRunning(
@@ -801,8 +768,7 @@ export function BranchPanel(props: {
                                                                     ? "running"
                                                                     : "not-run"
                                                             }
-                                                            class="badge inline-flex items-center p-[0.18rem_0.5rem]"
-                                                        >
+                                                            class="badge inline-flex items-center p-[0.18rem_0.5rem]">
                                                             {checkRunning(check)
                                                                 ? "Running"
                                                                 : "Not run"}
@@ -818,8 +784,7 @@ export function BranchPanel(props: {
                                                             }
                                                             onClick={() =>
                                                                 runChecks(check)
-                                                            }
-                                                        >
+                                                            }>
                                                             Run
                                                         </button>
                                                     </li>
@@ -834,8 +799,7 @@ export function BranchPanel(props: {
                         <BranchSection
                             variant="elevated"
                             title="Pull request"
-                            description="Available after the description is ready and the latest checks pass."
-                        >
+                            description="Available after the description is ready and the latest checks pass.">
                             <Show
                                 when={branch.prUrl}
                                 fallback={
@@ -867,8 +831,7 @@ export function BranchPanel(props: {
                                                     !branch.git.exists ||
                                                     !!checksBlocking()
                                                 }
-                                                onClick={() => openPr(true)}
-                                            >
+                                                onClick={() => openPr(true)}>
                                                 Open as draft
                                             </button>
                                             <button
@@ -884,22 +847,19 @@ export function BranchPanel(props: {
                                                     !branch.git.exists ||
                                                     !!checksBlocking()
                                                 }
-                                                onClick={() => openPr(false)}
-                                            >
+                                                onClick={() => openPr(false)}>
                                                 Open pull request
                                             </button>
                                         </div>
                                     </div>
-                                }
-                            >
+                                }>
                                 <div class="pull-request-open flex flex-wrap items-center justify-between gap-[1rem]">
                                     <span>Pull request opened</span>
                                     <a
                                         class="primary"
                                         href={branch.prUrl!}
                                         target="_blank"
-                                        rel="noreferrer"
-                                    >
+                                        rel="noreferrer">
                                         View pull request
                                     </a>
                                 </div>
@@ -937,8 +897,7 @@ function BranchSection(props: {
 }) {
     return (
         <article
-            class={`${props.variant ?? "elevated"} overflow-hidden [&>header]:p-[1.15rem_1.25rem_0.35rem] [&>header_h3]:m-0 [&>header_p]:m-[0.28rem_0_0]`}
-        >
+            class={`${props.variant ?? "elevated"} overflow-hidden [&>header]:p-[1.15rem_1.25rem_0.35rem] [&>header_h3]:m-0 [&>header_p]:m-[0.28rem_0_0]`}>
             <header>
                 <div>
                     <h3>{props.title}</h3>

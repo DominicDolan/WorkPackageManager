@@ -9,8 +9,7 @@ export function TaskRow(props: {
     return (
         <button
             class="card-item row flex w-full items-start gap-4 px-5 py-4 text-left"
-            onClick={props.onClick}
-        >
+            onClick={props.onClick}>
             <span class="mt-1 w-5 text-right font-mono text-xs text-slate-300">
                 {props.index + 1}
             </span>
