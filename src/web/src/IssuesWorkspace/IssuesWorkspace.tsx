@@ -17,6 +17,7 @@ import {
     latest,
 } from "solid-js"
 import { api } from "../api"
+import { useError } from "../hooks/useError"
 import { PageSkeleton } from "../components/PageSkeleton"
 import { ProductRail } from "../components/ProductRail"
 import type { MainView } from "../types/navigation"
@@ -33,7 +34,7 @@ export function IssuesWorkspace(props: {
     const [label, setLabel] = createSignal("")
     const [selectedId, setSelectedId] = createSignal("")
     const [busy, setBusy] = createOptimistic("")
-    const [error, setError] = createSignal("")
+    const { capture, clear, Banner } = useError()
     const listing = createMemo(() =>
         api.listIssues({
             q: query() || undefined,
@@ -60,28 +61,28 @@ export function IssuesWorkspace(props: {
         if (busy()) return
 
         setBusy("sync")
-        setError("")
+        clear()
         try {
             yield api.pullNotes()
 
             yield refresh(listing)
             yield refresh(selected)
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
     const push = action(function* () {
         if (busy()) return
 
         setBusy("push")
-        setError("")
+        clear()
         try {
             yield api.syncNotes(true)
 
             yield refresh(listing)
             yield refresh(selected)
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
     return (
@@ -139,9 +140,7 @@ export function IssuesWorkspace(props: {
                                     </Show>
                                 </div>
                             </header>
-                            <Show when={error()}>
-                                <p class="notice error mb-5">{error()}</p>
-                            </Show>
+                            <Banner />
                             <section class="library grid grid-cols-[minmax(260px,_310px)_minmax(0,_1fr)] max-w-[1500px] min-h-[620px] m-[0_auto] max-[820px]:grid-cols-[1fr]">
                                 <aside class="library flex min-w-0 flex-col">
                                     <label class="search grid gap-[0.45rem] p-[1rem] [&_input]:p-[0.58rem_0.65rem]">

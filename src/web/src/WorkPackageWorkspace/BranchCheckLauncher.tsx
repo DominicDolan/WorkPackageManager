@@ -4,7 +4,6 @@ import {
     For,
     Loading,
     isPending,
-    Show,
     createEffect,
     createMemo,
     createSignal,
@@ -16,6 +15,7 @@ import type {
     CombinedBranchDetail,
 } from "@shared/types"
 import { api } from "../api"
+import { useError } from "../hooks/useError"
 import { AgentSettings } from "../components/AgentSettings"
 import { Modal } from "../components/Modal"
 
@@ -33,7 +33,7 @@ export function BranchCheckLauncher(props: {
         createSignal<AgentPermissionMode>("manual")
     const [extra, setExtra] = createSignal("")
     const [busy, setBusy] = createOptimistic(false)
-    const [error, setError] = createSignal("")
+    const { capture, clear, Banner } = useError()
     const chosenHarness = () =>
         harness() ||
         environment().harnesses.find(
@@ -90,7 +90,7 @@ export function BranchCheckLauncher(props: {
         if (busy() || isPending(harness)) return
 
         setBusy(true)
-        setError("")
+        clear()
         try {
             if (!chosenHarness())
                 throw new Error("No supported agent harness is installed.")
@@ -113,7 +113,7 @@ export function BranchCheckLauncher(props: {
             props.started()
             props.close()
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
 
@@ -166,9 +166,7 @@ export function BranchCheckLauncher(props: {
                     placeholder="Optional context for resolving these failures"
                 />
             </label>
-            <Show when={error()}>
-                <p class="notice error mt-4">{error()}</p>
-            </Show>
+            <Banner />
             <div class="mt-5 flex justify-end">
                 <button
                     aria-busy={busy() ? "true" : "false"}

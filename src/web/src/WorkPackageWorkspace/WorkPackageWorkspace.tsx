@@ -12,13 +12,13 @@ import {
     Show,
     createEffect,
     createMemo,
-    createSignal,
     refresh,
 } from "solid-js"
 import { AgentLauncher } from "../AgentLauncher/AgentLauncher"
 import { CreateTask } from "../CreateTask/CreateTask"
 import { InvestigationLauncher } from "../InvestigationLauncher/InvestigationLauncher"
 import { api } from "../api"
+import { useError } from "../hooks/useError"
 import { Brand } from "../components/Brand"
 import { PageSkeleton } from "../components/PageSkeleton"
 import { BackIcon, PlusIcon } from "../components/icons"
@@ -44,7 +44,7 @@ export function WorkPackageWorkspace(props: {
         async (): Promise<WorkPackageDetail | null> =>
             legacy() ? null : api.getWorkPackage(props.workPackageRef),
     )
-    const [error, setError] = createSignal("")
+    const { capture, clear, Banner } = useError()
     const [busy, setBusy] = createOptimistic("")
     const {
         setActiveTab: setTab,
@@ -116,14 +116,14 @@ export function WorkPackageWorkspace(props: {
         if (busy()) return
 
         setBusy(label)
-        setError("")
+        clear()
         try {
             yield request()
 
             yield refresh(workPackage)
             props.changed()
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
 
@@ -272,9 +272,7 @@ export function WorkPackageWorkspace(props: {
                                 </div>
                             </header>
                             <div class="mx-auto max-w-[1600px] px-5 py-8 sm:px-8">
-                                <Show when={error()}>
-                                    <p class="notice error mb-5">{error()}</p>
-                                </Show>
+                                <Banner />
                                 <section {...windowProps("overview")}>
                                     <Show when={matches("overview")}>
                                         <WorkPackageOverview

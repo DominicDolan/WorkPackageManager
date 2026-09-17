@@ -14,6 +14,7 @@ import {
     type Element,
 } from "solid-js"
 import { api } from "../api"
+import { useError } from "../hooks/useError"
 import { renderMarkdown } from "../markdown"
 import type { WorkspaceSnapshot } from "../types/workspace"
 import { BranchCheckLauncher } from "./BranchCheckLauncher"
@@ -39,7 +40,7 @@ export function BranchPanel(props: {
     const [requestedCheck, setRequestedCheck] = createOptimistic<string | null>(
         null,
     )
-    const [error, setError] = createSignal("")
+    const { capture, clear, Banner } = useError()
     const [notice, setNotice] = createSignal("")
     const [checkAgentOpen, setCheckAgentOpen] = createSignal(false)
 
@@ -80,7 +81,7 @@ export function BranchPanel(props: {
         setBusy(label)
         if (label === "checks")
             setRequestedCheck(check ?? props.tools.checkNames[0] ?? null)
-        setError("")
+        clear()
         setNotice("")
         try {
             const branch = await request()
@@ -90,7 +91,7 @@ export function BranchPanel(props: {
             props.changed()
         } catch (caught) {
             yield
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
     const generate = () => {
@@ -133,7 +134,7 @@ export function BranchPanel(props: {
         const branch = current()
         if (!branch) return
         setBusy(draft ? "pr-draft" : "pr")
-        setError("")
+        clear()
         setNotice("")
         try {
             let latest = branch
@@ -158,7 +159,7 @@ export function BranchPanel(props: {
             props.changed()
         } catch (caught) {
             yield
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
     const saveBranchName = action(function* () {
@@ -167,7 +168,7 @@ export function BranchPanel(props: {
         const next = branchName().trim()
         if (!next || next === props.workPackage.branchName) return
         setBusy("branch-name")
-        setError("")
+        clear()
         setNotice("")
         try {
             yield api.updateWorkPackage(props.workPackage.ref, {
@@ -181,7 +182,7 @@ export function BranchPanel(props: {
             )
             props.workPackageChanged()
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
     const saveRemoteBranch = () => {
@@ -270,9 +271,7 @@ export function BranchPanel(props: {
                 </span>
             </div>
 
-            <Show when={error()}>
-                <p class="notice error">{error()}</p>
-            </Show>
+            <Banner />
             <Show when={notice()}>
                 <p class="notice success m-0" role="status">
                     {notice()}

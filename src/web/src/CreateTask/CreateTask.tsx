@@ -10,6 +10,7 @@ import {
 } from "@shared/types"
 import { api } from "../api"
 import { Modal } from "../components/Modal"
+import { useError } from "../hooks/useError"
 
 export function CreateTask(props: {
     workPackage: { ref: string; name: string }
@@ -29,7 +30,7 @@ export function CreateTask(props: {
     const [useGitWorkflow, setUseGitWorkflow] = createSignal(true)
     const [branchName, setBranchName] = createSignal("")
     const [busy, setBusy] = createOptimistic(false)
-    const [error, setError] = createSignal("")
+    const { handle, hasError, Banner } = useError()
     const estimateValid = () =>
         Number.isInteger(estimateUnits()) &&
         estimateUnits() >= 1 &&
@@ -40,9 +41,8 @@ export function CreateTask(props: {
 
         if (!title().trim() || !estimateValid()) return
         setBusy(true)
-        setError("")
-        try {
-            const task = await api.createTask({
+        const task = await handle(() =>
+            api.createTask({
                 title: title(),
                 description: description(),
                 priority: priority(),
@@ -61,13 +61,11 @@ export function CreateTask(props: {
                     ? branchName().trim() || undefined
                     : undefined,
                 workPackageRef: props.workPackage.ref,
-            })
-            yield
-            props.created(task.ref)
-        } catch (caught) {
-            yield
-            setError(caught instanceof Error ? caught.message : String(caught))
-        }
+            }),
+        )
+        yield
+        if (hasError() || !task) return
+        props.created(task.ref)
     })
 
     return (
@@ -189,9 +187,7 @@ export function CreateTask(props: {
                     />
                 </label>
             </Show>
-            <Show when={error()}>
-                <p class="notice error mt-4">{error()}</p>
-            </Show>
+            <Banner />
             <div class="mt-5 flex justify-end gap-2">
                 <button
                     class="outlined"

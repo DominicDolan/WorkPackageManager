@@ -8,6 +8,7 @@ import {
 } from "solid-js"
 import { WORK_PACKAGE_COLORS } from "@shared/types"
 import { api } from "../api"
+import { useError } from "../hooks/useError"
 import { Modal } from "../components/Modal"
 import type { WorkspaceSnapshot } from "../types/workspace"
 
@@ -22,7 +23,7 @@ export function CreateWorkPackage(props: {
     const [branchName, setBranchName] = createSignal("")
     const [branchMenuOpen, setBranchMenuOpen] = createSignal(false)
     const [busy, setBusy] = createOptimistic(false)
-    const [error, setError] = createSignal("")
+    const { capture, clear, Banner } = useError()
     const claimedBranches = createMemo(
         () =>
             new Set(
@@ -63,7 +64,7 @@ export function CreateWorkPackage(props: {
         if (busy()) return
 
         setBusy(true)
-        setError("")
+        clear()
         try {
             const result = await api.createWorkPackage({
                 name: name(),
@@ -76,7 +77,7 @@ export function CreateWorkPackage(props: {
             props.created(result.workPackage.ref)
         } catch (caught) {
             yield
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
 
@@ -224,9 +225,7 @@ export function CreateWorkPackage(props: {
                     </For>
                 </div>
             </div>
-            <Show when={error()}>
-                <p class="notice error mt-4">{error()}</p>
-            </Show>
+            <Banner />
             <div class="mt-5 flex justify-end gap-2">
                 <button class="outlined" onClick={props.close}>
                     Cancel

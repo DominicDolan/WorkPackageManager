@@ -1,6 +1,7 @@
 import { type InvestigationDetail } from "@shared/types"
-import { action, createOptimistic, Show, createSignal } from "solid-js"
+import { action, createOptimistic, createSignal } from "solid-js"
 import { api } from "../api"
+import { useError } from "../hooks/useError"
 
 export function InvestigationBrief(props: {
     investigation: InvestigationDetail
@@ -9,23 +10,20 @@ export function InvestigationBrief(props: {
     const [brief, setBrief] = createSignal(props.investigation.brief)
     const [busy, setBusy] = createOptimistic(false)
     const [saved, setSaved] = createSignal(false)
-    const [error, setError] = createSignal("")
+    const { handle, hasError, Banner } = useError()
     const save = action(function* () {
         if (busy()) return
 
         setBusy(true)
         setSaved(false)
-        setError("")
-        try {
-            yield api.updateInvestigation(props.investigation.ref, {
+        yield handle(() =>
+            api.updateInvestigation(props.investigation.ref, {
                 brief: brief(),
-            })
-
-            props.saved()
-            setSaved(true)
-        } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
-        }
+            }),
+        )
+        if (hasError()) return
+        props.saved()
+        setSaved(true)
     })
     return (
         <div class="investigation-brief p-6 [&_textarea]:min-h-52 [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-4 [&>div]:mt-3">
@@ -40,9 +38,7 @@ export function InvestigationBrief(props: {
                     placeholder="Describe what the agent should investigate, where to start, and what a useful answer should cover."
                 />
             </label>
-            <Show when={error()}>
-                <p class="notice error mt-4">{error()}</p>
-            </Show>
+            <Banner />
             <div>
                 <span>
                     {saved() ? "Saved" : `${brief().length} characters`}

@@ -15,6 +15,7 @@ import {
 } from "solid-js"
 import { InvestigationLauncher } from "../InvestigationLauncher/InvestigationLauncher"
 import { api } from "../api"
+import { useError } from "../hooks/useError"
 import { PageSkeleton } from "../components/PageSkeleton"
 import { InvestigationBrief } from "./InvestigationBrief"
 
@@ -29,13 +30,13 @@ export function InvestigationPanel(props: {
             : null,
     )
     const [busy, setBusy] = createOptimistic(false)
-    const [error, setError] = createSignal("")
+    const { capture, clear, Banner } = useError()
     const [launcherOpen, setLauncherOpen] = createSignal(false)
     const attach = action(function* () {
         if (busy()) return
 
         setBusy(true)
-        setError("")
+        clear()
         try {
             yield api.ensureWorkPackageInvestigation(
                 props.workPackage.ref,
@@ -44,7 +45,7 @@ export function InvestigationPanel(props: {
 
             props.changed()
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
     return (
@@ -75,9 +76,7 @@ export function InvestigationPanel(props: {
                             onClick={attach}>
                             Use description as investigation
                         </button>
-                        <Show when={error()}>
-                            <p class="notice error mt-4">{error()}</p>
-                        </Show>
+                        <Banner />
                     </article>
                 }>
                 <Loading fallback={<PageSkeleton compact />}>

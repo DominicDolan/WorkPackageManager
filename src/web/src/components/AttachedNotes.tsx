@@ -8,6 +8,7 @@ import {
 } from "solid-js"
 import type { NoteSummary } from "@shared/types"
 import { api } from "../api"
+import { useError } from "../hooks/useError"
 
 /** Shared note picker for task and work package detail. The actual note stays in the
  * Notes workspace; this component only manages the reference to it. */
@@ -21,7 +22,7 @@ export function AttachedNotes(props: {
     const listing = createMemo(() => api.listNotes())
     const [selected, setSelected] = createSignal("")
     const [busy, setBusy] = createOptimistic("")
-    const [error, setError] = createSignal("")
+    const { capture, clear, Banner } = useError()
     const available = () => {
         const attached = new Set(props.notes.map((note) => note.path))
         return listing().notes.filter((note) => !attached.has(note.path))
@@ -32,27 +33,27 @@ export function AttachedNotes(props: {
         const path = selected()
         if (!path) return
         setBusy(path)
-        setError("")
+        clear()
         try {
             yield props.attach(path)
 
             setSelected("")
             props.changed()
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
     const detach = action(function* (path: string) {
         if (busy()) return
 
         setBusy(path)
-        setError("")
+        clear()
         try {
             yield props.detach(path)
 
             props.changed()
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
 
@@ -136,9 +137,7 @@ export function AttachedNotes(props: {
                     </button>
                 </div>
             </Show>
-            <Show when={error()}>
-                <p class="notice error mt-3">{error()}</p>
-            </Show>
+            <Banner />
         </div>
     )
 }

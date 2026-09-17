@@ -2,6 +2,7 @@ import type { Note } from "@shared/types"
 import { action, createOptimistic, Show, createSignal } from "solid-js"
 import { api, noteAssetUrl } from "../api"
 import { renderMarkdown } from "../markdown"
+import { useError } from "../hooks/useError"
 
 export function NoteEditor(props: {
     note: Note
@@ -14,7 +15,7 @@ export function NoteEditor(props: {
     const [tags, setTags] = createSignal(props.note.tags.join(", "))
     const [body, setBody] = createSignal(props.note.body)
     const [busy, setBusy] = createOptimistic("")
-    const [error, setError] = createSignal("")
+    const { capture, clear, Banner } = useError()
     let editor: HTMLTextAreaElement | undefined
     const noteInput = () => ({
         title: title().trim(),
@@ -37,7 +38,7 @@ export function NoteEditor(props: {
         if (busy()) return
 
         setBusy("save")
-        setError("")
+        clear()
         try {
             const note = await api.updateNote(props.note.path, noteInput())
             yield
@@ -45,7 +46,7 @@ export function NoteEditor(props: {
             yield props.saved()
         } catch (caught) {
             yield
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
     const remove = action(function* () {
@@ -59,7 +60,7 @@ export function NoteEditor(props: {
             props.close()
             yield props.saved()
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
 
@@ -87,7 +88,7 @@ export function NoteEditor(props: {
         if (!images.length) return
         event.preventDefault()
         setBusy("pasteImages")
-        setError("")
+        clear()
         try {
             // Attachments belong to a saved note. Save the current draft first so the
             // final update cannot replace text typed before the paste.
@@ -109,7 +110,7 @@ export function NoteEditor(props: {
             yield props.saved()
         } catch (caught) {
             yield
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
 
@@ -156,9 +157,7 @@ export function NoteEditor(props: {
                     </button>
                 </div>
             </header>
-            <Show when={error()}>
-                <p class="notice error mt-5">{error()}</p>
-            </Show>
+            <Banner />
             <Show
                 when={props.mode === "write"}
                 fallback={

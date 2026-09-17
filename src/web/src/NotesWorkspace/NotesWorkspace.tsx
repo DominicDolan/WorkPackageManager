@@ -13,6 +13,7 @@ import {
     latest,
 } from "solid-js"
 import { api } from "../api"
+import { useError } from "../hooks/useError"
 import { PageSkeleton } from "../components/PageSkeleton"
 import { ProductRail } from "../components/ProductRail"
 import { PlusIcon } from "../components/icons"
@@ -35,7 +36,7 @@ export function NotesWorkspace(props: {
     const [creating, setCreating] = createSignal(false)
     const [newTitle, setNewTitle] = createSignal("")
     const [busy, setBusy] = createOptimistic("")
-    const [error, setError] = createSignal("")
+    const { capture, clear, Banner } = useError()
     const listing = createMemo(() =>
         api.listNotes({
             q: query() || undefined,
@@ -64,7 +65,7 @@ export function NotesWorkspace(props: {
 
         if (!newTitle().trim()) return
         setBusy("create")
-        setError("")
+        clear()
         try {
             const note = await api.createNote({
                 title: newTitle().trim(),
@@ -77,48 +78,48 @@ export function NotesWorkspace(props: {
             choose(note.path)
         } catch (caught) {
             yield
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
     const initialise = action(function* () {
         if (busy()) return
 
         setBusy("initialise")
-        setError("")
+        clear()
         try {
             yield api.initNotes()
 
             yield refresh(listing)
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
     const sync = action(function* () {
         if (busy()) return
 
         setBusy("sync")
-        setError("")
+        clear()
         try {
             yield api.pullNotes()
 
             yield refresh(listing)
             yield refresh(selected)
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
     const push = action(function* () {
         if (busy()) return
 
         setBusy("push")
-        setError("")
+        clear()
         try {
             yield api.syncNotes(true)
 
             yield refresh(listing)
             yield refresh(selected)
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
 
@@ -187,9 +188,7 @@ export function NotesWorkspace(props: {
                                     </button>
                                 </div>
                             </header>
-                            <Show when={error()}>
-                                <p class="notice error mb-5">{error()}</p>
-                            </Show>
+                            <Banner />
                             <section class="library grid grid-cols-[minmax(260px,_310px)_minmax(0,_1fr)] max-w-[1500px] min-h-[620px] m-[0_auto] max-[820px]:grid-cols-[1fr]">
                                 <aside class="library flex min-w-0 flex-col">
                                     <label class="search grid gap-[0.45rem] p-[1rem] [&_input]:p-[0.58rem_0.65rem]">

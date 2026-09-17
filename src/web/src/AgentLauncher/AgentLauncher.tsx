@@ -19,6 +19,7 @@ import {
     type WorkPackageDetail,
 } from "@shared/types"
 import { api } from "../api"
+import { useError } from "../hooks/useError"
 import { AgentSettings } from "../components/AgentSettings"
 import { Modal } from "../components/Modal"
 
@@ -40,7 +41,7 @@ export function AgentLauncher(props: {
     const [extra, setExtra] = createSignal("")
     const [busy, setBusy] = createOptimistic(false)
     const [resuming, setResuming] = createOptimistic<number | null>(null)
-    const [error, setError] = createSignal("")
+    const { capture, clear, Banner } = useError()
     // Task pages are the place a person returns after an agent has stopped. Keep
     // the history scoped to this task, rather than mixing in unrelated work package runs.
     const history = createMemo(async (): Promise<AgentRun[]> =>
@@ -85,18 +86,18 @@ export function AgentLauncher(props: {
 
         if (!entry.sessionId) return
         setResuming(entry.id)
-        setError("")
+        clear()
         try {
             yield api.resumeAgentRun(entry.id)
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
     const run = action(function* () {
         if (busy() || isPending(harness)) return
 
         setBusy(true)
-        setError("")
+        clear()
         try {
             const selectedHarness = chosenHarness()
             if (!selectedHarness)
@@ -138,7 +139,7 @@ export function AgentLauncher(props: {
             props.finished()
             props.close()
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
 
@@ -253,9 +254,7 @@ export function AgentLauncher(props: {
                     </section>
                 </Show>
             </Loading>
-            <Show when={error()}>
-                <p class="notice error mt-4">{error()}</p>
-            </Show>
+            <Banner />
             <div class="mt-5 flex justify-end">
                 <button
                     aria-busy={busy() ? "true" : "false"}

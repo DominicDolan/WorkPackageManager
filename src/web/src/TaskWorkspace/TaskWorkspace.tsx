@@ -14,6 +14,7 @@ import {
 } from "solid-js"
 import { AgentLauncher } from "../AgentLauncher/AgentLauncher"
 import { api } from "../api"
+import { useError } from "../hooks/useError"
 import { Brand } from "../components/Brand"
 import { PageSkeleton } from "../components/PageSkeleton"
 import { StatusBadge } from "../components/StatusBadge"
@@ -43,7 +44,7 @@ export function TaskWorkspace(props: {
     const [editing, setEditing] = createSignal(false)
     const [agentOpen, setAgentOpen] = createSignal(false)
     const [busy, setBusy] = createOptimistic("")
-    const [error, setError] = createSignal("")
+    const { capture, clear, message } = useError()
     const [note, setNote] = createSignal("")
     const blockers = () => {
         const detail = workPackage()
@@ -68,7 +69,7 @@ export function TaskWorkspace(props: {
         if (busy() || isPending(task) || isPending(workPackage)) return
 
         setBusy(label)
-        setError("")
+        clear()
         try {
             yield request()
 
@@ -77,7 +78,7 @@ export function TaskWorkspace(props: {
             props.changed()
             onSuccess?.()
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : String(caught))
+            capture(caught)
         }
     })
 
@@ -175,7 +176,7 @@ export function TaskWorkspace(props: {
                             workPackage={workPackage()}
                             workPackages={props.snapshot.workPackages}
                             busy={busy()}
-                            error={error()}
+                            error={message()}
                             editing={editing()}
                             setEditing={setEditing}
                             note={note()}
