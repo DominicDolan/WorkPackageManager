@@ -164,7 +164,7 @@ export function CreateWorkPackage(props: {
                                     return (
                                         <button
                                             type="button"
-                                            class={`option ${claimed() ? "muted" : ""} flex w-full items-center justify-between gap-[1rem] p-[0.62rem_0.65rem] [&_code]:overflow-hidden`}
+                                            class={`option ${claimed() ? "muted" : ""} flex w-full items-center justify-between gap-[1rem] p-[0.62rem_0.65rem]`}
                                             disabled={claimed()}
                                             role="option"
                                             aria-selected={
@@ -176,7 +176,9 @@ export function CreateWorkPackage(props: {
                                                 event.preventDefault()
                                                 chooseBranch(branch)
                                             }}>
-                                            <code>{branch}</code>
+                                            <code class="overflow-hidden">
+                                                {branch}
+                                            </code>
                                             <span class="muted flex flex-none items-center gap-[0.45rem]">
                                                 <Show
                                                     when={

@@ -86,17 +86,19 @@ export function TaskWorkspace(props: {
         <main class={`${styles.scope} task-workspace min-h-screen`}>
             <Loading fallback={<PageSkeleton />}>
                 <div class="mx-auto grid min-h-screen w-full max-w-[1720px] lg:grid-cols-[310px_1fr] xl:grid-cols-[340px_1fr]">
-                    <aside class="task-sidebar sticky top-0 h-[100vh] overflow-auto p-[1.7rem] max-[820px]:relative max-[820px]:h-auto max-[820px]:p-[1rem_1.25rem] max-[820px]:[&_.brand]:hidden max-[820px]:[&_.back]:mt-0">
-                        <Brand />
+                    <aside class="task-sidebar sticky top-0 h-[100vh] overflow-auto p-[1.7rem] max-[820px]:relative max-[820px]:h-auto max-[820px]:p-[1rem_1.25rem]">
+                        <div class="max-[820px]:hidden">
+                            <Brand />
+                        </div>
                         <button
-                            class="back mt-8 inline-flex items-center gap-[0.35rem]"
+                            class="back mt-8 inline-flex items-center gap-[0.35rem] max-[820px]:mt-0"
                             onClick={props.back}>
                             <BackIcon />
                             Back to work package
                         </button>
-                        <div class="sidebar-heading flex items-center justify-between m-[2.2rem_0_0.75rem] pb-[0.65rem] [&_h2]:m-0 [&_span]:m-0 max-[820px]:hidden">
-                            <h2>Tasks in this work package</h2>
-                            <span>
+                        <div class="sidebar-heading flex items-center justify-between m-[2.2rem_0_0.75rem] pb-[0.65rem] max-[820px]:hidden">
+                            <h2 class="m-0">Tasks in this work package</h2>
+                            <span class="m-0">
                                 {workPackage()?.tasks.length ??
                                     props.snapshot.tasks.filter(
                                         (item) => !item.workPackageRef,
@@ -113,7 +115,7 @@ export function TaskWorkspace(props: {
                                 }>
                                 {(item) => (
                                     <button
-                                        class={`task-nav-item  relative block w-full p-[0.75rem_0.8rem] [&>span]:block [&>strong]:block [&>strong]:mt-[0.25rem] [&>strong]:overflow-hidden [&>.task-nav-meta]:flex [&>.task-nav-meta]:items-center [&>.task-nav-meta]:gap-[0.45rem] [&>.task-nav-detail]:mt-[0.25rem] [&>.task-nav-detail]:overflow-hidden`}
+                                        class={`task-nav-item relative block w-full p-[0.75rem_0.8rem]`}
                                         aria-current={
                                             item.ref ===
                                             latest(() => props.taskRef)
@@ -128,13 +130,15 @@ export function TaskWorkspace(props: {
                                                 ? "true"
                                                 : "false"
                                         }>
-                                        <span class="task-nav-meta">
+                                        <span class="task-nav-meta flex items-center gap-[0.45rem]">
                                             {item.ref}
                                             <StatusBadge status={item.status} />
                                         </span>
-                                        <strong>{item.title}</strong>
+                                        <strong class="block mt-[0.25rem] overflow-hidden">
+                                            {item.title}
+                                        </strong>
                                         <span
-                                            class="task-nav-detail"
+                                            class="task-nav-detail mt-[0.25rem] overflow-hidden"
                                             title={
                                                 statusSince(item)?.at ??
                                                 undefined

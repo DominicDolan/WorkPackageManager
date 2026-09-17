@@ -119,13 +119,13 @@ export function BranchCheckLauncher(props: {
 
     return (
         <Modal title="Resolve failed checks with an agent" close={props.close}>
-            <article class="tonal summary p-[1rem] [&>span]:block [&>strong]:block [&>strong]:mt-[0.35rem] [&>p]:m-[0.4rem_0_0] [&_ul]:grid [&_ul]:gap-[0.4rem] [&_ul]:m-[0.8rem_0_0] [&_ul]:p-0 [&_li]:grid [&_li]:grid-cols-[minmax(7rem,_0.7fr)_minmax(0,_1.5fr)] [&_li]:gap-[0.75rem] [&_li]:p-[0.55rem_0.65rem] [&_li_code]:overflow-hidden max-[560px]:[&_li]:grid-cols-[1fr]">
-                <span>{props.branch.branchName}</span>
-                <strong>
+            <article class="tonal summary p-[1rem] [&_ul]:grid [&_ul]:gap-[0.4rem] [&_ul]:m-[0.8rem_0_0] [&_ul]:p-0 [&_li]:grid [&_li]:grid-cols-[minmax(7rem,_0.7fr)_minmax(0,_1.5fr)] [&_li]:gap-[0.75rem] [&_li]:p-[0.55rem_0.65rem] [&_li_code]:overflow-hidden max-[560px]:[&_li]:grid-cols-[1fr]">
+                <span class="block">{props.branch.branchName}</span>
+                <strong class="block mt-[0.35rem]">
                     {failures().length} failed check
                     {failures().length === 1 ? "" : "s"}
                 </strong>
-                <p>
+                <p class="m-[0.4rem_0_0]">
                     The agent will receive the failed commands and their
                     captured output, inspect the cause, make a focused fix, and
                     rerun them.

@@ -50,10 +50,10 @@ export function InvestigationPanel(props: {
     })
     return (
         <section class="mx-auto max-w-4xl">
-            <header class="section flex items-end justify-between mb-4 [&_h2]:m-0 [&_p]:m-[0.3rem_0_0]">
+            <header class="section flex items-end justify-between mb-4">
                 <div>
-                    <h2>Investigation</h2>
-                    <p>
+                    <h2 class="m-0">Investigation</h2>
+                    <p class="m-[0.3rem_0_0]">
                         The brief is the question an agent will research before
                         it creates work.
                     </p>
@@ -62,9 +62,11 @@ export function InvestigationPanel(props: {
             <Show
                 when={props.investigation}
                 fallback={
-                    <article class="highlighted p-[clamp(1.25rem,_3vw,_2rem)] [&_h3]:m-0 [&>p]:max-w-[65ch] [&>p]:m-[0.55rem_0_1.1rem]">
-                        <h3>Add an investigation to this work package</h3>
-                        <p>
+                    <article class="highlighted p-[clamp(1.25rem,3vw,2rem)]">
+                        <h3 class="m-0">
+                            Add an investigation to this work package
+                        </h3>
+                        <p class="max-w-[65ch] m-[0.55rem_0_1.1rem]">
                             This is an older work package. Its current
                             description can become the investigation brief,
                             without moving or changing any existing tasks.
@@ -83,7 +85,7 @@ export function InvestigationPanel(props: {
                     <Show when={detail()} keyed>
                         {(investigation) => (
                             <>
-                                <ol class="stepper investigation-flow grid grid-cols-[repeat(3,_minmax(0,_1fr))] mb-[1rem] max-[560px]:grid-cols-[1fr]">
+                                <ol class="stepper investigation-flow grid grid-cols-3 mb-4 max-[560px]:grid-cols-[1fr]">
                                     <li
                                         aria-current={
                                             investigation.status === "draft"
@@ -113,11 +115,13 @@ export function InvestigationPanel(props: {
                                         <small>Work lands here</small>
                                     </li>
                                 </ol>
-                                <article class="[&>header]:flex [&>header]:items-start [&>header]:justify-between [&>header]:gap-[1rem] [&>header]:p-[1.25rem_1.5rem] [&>header_h3]:m-[0.3rem_0_0]">
-                                    <header>
+                                <article>
+                                    <header class="flex items-start justify-between gap-4 p-[1.25rem_1.5rem]">
                                         <div>
                                             <span>{investigation.ref}</span>
-                                            <h3>{props.workPackage.name}</h3>
+                                            <h3 class="m-[0.3rem_0_0]">
+                                                {props.workPackage.name}
+                                            </h3>
                                         </div>
                                         <span class="badge accent p-[0.2rem_0.55rem]">
                                             {
@@ -134,7 +138,7 @@ export function InvestigationPanel(props: {
                                             props.changed()
                                         }}
                                     />
-                                    <div class="investigation-actions flex items-center justify-between gap-[1.5rem] p-[1.2rem_1.5rem] [&_p]:max-w-[62ch] [&_p]:m-[0.25rem_0_0] max-[560px]:block max-[560px]:[&_.primary]:mt-[1rem]">
+                                    <div class="investigation-actions flex items-center justify-between gap-6 p-[1.2rem_1.5rem] max-[560px]:block">
                                         <div>
                                             <strong>
                                                 {investigation.status ===
@@ -142,7 +146,7 @@ export function InvestigationPanel(props: {
                                                     ? "Investigation complete"
                                                     : "Ready to investigate?"}
                                             </strong>
-                                            <p>
+                                            <p class="max-w-[62ch] m-[0.25rem_0_0]">
                                                 {investigation.status ===
                                                 "complete"
                                                     ? `${investigation.tasks.length} task(s) were created from this investigation.`
@@ -150,7 +154,7 @@ export function InvestigationPanel(props: {
                                             </p>
                                         </div>
                                         <button
-                                            class="primary"
+                                            class="primary max-[560px]:mt-4"
                                             aria-busy={
                                                 investigation.status ===
                                                 "investigating"
@@ -171,9 +175,11 @@ export function InvestigationPanel(props: {
                                         </button>
                                     </div>
                                     <Show when={investigation.findings}>
-                                        <div class="investigation-findings p-[1.5rem] [&_h4]:m-0 [&_p]:m-[0.65rem_0_0]">
-                                            <h4>Findings</h4>
-                                            <p>{investigation.findings}</p>
+                                        <div class="investigation-findings p-6">
+                                            <h4 class="m-0">Findings</h4>
+                                            <p class="m-[0.65rem_0_0]">
+                                                {investigation.findings}
+                                            </p>
                                         </div>
                                     </Show>
                                 </article>

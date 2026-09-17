@@ -46,9 +46,9 @@ export function ProductRail(props: {
                     Issues
                 </button>
             </nav>
-            <div class="rail-note relative z-[1] mt-auto pt-[1rem] [&_p]:m-[0.55rem_0_0] max-[820px]:hidden">
+            <div class="rail-note relative z-[1] mt-auto pt-[1rem] max-[820px]:hidden">
                 <span>Workspace flow</span>
-                <p>
+                <p class="m-[0.55rem_0_0]">
                     Investigate.
                     <br />
                     Build. Verify. Ship.

@@ -156,15 +156,16 @@ export function CreateTask(props: {
                     placeholder="frontend, reliability"
                 />
             </label>
-            <label class="choice mt-4 flex items-start gap-[0.75rem] p-[0.85rem] [&_input]:w-[1rem] [&_input]:h-[1rem] [&_input]:mt-[0.12rem] [&_span]:grid [&_span]:gap-[0.22rem]">
+            <label class="choice mt-4 flex items-start gap-[0.75rem] p-[0.85rem]">
                 <input
                     type="checkbox"
+                    class="w-[1rem] h-[1rem] mt-[0.12rem]"
                     checked={useGitWorkflow()}
                     onChange={(event) =>
                         setUseGitWorkflow(event.currentTarget.checked)
                     }
                 />
-                <span>
+                <span class="grid gap-[0.22rem]">
                     <strong>Use Git workflow</strong>
                     <small>
                         Create a task branch and merge completed work into the

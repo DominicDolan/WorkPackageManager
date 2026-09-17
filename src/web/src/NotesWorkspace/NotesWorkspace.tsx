@@ -130,13 +130,13 @@ export function NotesWorkspace(props: {
                 <Show when={listing()} keyed>
                     {(data) => (
                         <section class="library-surface min-w-0 p-[2.2rem_clamp(1.3rem,_3.5vw,_4.5rem)_4rem] max-[820px]:p-[1.25rem] max-[820px]:overflow-hidden">
-                            <header class="library flex max-w-[1500px] items-start justify-between gap-[2rem] m-[0_auto_1.5rem] p-[1.5rem_clamp(1.25rem,_3vw,_3rem)_1.7rem] [&_h1]:m-[0.45rem_0_0] [&_p:last-child]:max-w-[62ch] [&_p:last-child]:m-[0.8rem_0_0] max-[560px]:block max-[560px]:p-[1.25rem]">
+                            <header class="library flex max-w-[1500px] items-start justify-between gap-[2rem] m-[0_auto_1.5rem] p-[1.5rem_clamp(1.25rem,_3vw,_3rem)_1.7rem] max-[560px]:block max-[560px]:p-[1.25rem]">
                                 <div>
                                     <p class="eyebrow m-0">
                                         Reference workspace
                                     </p>
-                                    <h1>Notes</h1>
-                                    <p>
+                                    <h1 class="m-[0.45rem_0_0]">Notes</h1>
+                                    <p class="max-w-[62ch] m-[0.8rem_0_0]">
                                         Keep research, decisions and evidence in
                                         a versioned folder beside the work.
                                     </p>
@@ -191,9 +191,10 @@ export function NotesWorkspace(props: {
                             <Banner />
                             <section class="library grid grid-cols-[minmax(260px,_310px)_minmax(0,_1fr)] max-w-[1500px] min-h-[620px] m-[0_auto] max-[820px]:grid-cols-[1fr]">
                                 <aside class="library flex min-w-0 flex-col">
-                                    <label class="search grid gap-[0.45rem] p-[1rem] [&_input]:p-[0.58rem_0.65rem]">
+                                    <label class="search grid gap-[0.45rem] p-[1rem]">
                                         <span>Find a note</span>
                                         <input
+                                            class="p-[0.58rem_0.65rem]"
                                             value={latest(query)}
                                             onInput={(event) =>
                                                 setQuery(
@@ -209,10 +210,11 @@ export function NotesWorkspace(props: {
                                             data.folders.length > 0 ||
                                             data.tags.length > 0
                                         }>
-                                        <div class="filters [&_select]:p-[0.58rem_0.65rem] grid gap-[0.5rem] p-[0.75rem_1rem]">
+                                        <div class="filters grid gap-[0.5rem] p-[0.75rem_1rem]">
                                             <Show
                                                 when={data.folders.length > 0}>
                                                 <select
+                                                    class="p-[0.58rem_0.65rem]"
                                                     value={latest(folder)}
                                                     onChange={(event) =>
                                                         setFolder(
@@ -235,6 +237,7 @@ export function NotesWorkspace(props: {
                                             </Show>
                                             <Show when={data.tags.length > 0}>
                                                 <select
+                                                    class="p-[0.58rem_0.65rem]"
                                                     value={latest(tag)}
                                                     onChange={(event) =>
                                                         setTag(
@@ -275,7 +278,7 @@ export function NotesWorkspace(props: {
                                             }>
                                             {(item) => (
                                                 <button
-                                                    class={`card-item row compact  block w-full p-[0.9rem_1rem] [&>span]:block [&_small]:block [&_strong]:block [&_strong]:mt-[0.25rem] [&_p]:line-clamp-2 [&_p]:m-[0.35rem_0] [&_p]:overflow-hidden max-[820px]:min-w-[13rem]`}
+                                                    class={`card-item row compact block w-full p-[0.9rem_1rem] max-[820px]:min-w-[13rem]`}
                                                     aria-current={
                                                         latest(selectedPath) ===
                                                         item.path
@@ -292,19 +295,19 @@ export function NotesWorkspace(props: {
                                                     onClick={() =>
                                                         choose(item.path)
                                                     }>
-                                                    <span>
+                                                    <span class="block">
                                                         {item.folder
                                                             ? `${item.folder}/`
                                                             : "Note"}
                                                     </span>
-                                                    <strong>
+                                                    <strong class="block mt-[0.25rem]">
                                                         {item.title}
                                                     </strong>
-                                                    <p>
+                                                    <p class="line-clamp-2 m-[0.35rem_0] overflow-hidden">
                                                         {item.excerpt ||
                                                             "No preview yet."}
                                                     </p>
-                                                    <small>
+                                                    <small class="block">
                                                         {item.tags
                                                             .map(
                                                                 (value) =>
@@ -342,12 +345,12 @@ export function NotesWorkspace(props: {
                                                         when={selected()}
                                                         keyed
                                                         fallback={
-                                                            <section class="empty max-w-[48ch] m-[6rem_auto] p-[0_2rem] [&_h2]:m-0 [&_p]:m-[0.75rem_0_0]">
-                                                                <h2>
+                                                            <section class="empty max-w-[48ch] m-[6rem_auto] p-[0_2rem]">
+                                                                <h2 class="m-0">
                                                                     Choose a
                                                                     note
                                                                 </h2>
-                                                                <p>
+                                                                <p class="m-[0.75rem_0_0]">
                                                                     Select a
                                                                     note to read
                                                                     or edit it.
@@ -390,8 +393,10 @@ export function NotesWorkspace(props: {
                                                 </div>
                                             </Loading>
                                         }>
-                                        <article class="max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)] m-[2rem] [&_h2]:m-[0_0_1.25rem]">
-                                            <h2>New note</h2>
+                                        <article class="max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)] m-[2rem]">
+                                            <h2 class="m-[0_0_1.25rem]">
+                                                New note
+                                            </h2>
                                             <label class="field">
                                                 <span>Title</span>
                                                 <input

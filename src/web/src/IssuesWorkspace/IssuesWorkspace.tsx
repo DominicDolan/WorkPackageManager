@@ -92,11 +92,11 @@ export function IssuesWorkspace(props: {
                 <Show when={listing()} keyed>
                     {(data) => (
                         <section class="library-surface min-w-0 p-[2.2rem_clamp(1.3rem,_3.5vw,_4.5rem)_4rem] max-[820px]:p-[1.25rem] max-[820px]:overflow-hidden">
-                            <header class="library flex max-w-[1500px] items-start justify-between gap-[2rem] m-[0_auto_1.5rem] p-[1.5rem_clamp(1.25rem,_3vw,_3rem)_1.7rem] [&_h1]:m-[0.45rem_0_0] [&_p:last-child]:max-w-[62ch] [&_p:last-child]:m-[0.8rem_0_0] max-[560px]:block max-[560px]:p-[1.25rem]">
+                            <header class="library flex max-w-[1500px] items-start justify-between gap-[2rem] m-[0_auto_1.5rem] p-[1.5rem_clamp(1.25rem,_3vw,_3rem)_1.7rem] max-[560px]:block max-[560px]:p-[1.25rem]">
                                 <div>
                                     <p class="eyebrow m-0">Imported context</p>
-                                    <h1>Issues</h1>
-                                    <p>
+                                    <h1 class="m-[0.45rem_0_0]">Issues</h1>
+                                    <p class="max-w-[62ch] m-[0.8rem_0_0]">
                                         Review provider records from the notes
                                         folder. This view never writes back to
                                         the tracker.
@@ -143,9 +143,10 @@ export function IssuesWorkspace(props: {
                             <Banner />
                             <section class="library grid grid-cols-[minmax(260px,_310px)_minmax(0,_1fr)] max-w-[1500px] min-h-[620px] m-[0_auto] max-[820px]:grid-cols-[1fr]">
                                 <aside class="library flex min-w-0 flex-col">
-                                    <label class="search grid gap-[0.45rem] p-[1rem] [&_input]:p-[0.58rem_0.65rem]">
+                                    <label class="search grid gap-[0.45rem] p-[1rem]">
                                         <span>Find an issue</span>
                                         <input
+                                            class="p-[0.58rem_0.65rem]"
                                             value={latest(query)}
                                             onInput={(event) =>
                                                 setQuery(
@@ -156,8 +157,9 @@ export function IssuesWorkspace(props: {
                                             type="search"
                                         />
                                     </label>
-                                    <div class="filters [&_select]:p-[0.58rem_0.65rem] grid gap-[0.5rem] p-[0.75rem_1rem]">
+                                    <div class="filters grid gap-[0.5rem] p-[0.75rem_1rem]">
                                         <select
+                                            class="p-[0.58rem_0.65rem]"
                                             value={latest(state)}
                                             onChange={(event) =>
                                                 setState(
@@ -179,6 +181,7 @@ export function IssuesWorkspace(props: {
                                                 data.facets.sources.length > 1
                                             }>
                                             <select
+                                                class="p-[0.58rem_0.65rem]"
                                                 value={latest(source)}
                                                 onChange={(event) =>
                                                     setSource(
@@ -247,12 +250,12 @@ export function IssuesWorkspace(props: {
                                                     <For
                                                         each={data.issues}
                                                         fallback={
-                                                            <section class="empty max-w-[48ch] m-[6rem_auto] p-[0_2rem] [&_h2]:m-0 [&_p]:m-[0.75rem_0_0]">
-                                                                <h2>
+                                                            <section class="empty max-w-[48ch] m-[6rem_auto] p-[0_2rem]">
+                                                                <h2 class="m-0">
                                                                     No issues
                                                                     found
                                                                 </h2>
-                                                                <p>
+                                                                <p class="m-[0.75rem_0_0]">
                                                                     Place
                                                                     provider
                                                                     JSON files

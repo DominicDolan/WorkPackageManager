@@ -188,9 +188,9 @@ export function WorkPackageWorkspace(props: {
                                     </button>
                                     <div class="mt-5 flex flex-wrap items-end justify-between gap-5">
                                         <div>
-                                            <div class="reference flex items-center gap-[0.5rem] [&>span:first-child]:w-[0.65rem] [&>span:first-child]:h-[0.65rem]">
+                                            <div class="reference flex items-center gap-[0.5rem]">
                                                 <span
-                                                    class="dot"
+                                                    class="dot w-[0.65rem] h-[0.65rem]"
                                                     style={{
                                                         background:
                                                             detail.color,

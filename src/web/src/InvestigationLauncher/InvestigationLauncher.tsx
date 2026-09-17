@@ -87,10 +87,12 @@ export function InvestigationLauncher(props: {
     })
     return (
         <Modal title="Run investigation" close={props.close}>
-            <article class="inset summary p-[1rem] [&_span]:block [&_strong]:block [&_strong]:mt-[0.25rem] [&_p]:m-[0.5rem_0_0]">
-                <span>{props.investigation.ref}</span>
-                <strong>{props.investigation.title}</strong>
-                <p>
+            <article class="inset summary p-[1rem]">
+                <span class="block">{props.investigation.ref}</span>
+                <strong class="block mt-[0.25rem]">
+                    {props.investigation.title}
+                </strong>
+                <p class="m-[0.5rem_0_0]">
                     The agent will investigate this brief, record its findings,
                     and create tasks in the linked work package. It will not
                     change product code.

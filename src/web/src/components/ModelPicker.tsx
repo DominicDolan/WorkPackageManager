@@ -86,7 +86,7 @@ export function ModelPicker(props: {
                 <div class="menu absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto p-1">
                     <button
                         type="button"
-                        class="option flex w-full items-center justify-between gap-[1rem] p-[0.6rem_0.75rem] [&_small]:flex-none"
+                        class="option flex w-full items-center justify-between gap-[1rem] p-[0.6rem_0.75rem]"
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => choose()}>
                         <span>{props.defaultLabel}</span>
@@ -101,11 +101,13 @@ export function ModelPicker(props: {
                         {(entry) => (
                             <button
                                 type="button"
-                                class="option flex w-full items-center justify-between gap-[1rem] p-[0.6rem_0.75rem] [&_small]:flex-none"
+                                class="option flex w-full items-center justify-between gap-[1rem] p-[0.6rem_0.75rem]"
                                 onMouseDown={(event) => event.preventDefault()}
                                 onClick={() => choose(entry)}>
                                 <span class="truncate">{entry.label}</span>
-                                <small>{entry.group ?? entry.id}</small>
+                                <small class="flex-none">
+                                    {entry.group ?? entry.id}
+                                </small>
                             </button>
                         )}
                     </For>

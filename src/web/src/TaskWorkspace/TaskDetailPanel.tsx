@@ -41,13 +41,15 @@ export function TaskDetailPanel(props: {
             <Show when={props.error}>
                 <p class="notice error mb-5">{props.error}</p>
             </Show>
-            <header class="detail flex flex-wrap items-start justify-between gap-4 pb-[1.65rem] [&_h1]:max-w-[25ch] [&_h1]:m-[0.65rem_0_0]">
+            <header class="detail flex flex-wrap items-start justify-between gap-4 pb-[1.65rem]">
                 <div>
                     <div class="flex items-center gap-2">
                         <span class="reference">{props.task.ref}</span>
                         <StatusBadge status={props.task.status} />
                     </div>
-                    <h1>{props.task.title}</h1>
+                    <h1 class="max-w-[25ch] m-[0.65rem_0_0]">
+                        {props.task.title}
+                    </h1>
                 </div>
                 <div class="flex gap-2">
                     <Show when={props.workPackage}>

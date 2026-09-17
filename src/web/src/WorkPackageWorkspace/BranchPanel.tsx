@@ -255,11 +255,11 @@ export function BranchPanel(props: {
 
     return (
         <section class="branch-workspace mx-auto max-w-4xl grid gap-[1.1rem]">
-            <div class="branch-heading flex items-start justify-between gap-[1rem] mb-[0.15rem] [&_h2]:m-[0_0_0.55rem] [&_div>span]:ml-[0.65rem] max-[560px]:block">
+            <div class="branch-heading flex items-start justify-between gap-[1rem] mb-[0.15rem] max-[560px]:block">
                 <div>
-                    <h2>Delivery branch</h2>
+                    <h2 class="m-[0_0_0.55rem]">Delivery branch</h2>
                     <code>{props.workPackage.branchName}</code>
-                    <span>
+                    <span class="ml-[0.65rem]">
                         from <code>{props.workPackage.baseBranch}</code>
                     </span>
                 </div>
@@ -385,11 +385,13 @@ export function BranchPanel(props: {
                             No commits have landed on this branch yet.
                         </p>
                     }>
-                    <ul class="branch-commits overflow-hidden m-[1rem_0_0] p-0 [&_li]:flex [&_li]:gap-[0.8rem] [&_li]:p-[0.65rem_0.8rem] [&_code]:flex-[0_0_auto]">
+                    <ul class="branch-commits overflow-hidden m-[1rem_0_0] p-0">
                         <For each={props.workPackage.git.commits}>
                             {(commit) => (
-                                <li>
-                                    <code>{commit.shortSha}</code>
+                                <li class="flex gap-[0.8rem] p-[0.65rem_0.8rem]">
+                                    <code class="flex-[0_0_auto]">
+                                        {commit.shortSha}
+                                    </code>
                                     <span>{commit.subject}</span>
                                 </li>
                             )}
@@ -401,9 +403,9 @@ export function BranchPanel(props: {
             <Show
                 when={current()}
                 fallback={
-                    <article class="inset overflow-hidden [&>header]:p-[1.15rem_1.25rem_0.35rem] [&>header_h3]:m-0 [&>header_p]:m-[0.28rem_0_0] [&_h3]:m-0 [&_p]:m-[0.28rem_0_0] p-[1.25rem]">
-                        <h3>Pull request description and checks</h3>
-                        <p>
+                    <article class="inset overflow-hidden p-[1.25rem]">
+                        <h3 class="m-0">Pull request description and checks</h3>
+                        <p class="m-[0.28rem_0_0]">
                             These controls become available once the branch has
                             commits that are not on its base branch.
                         </p>
@@ -448,10 +450,11 @@ export function BranchPanel(props: {
                                 </p>
                             </Show>
                             <div
-                                class="segmented inset inline-flex gap-[0.2rem] m-[1rem_0_0.75rem] p-[0.2rem] [&_button]:p-[0.38rem_0.7rem]"
+                                class="segmented inset inline-flex gap-[0.2rem] m-[1rem_0_0.75rem] p-[0.2rem]"
                                 role="group"
                                 aria-label="Description view">
                                 <button
+                                    class="p-[0.38rem_0.7rem]"
                                     aria-pressed={
                                         mode() === "write" ? "true" : "false"
                                     }
@@ -459,6 +462,7 @@ export function BranchPanel(props: {
                                     Write
                                 </button>
                                 <button
+                                    class="p-[0.38rem_0.7rem]"
                                     aria-pressed={
                                         mode() === "preview" ? "true" : "false"
                                     }
@@ -483,7 +487,7 @@ export function BranchPanel(props: {
                                         </Show>
                                     </article>
                                 }>
-                                <div class="branch-description-fields grid gap-[1rem] [&_textarea]:min-h-[14rem]">
+                                <div class="branch-description-fields grid gap-[1rem]">
                                     <label class="field">
                                         <span>Title</span>
                                         <input
@@ -499,6 +503,7 @@ export function BranchPanel(props: {
                                     <label class="field">
                                         <span>Body (Markdown)</span>
                                         <textarea
+                                            class="min-h-[14rem]"
                                             value={body()}
                                             onInput={(event) =>
                                                 setBody(
@@ -510,7 +515,7 @@ export function BranchPanel(props: {
                                     </label>
                                 </div>
                             </Show>
-                            <div class="branch-footer flex flex-wrap items-center gap-[0.75rem] mt-[0.8rem] [&_.spacer]:flex-1">
+                            <div class="branch-footer flex flex-wrap items-center gap-[0.75rem] mt-[0.8rem]">
                                 <button
                                     class="outlined"
                                     disabled={!!busy() || !descriptionDirty()}

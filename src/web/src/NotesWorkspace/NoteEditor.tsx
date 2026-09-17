@@ -115,18 +115,19 @@ export function NoteEditor(props: {
     })
 
     return (
-        <article class="document max-[560px]:[&_header]:block max-[560px]:[&_header_.flex]:mt-[1rem] max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)] [&_header]:flex [&_header]:items-start [&_header]:justify-between [&_header]:gap-[1rem] [&_header]:pb-[1.25rem] [&_h2]:max-w-[25ch] [&_h2]:m-[0.4rem_0_0]">
-            <header>
+        <article class="document max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)]">
+            <header class="flex items-start justify-between gap-[1rem] pb-[1.25rem] max-[560px]:block">
                 <div>
                     <p class="reference">{props.note.path}</p>
-                    <h2>{title()}</h2>
+                    <h2 class="max-w-[25ch] m-[0.4rem_0_0]">{title()}</h2>
                 </div>
                 <div class="flex flex-wrap gap-2">
                     <div
-                        class="segmented flex [&_button]:min-h-[2.5rem] [&_button]:p-[0.5rem_0.8rem]"
+                        class="segmented flex"
                         role="group"
                         aria-label="Note view">
                         <button
+                            class="min-h-[2.5rem] p-[0.5rem_0.8rem]"
                             aria-pressed={
                                 props.mode === "write" ? "true" : "false"
                             }
@@ -134,6 +135,7 @@ export function NoteEditor(props: {
                             Write
                         </button>
                         <button
+                            class="min-h-[2.5rem] p-[0.5rem_0.8rem]"
                             aria-pressed={
                                 props.mode === "preview" ? "true" : "false"
                             }

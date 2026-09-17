@@ -26,10 +26,11 @@ export function InvestigationBrief(props: {
         setSaved(true)
     })
     return (
-        <div class="investigation-brief p-6 [&_textarea]:min-h-52 [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-4 [&>div]:mt-3">
+        <div class="investigation-brief p-6">
             <label class="field">
                 <span>Investigation brief</span>
                 <textarea
+                    class="min-h-52"
                     value={brief()}
                     onInput={(event) => {
                         setBrief(event.currentTarget.value)
@@ -39,7 +40,7 @@ export function InvestigationBrief(props: {
                 />
             </label>
             <Banner />
-            <div>
+            <div class="flex items-center justify-between gap-4 mt-3">
                 <span>
                     {saved() ? "Saved" : `${brief().length} characters`}
                 </span>

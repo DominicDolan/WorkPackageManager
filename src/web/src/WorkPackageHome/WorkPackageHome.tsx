@@ -72,10 +72,12 @@ export function WorkPackageHome(props: {
             <ProductRail active="work-packages" select={props.select} />
             <section class="work-surface min-w-0 p-[2.2rem_clamp(1.3rem,_3.5vw,_4.5rem)_4rem] max-[820px]:w-full max-[820px]:min-w-0 max-[820px]:max-w-full max-[820px]:p-[1.25rem] max-[820px]:overflow-hidden">
                 <header class="portfolio grid grid-cols-[minmax(0,_1fr)_auto] gap-[2rem] max-w-[1500px] m-[0_auto_2.8rem] p-[clamp(1rem,_2vw,_2rem)_0_0] max-[820px]:w-full max-[820px]:min-w-0 max-[820px]:max-w-full max-[820px]:mb-[2rem] max-[560px]:block">
-                    <hgroup class="min-w-0 max-w-[760px] p-[1.6rem_clamp(1.5rem,_3vw,_3rem)_2.2rem] [&_h1]:max-w-[720px] [&_h1]:m-[0.45rem_0_0] [&>p:last-child]:max-w-[590px] [&>p:last-child]:m-[1.25rem_0_0] max-[560px]:p-[1.35rem_1.25rem_1.75rem]">
+                    <hgroup class="min-w-0 max-w-[760px] p-[1.6rem_clamp(1.5rem,_3vw,_3rem)_2.2rem] max-[560px]:p-[1.35rem_1.25rem_1.75rem]">
                         <p class="eyebrow m-0">Engineering operations</p>
-                        <h1>Work in motion</h1>
-                        <p>
+                        <h1 class="max-w-[720px] m-[0.45rem_0_0]">
+                            Work in motion
+                        </h1>
+                        <p class="max-w-[590px] m-[1.25rem_0_0]">
                             Plan grouped changes, direct agents, and keep the
                             evidence needed to ship with confidence.
                         </p>
@@ -101,15 +103,17 @@ export function WorkPackageHome(props: {
                         </div>
                     </dl>
                 </header>
-                <header class="collection flex max-w-[1500px] items-end justify-between gap-[1rem] m-[0_auto_0.9rem] [&_h2]:m-0 [&_p]:m-[0.2rem_0_0] [&>span]:m-[0.2rem_0_0] max-[560px]:[&>span]:hidden">
+                <header class="collection flex max-w-[1500px] items-end justify-between gap-[1rem] m-[0_auto_0.9rem]">
                     <div>
-                        <h2>Portfolio</h2>
-                        <p>
+                        <h2 class="m-0">Portfolio</h2>
+                        <p class="m-[0.2rem_0_0]">
                             {props.snapshot.tasks.length} tasks across the
                             workspace
                         </p>
                     </div>
-                    <span>Dev complete / total</span>
+                    <span class="m-[0.2rem_0_0] max-[560px]:hidden">
+                        Dev complete / total
+                    </span>
                 </header>
                 <section class="collection max-w-[1500px] m-[0_auto] max-[820px]:w-full max-[820px]:min-w-0 max-[820px]:max-w-full">
                     <For each={currentWorkPackages()}>
@@ -152,12 +156,14 @@ export function WorkPackageHome(props: {
                     </Show>
                 </section>
                 <Show when={closedWorkPackages().length}>
-                    <section class="collection max-w-[1500px] m-[1.5rem_auto_0] [&>summary]:flex [&>summary]:items-center [&>summary]:justify-between [&>summary]:p-[0.85rem_1rem] [&>summary::-webkit-details-marker]:hidden [&>summary::before]:mr-[0.6rem] [&>summary_span]:ml-auto [&>.collection]:mt-[0.5rem]">
-                        <summary>
+                    <section class="collection max-w-[1500px] m-[1.5rem_auto_0]">
+                        <summary class="flex items-center justify-between p-[0.85rem_1rem] [&::-webkit-details-marker]:hidden before:mr-[0.6rem]">
                             Closed work packages{" "}
-                            <span>{closedWorkPackages().length}</span>
+                            <span class="ml-auto">
+                                {closedWorkPackages().length}
+                            </span>
                         </summary>
-                        <section class="collection max-w-[1500px] m-[0_auto] max-[820px]:w-full max-[820px]:min-w-0 max-[820px]:max-w-full">
+                        <section class="collection max-w-[1500px] m-[0_auto] mt-[0.5rem] max-[820px]:w-full max-[820px]:min-w-0 max-[820px]:max-w-full">
                             <For each={closedWorkPackages()}>
                                 {(workPackage) => (
                                     <WorkPackageCard

@@ -23,12 +23,12 @@ export function WorkPackageCard(props: {
                 class="work-package-stripe self-stretch"
                 style={{ background: props.workPackage.color }}
             />
-            <div class="min-w-0 p-[1.55rem_0] [&_h3]:m-[0.35rem_0_0] [&_p]:line-clamp-2 [&_p]:max-w-[52ch] [&_p]:m-[0.45rem_0_0] [&_p]:overflow-hidden max-[820px]:overflow-hidden max-[560px]:p-[1.2rem_0]">
+            <div class="min-w-0 p-[1.55rem_0] max-[820px]:overflow-hidden max-[560px]:p-[1.2rem_0]">
                 <span class="reference">
                     {props.legacy ? "Legacy work" : props.workPackage.ref}
                 </span>
-                <h3>{props.workPackage.name}</h3>
-                <p>
+                <h3 class="m-[0.35rem_0_0]">{props.workPackage.name}</h3>
+                <p class="line-clamp-2 max-w-[52ch] m-[0.45rem_0_0] overflow-hidden">
                     {props.workPackage.description ||
                         "Add a description to define the outcome for this work package."}
                 </p>
@@ -44,12 +44,12 @@ export function WorkPackageCard(props: {
                         </p>
                     }>
                     {(task) => (
-                        <div class="task-preview-row flex min-w-0 items-center gap-[0.6rem] m-[0.45rem_0] [&>span:last-child]:overflow-hidden">
+                        <div class="task-preview-row flex min-w-0 items-center gap-[0.6rem] m-[0.45rem_0]">
                             <span
                                 class="dot w-[0.45rem] h-[0.45rem] flex-none"
                                 data-status={task.status}
                             />
-                            <span>{task.title}</span>
+                            <span class="overflow-hidden">{task.title}</span>
                         </div>
                     )}
                 </For>
@@ -59,25 +59,28 @@ export function WorkPackageCard(props: {
                     </p>
                 </Show>
             </div>
-            <div class="work-package-progress p-[1.25rem_0] [&_small]:block [&_small]:mt-[0.38rem] max-[560px]:hidden">
+            <div class="work-package-progress p-[1.25rem_0] max-[560px]:hidden">
                 <div class="progress-copy">
                     <strong>{props.workPackage.devCompleteCount}</strong>
                     <span> / {props.workPackage.taskCount}</span>
                 </div>
-                <div class="progress-track h-[3px] mt-[0.65rem] overflow-hidden [&_span]:block [&_span]:h-full">
+                <div class="progress-track h-[3px] mt-[0.65rem] overflow-hidden">
                     <span
+                        class="block h-full"
                         style={{
                             width: `${progress()}%`,
                             background: props.workPackage.color,
                         }}
                     />
                 </div>
-                <small>{progress()}% dev complete</small>
+                <small class="block mt-[0.38rem]">
+                    {progress()}% dev complete
+                </small>
             </div>
             <span
-                class="open-cue grid w-[2rem] h-[2rem] place-items-center [&_svg]:w-[1.15rem] max-[560px]:hidden"
+                class="open-cue grid w-[2rem] h-[2rem] place-items-center max-[560px]:hidden"
                 aria-hidden="true">
-                <svg viewBox="0 0 24 24">
+                <svg class="w-[1.15rem]" viewBox="0 0 24 24">
                     <path d="m9 5 7 7-7 7" />
                 </svg>
             </span>

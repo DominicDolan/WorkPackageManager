@@ -7,7 +7,7 @@ export function IssueCard(props: {
 }) {
     return (
         <button
-            class="card-item block w-full mb-[0.8rem] p-[1rem] [&_h2]:m-[0.7rem_0_0] [&_p]:m-[0.5rem_0] [&_footer]:flex [&_footer]:flex-wrap [&_footer]:gap-[0.35rem] [&_footer_span]:p-[0.1rem_0.35rem]"
+            class="card-item block w-full mb-[0.8rem] p-[1rem]"
             onClick={props.open}
             aria-busy={props.busy ? "true" : "false"}>
             <div>
@@ -22,15 +22,15 @@ export function IssueCard(props: {
                     {props.issue.stateLabel}
                 </span>
             </div>
-            <h2>{props.issue.title}</h2>
-            <p>
+            <h2 class="m-[0.7rem_0_0]">{props.issue.title}</h2>
+            <p class="m-[0.5rem_0]">
                 {props.issue.excerpt ||
                     props.issue.container ||
                     "No summary provided."}
             </p>
-            <footer>
+            <footer class="flex flex-wrap gap-[0.35rem]">
                 {props.issue.labels.slice(0, 3).map((label) => (
-                    <span>{label.name}</span>
+                    <span class="p-[0.1rem_0.35rem]">{label.name}</span>
                 ))}
             </footer>
         </button>
