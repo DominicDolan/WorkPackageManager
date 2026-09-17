@@ -1,5 +1,5 @@
 import { type InvestigationDetail } from "@shared/types"
-import { Show, createSignal } from "solid-js"
+import { action, createOptimistic, Show, createSignal } from "solid-js"
 import { api } from "../api"
 
 export function InvestigationBrief(props: {
@@ -7,25 +7,26 @@ export function InvestigationBrief(props: {
     saved: () => void
 }) {
     const [brief, setBrief] = createSignal(props.investigation.brief)
-    const [busy, setBusy] = createSignal(false)
+    const [busy, setBusy] = createOptimistic(false)
     const [saved, setSaved] = createSignal(false)
     const [error, setError] = createSignal("")
-    const save = async () => {
+    const save = action(function* () {
+        if (busy()) return
+
         setBusy(true)
         setSaved(false)
         setError("")
         try {
-            await api.updateInvestigation(props.investigation.ref, {
+            yield api.updateInvestigation(props.investigation.ref, {
                 brief: brief(),
             })
+
             props.saved()
             setSaved(true)
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy(false)
         }
-    }
+    })
     return (
         <div class="investigation-brief p-6 [&_textarea]:min-h-52 [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-4 [&>div]:mt-3">
             <label class="field">

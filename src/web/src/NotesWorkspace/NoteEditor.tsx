@@ -1,5 +1,5 @@
 import type { Note } from "@shared/types"
-import { Show, createSignal } from "solid-js"
+import { action, createOptimistic, Show, createSignal } from "solid-js"
 import { api, noteAssetUrl } from "../api"
 import { renderMarkdown } from "../markdown"
 
@@ -13,7 +13,7 @@ export function NoteEditor(props: {
     const [title, setTitle] = createSignal(props.note.title)
     const [tags, setTags] = createSignal(props.note.tags.join(", "))
     const [body, setBody] = createSignal(props.note.body)
-    const [busy, setBusy] = createSignal("")
+    const [busy, setBusy] = createOptimistic("")
     const [error, setError] = createSignal("")
     let editor: HTMLTextAreaElement | undefined
     const noteInput = () => ({
@@ -33,31 +33,35 @@ export function NoteEditor(props: {
         setTags(note.tags.join(", "))
         setBody(note.body)
     }
-    const save = async () => {
+    const save = action(async function* () {
+        if (busy()) return
+
         setBusy("save")
         setError("")
         try {
-            applySavedNote(await api.updateNote(props.note.path, noteInput()))
-            await props.saved()
+            const note = await api.updateNote(props.note.path, noteInput())
+            yield
+            applySavedNote(note)
+            yield props.saved()
         } catch (caught) {
+            yield
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
-    const remove = async () => {
+    })
+    const remove = action(function* () {
+        if (busy()) return
+
         if (!confirm(`Delete ${title()}?`)) return
         setBusy("remove")
         try {
-            await api.deleteNote(props.note.path)
+            yield api.deleteNote(props.note.path)
+
             props.close()
-            await props.saved()
+            yield props.saved()
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
+    })
 
     const insertAtCursor = (markdown: string): string => {
         const start = editor?.selectionStart ?? body().length
@@ -74,7 +78,9 @@ export function NoteEditor(props: {
         return next
     }
 
-    const pasteImages = async (event: ClipboardEvent) => {
+    const pasteImages = action(async function* (event: ClipboardEvent) {
+        if (busy()) return
+
         const images = [...(event.clipboardData?.files ?? [])].filter((file) =>
             file.type.startsWith("image/"),
         )
@@ -85,24 +91,27 @@ export function NoteEditor(props: {
         try {
             // Attachments belong to a saved note. Save the current draft first so the
             // final update cannot replace text typed before the paste.
-            await api.updateNote(props.note.path, noteInput())
+            yield api.updateNote(props.note.path, noteInput())
+
             const uploaded = await api.uploadAttachments(
                 props.note.path,
                 images,
             )
+            yield
             const nextBody = insertAtCursor(
                 uploaded.added.map((item) => item.markdown).join("\n"),
             )
-            applySavedNote(
-                await api.updateNote(props.note.path, { body: nextBody }),
-            )
-            await props.saved()
+            const note = await api.updateNote(props.note.path, {
+                body: nextBody,
+            })
+            yield
+            applySavedNote(note)
+            yield props.saved()
         } catch (caught) {
+            yield
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
+    })
 
     return (
         <article class="document max-[560px]:[&_header]:block max-[560px]:[&_header_.flex]:mt-[1rem] max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)] [&_header]:flex [&_header]:items-start [&_header]:justify-between [&_header]:gap-[1rem] [&_header]:pb-[1.25rem] [&_h2]:max-w-[25ch] [&_h2]:m-[0.4rem_0_0]">

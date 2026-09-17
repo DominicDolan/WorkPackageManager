@@ -1,4 +1,6 @@
 import {
+    action,
+    createOptimistic,
     For,
     Loading,
     Show,
@@ -29,7 +31,7 @@ export function BranchCheckLauncher(props: {
     const [permission, setPermission] =
         createSignal<AgentPermissionMode>("manual")
     const [extra, setExtra] = createSignal("")
-    const [busy, setBusy] = createSignal(false)
+    const [busy, setBusy] = createOptimistic(false)
     const [error, setError] = createSignal("")
     const chosenHarness = () =>
         harness() ||
@@ -83,14 +85,16 @@ export function BranchCheckLauncher(props: {
             2,
         )
 
-    const run = async () => {
+    const run = action(function* () {
+        if (busy()) return
+
         setBusy(true)
         setError("")
         try {
             if (!chosenHarness())
                 throw new Error("No supported agent harness is installed.")
             const userNote = extra().trim()
-            await api.startAgentRun({
+            yield api.startAgentRun({
                 harness: chosenHarness(),
                 model: model(),
                 mode:
@@ -104,14 +108,13 @@ export function BranchCheckLauncher(props: {
                 subjectRef: props.branch.branchName,
                 permissionMode: permission(),
             })
+
             props.started()
             props.close()
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy(false)
         }
-    }
+    })
 
     return (
         <Modal title="Resolve failed checks with an agent" close={props.close}>

@@ -1,4 +1,6 @@
 import {
+    action,
+    createOptimistic,
     For,
     Loading,
     Show,
@@ -35,8 +37,8 @@ export function AgentLauncher(props: {
     const [permission, setPermission] =
         createSignal<AgentPermissionMode>("manual")
     const [extra, setExtra] = createSignal("")
-    const [busy, setBusy] = createSignal(false)
-    const [resuming, setResuming] = createSignal<number | null>(null)
+    const [busy, setBusy] = createOptimistic(false)
+    const [resuming, setResuming] = createOptimistic<number | null>(null)
     const [error, setError] = createSignal("")
     // Task pages are the place a person returns after an agent has stopped. Keep
     // the history scoped to this task, rather than mixing in unrelated work package runs.
@@ -77,19 +79,21 @@ export function AgentLauncher(props: {
     )
 
     const next = () => props.task ?? nextWorkableTask(props.workPackage)
-    const resume = async (entry: AgentRun) => {
+    const resume = action(function* (entry: AgentRun) {
+        if (resuming() !== null || busy()) return
+
         if (!entry.sessionId) return
         setResuming(entry.id)
         setError("")
         try {
-            await api.resumeAgentRun(entry.id)
+            yield api.resumeAgentRun(entry.id)
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setResuming(null)
         }
-    }
-    const run = async () => {
+    })
+    const run = action(function* () {
+        if (busy()) return
+
         setBusy(true)
         setError("")
         try {
@@ -97,7 +101,7 @@ export function AgentLauncher(props: {
             if (!selectedHarness)
                 throw new Error("No supported agent harness is installed.")
             if (choice() === "unattended") {
-                await api.startWorkPackageRun(props.workPackage.ref, {
+                yield api.startWorkPackageRun(props.workPackage.ref, {
                     harness: selectedHarness,
                     model: model(),
                     permissionMode:
@@ -112,7 +116,7 @@ export function AgentLauncher(props: {
                 const target =
                     choice() === "task" ? task?.ref : props.workPackage.ref
                 if (!target) throw new Error("There is no task ready to work.")
-                await api.startAgentRun({
+                yield api.startAgentRun({
                     harness: selectedHarness,
                     model: model(),
                     mode:
@@ -129,15 +133,13 @@ export function AgentLauncher(props: {
                     permissionMode: permission(),
                 })
             }
-            void refresh(history)
+            yield refresh(history)
             props.finished()
             props.close()
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy(false)
         }
-    }
+    })
 
     return (
         <Modal title="Work with an agent" close={props.close}>

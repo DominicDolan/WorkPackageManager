@@ -1,5 +1,7 @@
 import { workPackageQueueBlockers, type Task } from "@shared/types"
 import {
+    action,
+    createOptimistic,
     For,
     Loading,
     Show,
@@ -38,7 +40,7 @@ export function TaskWorkspace(props: {
     )
     const [editing, setEditing] = createSignal(false)
     const [agentOpen, setAgentOpen] = createSignal(false)
-    const [busy, setBusy] = createSignal("")
+    const [busy, setBusy] = createOptimistic("")
     const [error, setError] = createSignal("")
     const [note, setNote] = createSignal("")
     const blockers = () => {
@@ -56,20 +58,26 @@ export function TaskWorkspace(props: {
         },
     )
 
-    const mutate = async (label: string, action: () => Promise<unknown>) => {
+    const mutate = action(function* (
+        label: string,
+        request: () => Promise<unknown>,
+        onSuccess?: () => void,
+    ) {
+        if (busy()) return
+
         setBusy(label)
         setError("")
         try {
-            await action()
-            refresh(task)
-            refresh(workPackage)
+            yield request()
+
+            yield refresh(task)
+            yield refresh(workPackage)
             props.changed()
+            onSuccess?.()
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
+    })
 
     return (
         <main class={`${styles.scope} task-workspace min-h-screen`}>

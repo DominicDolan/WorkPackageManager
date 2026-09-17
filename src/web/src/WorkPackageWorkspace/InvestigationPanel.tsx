@@ -4,7 +4,15 @@ import {
     type InvestigationDetail,
     type WorkPackageDetail,
 } from "@shared/types"
-import { Loading, Show, createMemo, createSignal, refresh } from "solid-js"
+import {
+    action,
+    createOptimistic,
+    Loading,
+    Show,
+    createMemo,
+    createSignal,
+    refresh,
+} from "solid-js"
 import { InvestigationLauncher } from "../InvestigationLauncher/InvestigationLauncher"
 import { api } from "../api"
 import { PageSkeleton } from "../components/PageSkeleton"
@@ -20,24 +28,25 @@ export function InvestigationPanel(props: {
             ? api.getInvestigation(props.investigation.ref)
             : null,
     )
-    const [busy, setBusy] = createSignal(false)
+    const [busy, setBusy] = createOptimistic(false)
     const [error, setError] = createSignal("")
     const [launcherOpen, setLauncherOpen] = createSignal(false)
-    const attach = async () => {
+    const attach = action(function* () {
+        if (busy()) return
+
         setBusy(true)
         setError("")
         try {
-            await api.ensureWorkPackageInvestigation(
+            yield api.ensureWorkPackageInvestigation(
                 props.workPackage.ref,
                 props.workPackage.description,
             )
+
             props.changed()
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy(false)
         }
-    }
+    })
     return (
         <section class="mx-auto max-w-4xl">
             <header class="section flex items-end justify-between mb-4 [&_h2]:m-0 [&_p]:m-[0.3rem_0_0]">

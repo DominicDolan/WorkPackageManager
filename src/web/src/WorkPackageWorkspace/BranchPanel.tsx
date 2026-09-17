@@ -4,6 +4,8 @@ import {
     type WorkPackageDetail,
 } from "@shared/types"
 import {
+    action,
+    createOptimistic,
     For,
     Show,
     createEffect,
@@ -33,7 +35,10 @@ export function BranchPanel(props: {
     const [title, setTitle] = createSignal("")
     const [body, setBody] = createSignal("")
     const [mode, setMode] = createSignal<"write" | "preview">("write")
-    const [busy, setBusy] = createSignal("")
+    const [busy, setBusy] = createOptimistic("")
+    const [requestedCheck, setRequestedCheck] = createOptimistic<string | null>(
+        null,
+    )
     const [error, setError] = createSignal("")
     const [notice, setNotice] = createSignal("")
     const [checkAgentOpen, setCheckAgentOpen] = createSignal(false)
@@ -64,24 +69,30 @@ export function BranchPanel(props: {
         },
     )
 
-    const run = async (
+    const run = action(async function* (
         label: string,
-        action: () => Promise<CombinedBranchDetail>,
+        request: () => Promise<CombinedBranchDetail>,
         message: string,
-    ) => {
+        check?: string,
+    ) {
+        if (busy()) return
+
         setBusy(label)
+        if (label === "checks")
+            setRequestedCheck(check ?? props.tools.checkNames[0] ?? null)
         setError("")
         setNotice("")
         try {
-            applyBranch(await action())
+            const branch = await request()
+            yield
+            applyBranch(branch)
             setNotice(message)
             props.changed()
         } catch (caught) {
+            yield
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
+    })
     const generate = () => {
         const branch = current()
         if (branch)
@@ -113,9 +124,12 @@ export function BranchPanel(props: {
                 check
                     ? `${check} started. Progress and results will appear below.`
                     : "Checks started. Progress and results will appear below.",
+                check,
             )
     }
-    const openPr = async (draft: boolean) => {
+    const openPr = action(async function* (draft: boolean) {
+        if (busy()) return
+
         const branch = current()
         if (!branch) return
         setBusy(draft ? "pr-draft" : "pr")
@@ -123,12 +137,15 @@ export function BranchPanel(props: {
         setNotice("")
         try {
             let latest = branch
-            if (descriptionDirty())
+            if (descriptionDirty()) {
                 latest = await api.updateBranch(branch.branchName, {
                     prTitle: title(),
                     prBody: body(),
                 })
+                yield
+            }
             const result = await api.createPr(latest.branchName, draft)
+            yield
             applyBranch(result.branch)
             const opened = draft
                 ? "Draft pull request opened."
@@ -140,21 +157,23 @@ export function BranchPanel(props: {
             )
             props.changed()
         } catch (caught) {
+            yield
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
-    const saveBranchName = async () => {
+    })
+    const saveBranchName = action(function* () {
+        if (busy()) return
+
         const next = branchName().trim()
         if (!next || next === props.workPackage.branchName) return
         setBusy("branch-name")
         setError("")
         setNotice("")
         try {
-            await api.updateWorkPackage(props.workPackage.ref, {
+            yield api.updateWorkPackage(props.workPackage.ref, {
                 branchName: next,
             })
+
             setNotice(
                 props.workPackage.git.exists
                     ? "Local branch renamed with its commit history."
@@ -163,10 +182,8 @@ export function BranchPanel(props: {
             props.workPackageChanged()
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
+    })
     const saveRemoteBranch = () => {
         const branch = current()
         if (!branch || remoteBranch().trim() === (branch.remoteBranch ?? ""))
@@ -201,7 +218,7 @@ export function BranchPanel(props: {
         body() !== (current()?.prBody ?? "")
     const report = () => current()?.checks
     const checkRunning = (name: string) =>
-        current()?.checksRunning?.current === name
+        (current()?.checksRunning?.current ?? requestedCheck()) === name
     const missingChecks = () => {
         const completed = new Set(
             report()?.checks.map((check) => check.name) ?? [],

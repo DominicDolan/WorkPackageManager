@@ -1,4 +1,12 @@
-import { Loading, Show, createEffect, createMemo, createSignal } from "solid-js"
+import {
+    action,
+    createOptimistic,
+    Loading,
+    Show,
+    createEffect,
+    createMemo,
+    createSignal,
+} from "solid-js"
 import type {
     AgentPermissionMode,
     AgentRunMode,
@@ -20,7 +28,7 @@ export function InvestigationLauncher(props: {
     const [permission, setPermission] =
         createSignal<AgentPermissionMode>("manual")
     const [extra, setExtra] = createSignal("")
-    const [busy, setBusy] = createSignal(false)
+    const [busy, setBusy] = createOptimistic(false)
     const [error, setError] = createSignal("")
     const chosenHarness = () =>
         harness() ||
@@ -47,13 +55,15 @@ export function InvestigationLauncher(props: {
             )
         },
     )
-    const run = async () => {
+    const run = action(function* () {
+        if (busy()) return
+
         setBusy(true)
         setError("")
         try {
             if (!chosenHarness())
                 throw new Error("No supported agent harness is installed.")
-            await api.startAgentRun({
+            yield api.startAgentRun({
                 harness: chosenHarness(),
                 model: model(),
                 mode:
@@ -67,14 +77,13 @@ export function InvestigationLauncher(props: {
                 subjectRef: props.investigation.ref,
                 permissionMode: permission(),
             })
+
             props.started()
             props.close()
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy(false)
         }
-    }
+    })
     return (
         <Modal title="Run investigation" close={props.close}>
             <article class="inset summary p-[1rem] [&_span]:block [&_strong]:block [&_strong]:mt-[0.25rem] [&_p]:m-[0.5rem_0_0]">

@@ -1,5 +1,7 @@
 import type { Note } from "@shared/types"
 import {
+    action,
+    createOptimistic,
     For,
     Loading,
     Show,
@@ -30,7 +32,7 @@ export function NotesWorkspace(props: {
     const [noteMode, setNoteMode] = createSignal<"write" | "preview">("preview")
     const [creating, setCreating] = createSignal(false)
     const [newTitle, setNewTitle] = createSignal("")
-    const [busy, setBusy] = createSignal("")
+    const [busy, setBusy] = createOptimistic("")
     const [error, setError] = createSignal("")
     const listing = createMemo(() =>
         api.listNotes({
@@ -55,7 +57,9 @@ export function NotesWorkspace(props: {
         setNoteMode("preview")
         refresh(selected)
     }
-    const create = async () => {
+    const create = action(async function* () {
+        if (busy()) return
+
         if (!newTitle().trim()) return
         setBusy("create")
         setError("")
@@ -64,54 +68,57 @@ export function NotesWorkspace(props: {
                 title: newTitle().trim(),
                 folder: folder() || undefined,
             })
+            yield
             setCreating(false)
             setNewTitle("")
-            refresh(listing)
+            yield refresh(listing)
             choose(note.path)
         } catch (caught) {
+            yield
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
-    const initialise = async () => {
+    })
+    const initialise = action(function* () {
+        if (busy()) return
+
         setBusy("initialise")
         setError("")
         try {
-            await api.initNotes()
-            refresh(listing)
+            yield api.initNotes()
+
+            yield refresh(listing)
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
-    const sync = async () => {
+    })
+    const sync = action(function* () {
+        if (busy()) return
+
         setBusy("sync")
         setError("")
         try {
-            await api.pullNotes()
-            refresh(listing)
-            refresh(selected)
+            yield api.pullNotes()
+
+            yield refresh(listing)
+            yield refresh(selected)
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
-    const push = async () => {
+    })
+    const push = action(function* () {
+        if (busy()) return
+
         setBusy("push")
         setError("")
         try {
-            await api.syncNotes(true)
-            refresh(listing)
-            refresh(selected)
+            yield api.syncNotes(true)
+
+            yield refresh(listing)
+            yield refresh(selected)
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
+    })
 
     return (
         <main class="app-shell min-h-screen text-slate-950 grid grid-cols-[220px_minmax(0,_1fr)] max-[820px]:block">
@@ -350,14 +357,16 @@ export function NotesWorkspace(props: {
                                                             setMode={
                                                                 setNoteMode
                                                             }
-                                                            saved={async () => {
-                                                                await refresh(
-                                                                    selected,
-                                                                )
-                                                                await refresh(
-                                                                    listing,
-                                                                )
-                                                            }}
+                                                            saved={() =>
+                                                                Promise.all([
+                                                                    refresh(
+                                                                        selected,
+                                                                    ),
+                                                                    refresh(
+                                                                        listing,
+                                                                    ),
+                                                                ])
+                                                            }
                                                             close={() =>
                                                                 setSelectedPath(
                                                                     "",

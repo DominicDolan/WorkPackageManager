@@ -23,7 +23,11 @@ export function TaskDetailPanel(props: {
     setEditing: (value: boolean) => void
     note: string
     setNote: (value: string) => void
-    mutate: (label: string, action: () => Promise<unknown>) => Promise<void>
+    mutate: (
+        label: string,
+        request: () => Promise<unknown>,
+        onSuccess?: () => void,
+    ) => Promise<void>
     openAgent: () => void
     openNote: (path: string) => void
     notesChanged: () => void
@@ -127,9 +131,12 @@ export function TaskDetailPanel(props: {
                     </div>
                     <button
                         class="primary mt-4"
+                        disabled={!!props.busy}
+                        aria-busy={props.busy === "save" ? "true" : "false"}
                         onClick={() =>
-                            props
-                                .mutate("save", () =>
+                            props.mutate(
+                                "save",
+                                () =>
                                     api.updateTask(props.task.ref, {
                                         title: title.value,
                                         description: description.value,
@@ -138,8 +145,8 @@ export function TaskDetailPanel(props: {
                                             (recommendedTier.value ||
                                                 null) as TaskDetail["recommendedTier"],
                                     }),
-                                )
-                                .then(() => props.setEditing(false))
+                                () => props.setEditing(false),
+                            )
                         }
                     >
                         Save changes
@@ -376,13 +383,15 @@ export function TaskDetailPanel(props: {
                         />
                         <button
                             class="primary"
-                            disabled={!props.note.trim()}
+                            disabled={!props.note.trim() || !!props.busy}
+                            aria-busy={props.busy === "note" ? "true" : "false"}
                             onClick={() =>
-                                props
-                                    .mutate("note", () =>
+                                props.mutate(
+                                    "note",
+                                    () =>
                                         api.addNote(props.task.ref, props.note),
-                                    )
-                                    .then(() => props.setNote(""))
+                                    () => props.setNote(""),
+                                )
                             }
                         >
                             Add note

@@ -1,4 +1,4 @@
-import { For, Show, createSignal } from "solid-js"
+import { action, createOptimistic, For, Show, createSignal } from "solid-js"
 import {
     DEFAULT_ESTIMATE_UNITS,
     MAX_ESTIMATE_UNITS,
@@ -28,15 +28,17 @@ export function CreateTask(props: {
     const [tags, setTags] = createSignal("")
     const [useGitWorkflow, setUseGitWorkflow] = createSignal(true)
     const [branchName, setBranchName] = createSignal("")
-    const [busy, setBusy] = createSignal(false)
+    const [busy, setBusy] = createOptimistic(false)
     const [error, setError] = createSignal("")
     const estimateValid = () =>
         Number.isInteger(estimateUnits()) &&
         estimateUnits() >= 1 &&
         estimateUnits() <= MAX_ESTIMATE_UNITS
 
-    const submit = async () => {
-        if (!title().trim() || !estimateValid() || busy()) return
+    const submit = action(async function* () {
+        if (busy()) return
+
+        if (!title().trim() || !estimateValid()) return
         setBusy(true)
         setError("")
         try {
@@ -60,13 +62,13 @@ export function CreateTask(props: {
                     : undefined,
                 workPackageRef: props.workPackage.ref,
             })
+            yield
             props.created(task.ref)
         } catch (caught) {
+            yield
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy(false)
         }
-    }
+    })
 
     return (
         <Modal title="Add task" close={props.close}>

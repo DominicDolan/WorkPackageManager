@@ -17,9 +17,11 @@ const initial = {
 } as unknown as CombinedBranchDetail
 let latest = initial
 let update: (value: CombinedBranchDetail) => void
+let startChecks: () => void
 api.getBranch = async () => latest
-api.runChecks = async () =>
-    (latest = {
+api.runChecks = async () => {
+    await new Promise<void>((resolve) => (startChecks = resolve))
+    return (latest = {
         ...latest,
         updatedAt: "started",
         checksRunning: {
@@ -31,6 +33,7 @@ api.runChecks = async () =>
             total: 2,
         },
     })
+}
 function Fixture() {
     const [branch, setBranch] = createSignal(initial)
     update = setBranch
@@ -123,6 +126,13 @@ async function run() {
     ].find((b) => b.textContent?.trim() === "Run all checks")!
     runAll.click()
     await tick()
+    check(
+        busyRows().length === 1 &&
+            busyRows()[0].textContent?.includes("Typecheck"),
+        "requested row is busy before the server responds",
+    )
+    startChecks()
+    await tick()
     check(rows().length === 2, "first run retains all checks")
     check(
         busyRows().length === 1 &&
@@ -201,6 +211,33 @@ async function run() {
             busyRows().length === 1 &&
             busyRows()[0].textContent?.includes("Previous output"),
         "single rerun retains previous report and output",
+    )
+    check(
+        getComputedStyle(busyRows()[0], "::after").backgroundImage.includes(
+            "linear-gradient",
+        ),
+        "running row owns a visible loading overlay",
+    )
+    latest = { ...latest, updatedAt: "idle-again", checksRunning: null }
+    update(latest)
+    await tick()
+    let rejectStart!: (error: Error) => void
+    api.runChecks = () => new Promise((_, reject) => (rejectStart = reject))
+    rows()
+        .find((row) => row.textContent?.includes("Tests"))!
+        .querySelector("button")!
+        .click()
+    await tick()
+    check(
+        busyRows().length === 1 && busyRows()[0].textContent?.includes("Tests"),
+        "single-check request immediately marks its own row",
+    )
+    rejectStart(new Error("Unable to start checks"))
+    await tick()
+    check(
+        busyRows().length === 0 &&
+            document.body.textContent?.includes("Unable to start checks"),
+        "failed check request clears the optimistic row and reports the error",
     )
     document.getElementById("results")!.textContent =
         results.join("\n") + "\nALL CHECKS PASSED"

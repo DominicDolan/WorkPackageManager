@@ -4,6 +4,8 @@ import {
     type IssueState,
 } from "@shared/types"
 import {
+    action,
+    createOptimistic,
     For,
     Loading,
     Show,
@@ -28,7 +30,7 @@ export function IssuesWorkspace(props: {
     const [source, setSource] = createSignal("")
     const [label, setLabel] = createSignal("")
     const [selectedId, setSelectedId] = createSignal("")
-    const [busy, setBusy] = createSignal("")
+    const [busy, setBusy] = createOptimistic("")
     const [error, setError] = createSignal("")
     const listing = createMemo(() =>
         api.listIssues({
@@ -52,32 +54,34 @@ export function IssuesWorkspace(props: {
         setSelectedId(id)
         refresh(selected)
     }
-    const sync = async () => {
+    const sync = action(function* () {
+        if (busy()) return
+
         setBusy("sync")
         setError("")
         try {
-            await api.pullNotes()
-            refresh(listing)
-            refresh(selected)
+            yield api.pullNotes()
+
+            yield refresh(listing)
+            yield refresh(selected)
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
-    const push = async () => {
+    })
+    const push = action(function* () {
+        if (busy()) return
+
         setBusy("push")
         setError("")
         try {
-            await api.syncNotes(true)
-            refresh(listing)
-            refresh(selected)
+            yield api.syncNotes(true)
+
+            yield refresh(listing)
+            yield refresh(selected)
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
+    })
     return (
         <main class="app-shell min-h-screen text-slate-950 grid grid-cols-[220px_minmax(0,_1fr)] max-[820px]:block">
             <ProductRail active="issues" select={props.select} />

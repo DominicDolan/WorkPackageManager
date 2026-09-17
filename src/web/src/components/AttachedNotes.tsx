@@ -1,4 +1,11 @@
-import { For, Show, createMemo, createSignal } from "solid-js"
+import {
+    action,
+    createOptimistic,
+    For,
+    Show,
+    createMemo,
+    createSignal,
+} from "solid-js"
 import type { NoteSummary } from "@shared/types"
 import { api } from "../api"
 
@@ -13,39 +20,41 @@ export function AttachedNotes(props: {
 }) {
     const listing = createMemo(() => api.listNotes())
     const [selected, setSelected] = createSignal("")
-    const [busy, setBusy] = createSignal("")
+    const [busy, setBusy] = createOptimistic("")
     const [error, setError] = createSignal("")
     const available = () => {
         const attached = new Set(props.notes.map((note) => note.path))
         return listing().notes.filter((note) => !attached.has(note.path))
     }
-    const attach = async () => {
+    const attach = action(function* () {
+        if (busy()) return
+
         const path = selected()
         if (!path) return
         setBusy(path)
         setError("")
         try {
-            await props.attach(path)
+            yield props.attach(path)
+
             setSelected("")
             props.changed()
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
-    const detach = async (path: string) => {
+    })
+    const detach = action(function* (path: string) {
+        if (busy()) return
+
         setBusy(path)
         setError("")
         try {
-            await props.detach(path)
+            yield props.detach(path)
+
             props.changed()
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
+    })
 
     return (
         <div class="attached-notes">

@@ -6,6 +6,8 @@ import {
     type WorkPackageDetail,
 } from "@shared/types"
 import {
+    action,
+    createOptimistic,
     Loading,
     Show,
     createEffect,
@@ -43,7 +45,7 @@ export function WorkPackageWorkspace(props: {
             legacy() ? null : api.getWorkPackage(props.workPackageRef),
     )
     const [error, setError] = createSignal("")
-    const [busy, setBusy] = createSignal("")
+    const [busy, setBusy] = createOptimistic("")
     const {
         setActiveTab: setTab,
         matches,
@@ -108,19 +110,23 @@ export function WorkPackageWorkspace(props: {
 
     const loose = () =>
         props.snapshot.tasks.filter((task) => !task.workPackageRef)
-    const mutate = async (label: string, action: () => Promise<unknown>) => {
+    const mutate = action(function* (
+        label: string,
+        request: () => Promise<unknown>,
+    ) {
+        if (busy()) return
+
         setBusy(label)
         setError("")
         try {
-            await action()
-            refresh(workPackage)
+            yield request()
+
+            yield refresh(workPackage)
             props.changed()
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy("")
         }
-    }
+    })
 
     return (
         <main

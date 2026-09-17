@@ -1,4 +1,11 @@
-import { For, Show, createMemo, createSignal } from "solid-js"
+import {
+    action,
+    createOptimistic,
+    For,
+    Show,
+    createMemo,
+    createSignal,
+} from "solid-js"
 import { WORK_PACKAGE_COLORS } from "@shared/types"
 import { api } from "../api"
 import { Modal } from "../components/Modal"
@@ -14,7 +21,7 @@ export function CreateWorkPackage(props: {
     const [color, setColor] = createSignal<string>(WORK_PACKAGE_COLORS[0])
     const [branchName, setBranchName] = createSignal("")
     const [branchMenuOpen, setBranchMenuOpen] = createSignal(false)
-    const [busy, setBusy] = createSignal(false)
+    const [busy, setBusy] = createOptimistic(false)
     const [error, setError] = createSignal("")
     const claimedBranches = createMemo(
         () =>
@@ -52,7 +59,9 @@ export function CreateWorkPackage(props: {
         setBranchMenuOpen(false)
     }
 
-    const submit = async () => {
+    const submit = action(async function* () {
+        if (busy()) return
+
         setBusy(true)
         setError("")
         try {
@@ -63,13 +72,13 @@ export function CreateWorkPackage(props: {
                 color: color(),
                 branchName: branchName().trim() || undefined,
             })
+            yield
             props.created(result.workPackage.ref)
         } catch (caught) {
+            yield
             setError(caught instanceof Error ? caught.message : String(caught))
-        } finally {
-            setBusy(false)
         }
-    }
+    })
 
     return (
         <Modal title="Create work package" close={props.close}>
