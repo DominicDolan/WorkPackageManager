@@ -226,6 +226,11 @@ export function AgentLauncher(props: {
                                             ).toLocaleString()}
                                         </time>
                                         <button
+                                            aria-busy={
+                                                resuming() === entry.id
+                                                    ? "true"
+                                                    : "false"
+                                            }
                                             class="outlined px-2 py-1 text-xs"
                                             disabled={
                                                 !entry.sessionId ||
@@ -238,9 +243,7 @@ export function AgentLauncher(props: {
                                             }
                                             onClick={() => resume(entry)}
                                         >
-                                            {resuming() === entry.id
-                                                ? "Opening…"
-                                                : "Resume"}
+                                            Resume
                                         </button>
                                     </li>
                                 )}
@@ -253,8 +256,13 @@ export function AgentLauncher(props: {
                 <p class="notice error mt-4">{error()}</p>
             </Show>
             <div class="mt-5 flex justify-end">
-                <button class="primary" disabled={busy()} onClick={run}>
-                    {busy() ? "Starting…" : "Start run"}
+                <button
+                    aria-busy={busy() ? "true" : "false"}
+                    class="primary"
+                    disabled={busy()}
+                    onClick={run}
+                >
+                    Start run
                 </button>
             </div>
         </Modal>

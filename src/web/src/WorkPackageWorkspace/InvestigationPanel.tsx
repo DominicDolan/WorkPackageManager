@@ -40,7 +40,7 @@ export function InvestigationPanel(props: {
     }
     return (
         <section class="mx-auto max-w-4xl">
-            <header class="section flex items-end justify-between mb-[1rem] [&_h2]:m-0 [&_p]:m-[0.3rem_0_0]">
+            <header class="section flex items-end justify-between mb-4 [&_h2]:m-0 [&_p]:m-[0.3rem_0_0]">
                 <div>
                     <h2>Investigation</h2>
                     <p>
@@ -60,13 +60,12 @@ export function InvestigationPanel(props: {
                             without moving or changing any existing tasks.
                         </p>
                         <button
+                            aria-busy={busy() ? "true" : "false"}
                             class="primary"
                             disabled={busy()}
                             onClick={attach}
                         >
-                            {busy()
-                                ? "Setting up…"
-                                : "Use description as investigation"}
+                            Use description as investigation
                         </button>
                         <Show when={error()}>
                             <p class="notice error mt-4">{error()}</p>
@@ -137,6 +136,12 @@ export function InvestigationPanel(props: {
                                         </div>
                                         <button
                                             class="primary"
+                                            aria-busy={
+                                                investigation.status ===
+                                                "investigating"
+                                                    ? "true"
+                                                    : "false"
+                                            }
                                             disabled={
                                                 !investigation.brief.trim() ||
                                                 investigation.status ===
@@ -148,10 +153,7 @@ export function InvestigationPanel(props: {
                                         >
                                             {investigation.status === "complete"
                                                 ? "Run again"
-                                                : investigation.status ===
-                                                    "investigating"
-                                                  ? "Investigation running…"
-                                                  : "Run investigation"}
+                                                : "Run investigation"}
                                         </button>
                                     </div>
                                     <Show when={investigation.findings}>

@@ -78,6 +78,9 @@ export function AttachedNotes(props: {
                                 <button
                                     class="outlined px-2 py-1 text-xs"
                                     disabled={!!busy()}
+                                    aria-busy={
+                                        busy() === note.path ? "true" : "false"
+                                    }
                                     aria-label={`Detach ${note.title}`}
                                     title="Detach note"
                                     onClick={() => detach(note.path)}
@@ -119,13 +122,14 @@ export function AttachedNotes(props: {
                         </For>
                     </select>
                     <button
+                        aria-busy={
+                            busy() && busy() === selected() ? "true" : "false"
+                        }
                         class="outlined"
                         disabled={!selected() || !!busy()}
                         onClick={attach}
                     >
-                        {busy() && busy() === selected()
-                            ? "Attaching…"
-                            : "Attach"}
+                        Attach
                     </button>
                 </div>
             </Show>

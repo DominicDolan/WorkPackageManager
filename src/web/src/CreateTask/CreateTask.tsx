@@ -201,11 +201,12 @@ export function CreateTask(props: {
                     Cancel
                 </button>
                 <button
+                    aria-busy={busy() ? "true" : "false"}
                     class="primary"
                     disabled={!title().trim() || !estimateValid() || busy()}
                     onClick={submit}
                 >
-                    {busy() ? "Adding…" : "Add task"}
+                    Add task
                 </button>
             </div>
         </Modal>

@@ -27,7 +27,7 @@ export function InvestigationBrief(props: {
         }
     }
     return (
-        <div class="investigation-brief p-[1.5rem] [&_textarea]:min-h-[13rem] [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-[1rem] [&>div]:mt-[0.75rem]">
+        <div class="investigation-brief p-6 [&_textarea]:min-h-52 [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-4 [&>div]:mt-3">
             <label class="field">
                 <span>Investigation brief</span>
                 <textarea
@@ -47,11 +47,12 @@ export function InvestigationBrief(props: {
                     {saved() ? "Saved" : `${brief().length} characters`}
                 </span>
                 <button
+                    aria-busy={busy() ? "true" : "false"}
                     class="outlined"
                     disabled={busy() || brief() === props.investigation.brief}
                     onClick={save}
                 >
-                    {busy() ? "Saving…" : "Save brief"}
+                    Save brief
                 </button>
             </div>
         </div>

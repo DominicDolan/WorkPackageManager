@@ -116,8 +116,13 @@ export function InvestigationLauncher(props: {
                 <p class="notice error mt-4">{error()}</p>
             </Show>
             <div class="mt-5 flex justify-end">
-                <button class="primary" disabled={busy()} onClick={run}>
-                    {busy() ? "Starting…" : "Start investigation"}
+                <button
+                    aria-busy={busy() ? "true" : "false"}
+                    class="primary"
+                    disabled={busy()}
+                    onClick={run}
+                >
+                    Start investigation
                 </button>
             </div>
         </Modal>

@@ -28,7 +28,7 @@ export function IssuesWorkspace(props: {
     const [source, setSource] = createSignal("")
     const [label, setLabel] = createSignal("")
     const [selectedId, setSelectedId] = createSignal("")
-    const [busy, setBusy] = createSignal(false)
+    const [busy, setBusy] = createSignal("")
     const [error, setError] = createSignal("")
     const listing = createMemo(() =>
         api.listIssues({
@@ -53,7 +53,7 @@ export function IssuesWorkspace(props: {
         refresh(selected)
     }
     const sync = async () => {
-        setBusy(true)
+        setBusy("sync")
         setError("")
         try {
             await api.pullNotes()
@@ -62,11 +62,11 @@ export function IssuesWorkspace(props: {
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
         } finally {
-            setBusy(false)
+            setBusy("")
         }
     }
     const push = async () => {
-        setBusy(true)
+        setBusy("push")
         setError("")
         try {
             await api.syncNotes(true)
@@ -75,7 +75,7 @@ export function IssuesWorkspace(props: {
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
         } finally {
-            setBusy(false)
+            setBusy("")
         }
     }
     return (
@@ -103,16 +103,26 @@ export function IssuesWorkspace(props: {
                                         }
                                     >
                                         <button
+                                            aria-busy={
+                                                busy() === "sync"
+                                                    ? "true"
+                                                    : "false"
+                                            }
                                             class="outlined"
-                                            disabled={busy()}
+                                            disabled={!!busy()}
                                             onClick={sync}
                                         >
-                                            {busy() ? "Syncing…" : "Sync"}
+                                            Sync
                                         </button>
                                         <button
+                                            aria-busy={
+                                                busy() === "push"
+                                                    ? "true"
+                                                    : "false"
+                                            }
                                             class="outlined"
                                             disabled={
-                                                busy() ||
+                                                !!busy() ||
                                                 !data.notes.git.upstream
                                             }
                                             title={
@@ -121,7 +131,7 @@ export function IssuesWorkspace(props: {
                                             }
                                             onClick={push}
                                         >
-                                            {busy() ? "Pushing…" : "Push"}
+                                            Push
                                         </button>
                                     </Show>
                                 </div>

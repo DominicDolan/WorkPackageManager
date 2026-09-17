@@ -61,6 +61,17 @@ toggle buttons, `aria-selected` for tabs/options, `disabled` for controls, and
 states have no equivalent ARIA attribute. Notice and badge tokens are resolved
 on the element, avoiding accidental color inheritance between categories.
 
+Use `aria-busy="true"` on the element performing asynchronous work. It draws an
+animated coloured line along the bottom without shifting layout, including on
+native inputs, buttons, articles, and list items. Keep action labels stable
+("Save", not "Saving…") and retain `disabled` when duplicate requests must be
+prevented: `aria-busy` does not disable interaction. Track the specific action
+when multiple buttons share a request lock. `--busy-color` optionally overrides
+the default signal colour; reduced-motion preferences produce a static line.
+For check suites, mark only the currently executing row busy and retain previous
+results until the completed report arrives. Keep live progress announcements
+outside busy rows so assistive technology can announce them immediately.
+
 Typography has a deliberately small vocabulary: `headline`, `title`,
 `description`, `label`, `hint`/`caption`, `reference`, and `muted`. Semantic
 heading and contextual defaults cover most uses. Keep page grids, widths,
@@ -100,3 +111,5 @@ server. Navigate normally, but reopen the preview URL after a full reload
 
 Review at desktop and mobile widths. `/tests/ui-helpers.html` separately checks
 tab navigation, underline styling, dialog focus/lifetime, and legacy callers.
+`/tests/busy.html` checks shared loading indicators and branch-check progress
+using in-memory requests; run it with and without reduced-motion emulation.

@@ -227,13 +227,14 @@ export function CreateWorkPackage(props: {
                     Cancel
                 </button>
                 <button
+                    aria-busy={busy() ? "true" : "false"}
                     class="primary"
                     disabled={
                         !name().trim() || !selectedBranchValid() || busy()
                     }
                     onClick={submit}
                 >
-                    {busy() ? "Creating…" : "Create work package"}
+                    Create work package
                 </button>
             </div>
         </Modal>

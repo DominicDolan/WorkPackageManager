@@ -13,7 +13,7 @@ export function NoteEditor(props: {
     const [title, setTitle] = createSignal(props.note.title)
     const [tags, setTags] = createSignal(props.note.tags.join(", "))
     const [body, setBody] = createSignal(props.note.body)
-    const [busy, setBusy] = createSignal(false)
+    const [busy, setBusy] = createSignal("")
     const [error, setError] = createSignal("")
     let editor: HTMLTextAreaElement | undefined
     const noteInput = () => ({
@@ -34,7 +34,7 @@ export function NoteEditor(props: {
         setBody(note.body)
     }
     const save = async () => {
-        setBusy(true)
+        setBusy("save")
         setError("")
         try {
             applySavedNote(await api.updateNote(props.note.path, noteInput()))
@@ -42,12 +42,12 @@ export function NoteEditor(props: {
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
         } finally {
-            setBusy(false)
+            setBusy("")
         }
     }
     const remove = async () => {
         if (!confirm(`Delete ${title()}?`)) return
-        setBusy(true)
+        setBusy("remove")
         try {
             await api.deleteNote(props.note.path)
             props.close()
@@ -55,7 +55,7 @@ export function NoteEditor(props: {
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
         } finally {
-            setBusy(false)
+            setBusy("")
         }
     }
 
@@ -80,7 +80,7 @@ export function NoteEditor(props: {
         )
         if (!images.length) return
         event.preventDefault()
-        setBusy(true)
+        setBusy("pasteImages")
         setError("")
         try {
             // Attachments belong to a saved note. Save the current draft first so the
@@ -100,7 +100,7 @@ export function NoteEditor(props: {
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
         } finally {
-            setBusy(false)
+            setBusy("")
         }
     }
 
@@ -134,15 +134,21 @@ export function NoteEditor(props: {
                             Preview
                         </button>
                     </div>
-                    <button class="outlined" disabled={busy()} onClick={remove}>
+                    <button
+                        aria-busy={busy() === "remove" ? "true" : "false"}
+                        class="outlined"
+                        disabled={!!busy()}
+                        onClick={remove}
+                    >
                         Delete
                     </button>
                     <button
+                        aria-busy={busy() === "save" ? "true" : "false"}
                         class="primary"
-                        disabled={!title().trim() || busy()}
+                        disabled={!title().trim() || !!busy()}
                         onClick={save}
                     >
-                        {busy() ? "Saving…" : "Save changes"}
+                        Save changes
                     </button>
                 </div>
             </header>
@@ -184,6 +190,9 @@ export function NoteEditor(props: {
                             here
                         </span>
                         <textarea
+                            aria-busy={
+                                busy() === "pasteImages" ? "true" : "false"
+                            }
                             ref={editor}
                             class="code !min-h-[26rem]"
                             value={body()}

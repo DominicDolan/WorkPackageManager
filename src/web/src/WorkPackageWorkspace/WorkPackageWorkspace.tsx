@@ -241,12 +241,15 @@ export function WorkPackageWorkspace(props: {
                                                         )
                                                     }
                                                     onClick={() => openAgent()}
+                                                    aria-busy={
+                                                        workPackageRunActive(
+                                                            detail.run,
+                                                        )
+                                                            ? "true"
+                                                            : "false"
+                                                    }
                                                 >
-                                                    {workPackageRunActive(
-                                                        detail.run,
-                                                    )
-                                                        ? "Work package is running…"
-                                                        : "Work with an agent"}
+                                                    Work with an agent
                                                 </button>
                                             </Show>
                                         </div>

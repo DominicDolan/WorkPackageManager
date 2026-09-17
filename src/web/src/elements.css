@@ -379,7 +379,11 @@ span.badge {
 span.dot {
     border-radius: 50%;
 }
-span:is(.badge, .dot):is(.info, [data-status="in_progress"]) {
+span:is(.badge, .dot):is(
+        .info,
+        [data-status="in_progress"],
+        [data-status="running"]
+    ) {
     --badge-surface: #1d2c55;
     --badge-ink: #92aaff;
 }
@@ -672,6 +676,58 @@ details.collection > summary span {
 :is(img, figure, div).framed {
     border: 1px solid var(--line);
     border-radius: 0.55rem;
+}
+
+/* A background works on replaced controls (inputs) as well as containers,
+   without a pseudo-element, extra markup, or a change in layout. */
+:root [aria-busy="true"] {
+    background-image: linear-gradient(
+        90deg,
+        var(--busy-color, var(--signal)) 0% 35%,
+        transparent 50% 65%,
+        var(--busy-color, var(--signal)) 80% 100%
+    );
+    background-size: 200% 3px;
+    background-position: 100% bottom;
+    background-repeat: no-repeat;
+    animation: busy-line 1.2s linear infinite;
+}
+:root [aria-busy="true"]:disabled {
+    opacity: 1;
+}
+/* Cards and rows may have opaque children (for example check output). Keep
+   their bottom line above those children without intercepting interaction. */
+:is(article, li)[aria-busy="true"] {
+    position: relative;
+}
+:is(article, li)[aria-busy="true"]::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    height: 3px;
+    z-index: 1;
+    pointer-events: none;
+    background-image: inherit;
+    background-size: inherit;
+    background-position: inherit;
+    background-repeat: no-repeat;
+    animation: inherit;
+}
+@keyframes busy-line {
+    to {
+        background-position: -100% bottom;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    :root [aria-busy="true"] {
+        animation: none;
+        background-size: 100% 3px;
+        background-image: linear-gradient(
+            var(--busy-color, var(--signal)),
+            var(--busy-color, var(--signal))
+        );
+    }
 }
 
 /* Native dialogs own their surface; content owns its layout. */

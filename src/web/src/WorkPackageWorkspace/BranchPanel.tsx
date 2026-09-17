@@ -118,7 +118,7 @@ export function BranchPanel(props: {
     const openPr = async (draft: boolean) => {
         const branch = current()
         if (!branch) return
-        setBusy("pr")
+        setBusy(draft ? "pr-draft" : "pr")
         setError("")
         setNotice("")
         try {
@@ -200,6 +200,8 @@ export function BranchPanel(props: {
         title() !== (current()?.prTitle ?? "") ||
         body() !== (current()?.prBody ?? "")
     const report = () => current()?.checks
+    const checkRunning = (name: string) =>
+        current()?.checksRunning?.current === name
     const missingChecks = () => {
         const completed = new Set(
             report()?.checks.map((check) => check.name) ?? [],
@@ -287,6 +289,7 @@ export function BranchPanel(props: {
                         }}
                     />
                     <button
+                        aria-busy={busy() === "branch-name" ? "true" : "false"}
                         class="outlined sm:col-start-2"
                         disabled={
                             !!busy() ||
@@ -295,9 +298,7 @@ export function BranchPanel(props: {
                         }
                         onClick={() => void saveBranchName()}
                     >
-                        {busy() === "branch-name"
-                            ? "Renaming…"
-                            : "Rename local branch"}
+                        Rename local branch
                     </button>
                 </div>
                 <Show when={current()} keyed>
@@ -328,6 +329,11 @@ export function BranchPanel(props: {
                                     placeholder={branch.branchName}
                                 />
                                 <button
+                                    aria-busy={
+                                        busy() === "remote-branch"
+                                            ? "true"
+                                            : "false"
+                                    }
                                     class="outlined"
                                     disabled={
                                         !!busy() ||
@@ -336,9 +342,7 @@ export function BranchPanel(props: {
                                     }
                                     onClick={() => void saveRemoteBranch()}
                                 >
-                                    {busy() === "remote-branch"
-                                        ? "Saving…"
-                                        : "Save remote branch"}
+                                    Save remote branch
                                 </button>
                             </div>
                         </>
@@ -408,6 +412,9 @@ export function BranchPanel(props: {
                         >
                             <div class="branch-section-actions flex flex-wrap items-center gap-[0.75rem]">
                                 <button
+                                    aria-busy={
+                                        busy() === "describe" ? "true" : "false"
+                                    }
                                     class="outlined"
                                     disabled={
                                         !!busy() ||
@@ -416,11 +423,9 @@ export function BranchPanel(props: {
                                     }
                                     onClick={generate}
                                 >
-                                    {busy() === "describe"
-                                        ? `Asking ${props.tools.prAgent ?? "the PR agent"}…`
-                                        : branch.prTitle
-                                          ? "Regenerate description"
-                                          : "Generate description"}
+                                    {branch.prTitle
+                                        ? "Regenerate description"
+                                        : "Generate description"}
                                 </button>
                                 <Show when={busy() === "describe"}>
                                     <span class="branch-working" role="status">
@@ -509,13 +514,12 @@ export function BranchPanel(props: {
                                 <button
                                     class="outlined"
                                     disabled={!!busy() || !descriptionDirty()}
+                                    aria-busy={
+                                        busy() === "save" ? "true" : "false"
+                                    }
                                     onClick={save}
                                 >
-                                    {busy() === "save"
-                                        ? "Saving…"
-                                        : descriptionDirty()
-                                          ? "Save description"
-                                          : "Saved"}
+                                    Save description
                                 </button>
                             </div>
                         </BranchSection>
@@ -527,6 +531,12 @@ export function BranchPanel(props: {
                         >
                             <div class="branch-section-actions flex flex-wrap items-center gap-[0.75rem]">
                                 <button
+                                    aria-busy={
+                                        busy() === "checks" ||
+                                        branch.checksRunning
+                                            ? "true"
+                                            : "false"
+                                    }
                                     class="outlined"
                                     disabled={
                                         !!busy() ||
@@ -536,11 +546,9 @@ export function BranchPanel(props: {
                                     }
                                     onClick={() => runChecks()}
                                 >
-                                    {busy() === "checks" || branch.checksRunning
-                                        ? "Running checks…"
-                                        : report()
-                                          ? "Run all again"
-                                          : "Run all checks"}
+                                    {report()
+                                        ? "Run all again"
+                                        : "Run all checks"}
                                 </button>
                             </div>
                             <Show when={branch.checksRunning}>
@@ -568,11 +576,7 @@ export function BranchPanel(props: {
                                 </p>
                             </Show>
                             <Show
-                                when={
-                                    props.tools.checkCount > 0 &&
-                                    !branch.checksRunning &&
-                                    !report()
-                                }
+                                when={props.tools.checkCount > 0 && !report()}
                             >
                                 <div>
                                     <p class="hint m-[1rem_0_0]">
@@ -582,18 +586,32 @@ export function BranchPanel(props: {
                                     <ul class="branch-checks overflow-hidden m-[1rem_0_0] p-0 [&_.check-row]:flex [&_.check-row]:items-start [&_.check-row_details]:min-w-0 [&_.check-row_details]:flex-1 [&_.check-run-button]:flex-[0_0_auto] [&_.check-run-button]:m-[0.45rem_0.7rem_0.45rem_0] [&_.check-not-run-row]:items-center [&_.check-not-run-row]:gap-[0.7rem] [&_.check-not-run-row]:pl-[0.8rem] [&_.check-not-run-row_strong]:min-w-[7rem] [&_.check-not-run-row_strong]:flex-1 [&_summary]:grid [&_summary]:min-h-[3.4rem] [&_summary]:grid-cols-[auto_minmax(7rem,_1fr)_minmax(10rem,_2fr)_auto] [&_summary]:items-center [&_summary]:gap-[0.7rem] [&_summary]:p-[0.7rem_0.8rem] [&_summary_code]:overflow-hidden [&_details>p]:m-0 [&_details>p]:p-[0_0.8rem_0.7rem] [&_pre]:max-h-[26rem] [&_pre]:m-0 [&_pre]:overflow-auto [&_pre]:p-[0.9rem] max-[560px]:[&_summary]:grid-cols-[auto_1fr_auto] max-[560px]:[&_summary_code]:col-[2_/_-1] max-[560px]:[&_summary_code]:row-[2]">
                                         <For each={props.tools.checkNames}>
                                             {(check) => (
-                                                <li class="check-row check-not-run-row">
+                                                <li
+                                                    class="check-row check-not-run-row"
+                                                    aria-busy={
+                                                        checkRunning(check)
+                                                            ? "true"
+                                                            : "false"
+                                                    }
+                                                >
                                                     <span
-                                                        data-status="not-run"
+                                                        data-status={
+                                                            checkRunning(check)
+                                                                ? "running"
+                                                                : "not-run"
+                                                        }
                                                         class="badge inline-flex items-center p-[0.18rem_0.5rem]"
                                                     >
-                                                        Not run
+                                                        {checkRunning(check)
+                                                            ? "Running"
+                                                            : "Not run"}
                                                     </span>
                                                     <strong>{check}</strong>
                                                     <button
                                                         class="outlined check-run-button"
                                                         disabled={
                                                             !!busy() ||
+                                                            !!branch.checksRunning ||
                                                             !branch.git.exists
                                                         }
                                                         onClick={() =>
@@ -654,7 +672,16 @@ export function BranchPanel(props: {
                                         <ul class="branch-checks overflow-hidden m-[1rem_0_0] p-0 [&_.check-row]:flex [&_.check-row]:items-start [&_.check-row_details]:min-w-0 [&_.check-row_details]:flex-1 [&_.check-run-button]:flex-[0_0_auto] [&_.check-run-button]:m-[0.45rem_0.7rem_0.45rem_0] [&_.check-not-run-row]:items-center [&_.check-not-run-row]:gap-[0.7rem] [&_.check-not-run-row]:pl-[0.8rem] [&_.check-not-run-row_strong]:min-w-[7rem] [&_.check-not-run-row_strong]:flex-1 [&_summary]:grid [&_summary]:min-h-[3.4rem] [&_summary]:grid-cols-[auto_minmax(7rem,_1fr)_minmax(10rem,_2fr)_auto] [&_summary]:items-center [&_summary]:gap-[0.7rem] [&_summary]:p-[0.7rem_0.8rem] [&_summary_code]:overflow-hidden [&_details>p]:m-0 [&_details>p]:p-[0_0.8rem_0.7rem] [&_pre]:max-h-[26rem] [&_pre]:m-0 [&_pre]:overflow-auto [&_pre]:p-[0.9rem] max-[560px]:[&_summary]:grid-cols-[auto_1fr_auto] max-[560px]:[&_summary_code]:col-[2_/_-1] max-[560px]:[&_summary_code]:row-[2]">
                                             <For each={checks().checks}>
                                                 {(check) => (
-                                                    <li class="check-row">
+                                                    <li
+                                                        class="check-row"
+                                                        aria-busy={
+                                                            checkRunning(
+                                                                check.name,
+                                                            )
+                                                                ? "true"
+                                                                : "false"
+                                                        }
+                                                    >
                                                         <details
                                                             open={
                                                                 check.status !==
@@ -667,15 +694,21 @@ export function BranchPanel(props: {
                                                                 <span
                                                                     class="badge inline-flex items-center p-[0.18rem_0.5rem]"
                                                                     data-status={
-                                                                        check.status
+                                                                        checkRunning(
+                                                                            check.name,
+                                                                        )
+                                                                            ? "running"
+                                                                            : check.status
                                                                     }
                                                                 >
-                                                                    {
-                                                                        checkLabel[
-                                                                            check
-                                                                                .status
-                                                                        ]
-                                                                    }
+                                                                    {checkRunning(
+                                                                        check.name,
+                                                                    )
+                                                                        ? "Running"
+                                                                        : checkLabel[
+                                                                              check
+                                                                                  .status
+                                                                          ]}
                                                                 </span>
                                                                 <strong>
                                                                     {check.name}
@@ -735,12 +768,27 @@ export function BranchPanel(props: {
                                             </For>
                                             <For each={missingChecks()}>
                                                 {(check) => (
-                                                    <li class="check-row check-not-run-row">
+                                                    <li
+                                                        class="check-row check-not-run-row"
+                                                        aria-busy={
+                                                            checkRunning(check)
+                                                                ? "true"
+                                                                : "false"
+                                                        }
+                                                    >
                                                         <span
-                                                            data-status="not-run"
+                                                            data-status={
+                                                                checkRunning(
+                                                                    check,
+                                                                )
+                                                                    ? "running"
+                                                                    : "not-run"
+                                                            }
                                                             class="badge inline-flex items-center p-[0.18rem_0.5rem]"
                                                         >
-                                                            Not run
+                                                            {checkRunning(check)
+                                                                ? "Running"
+                                                                : "Not run"}
                                                         </span>
                                                         <strong>{check}</strong>
                                                         <button
@@ -790,6 +838,11 @@ export function BranchPanel(props: {
                                         </Show>
                                         <div class="branch-pr-actions flex flex-wrap gap-[0.5rem]">
                                             <button
+                                                aria-busy={
+                                                    busy() === "pr-draft"
+                                                        ? "true"
+                                                        : "false"
+                                                }
                                                 class="outlined"
                                                 disabled={
                                                     !!busy() ||
@@ -799,11 +852,14 @@ export function BranchPanel(props: {
                                                 }
                                                 onClick={() => openPr(true)}
                                             >
-                                                {busy() === "pr"
-                                                    ? "Opening…"
-                                                    : "Open as draft"}
+                                                Open as draft
                                             </button>
                                             <button
+                                                aria-busy={
+                                                    busy() === "pr"
+                                                        ? "true"
+                                                        : "false"
+                                                }
                                                 class="primary"
                                                 disabled={
                                                     !!busy() ||
@@ -813,9 +869,7 @@ export function BranchPanel(props: {
                                                 }
                                                 onClick={() => openPr(false)}
                                             >
-                                                {busy() === "pr"
-                                                    ? "Opening…"
-                                                    : "Open pull request"}
+                                                Open pull request
                                             </button>
                                         </div>
                                     </div>

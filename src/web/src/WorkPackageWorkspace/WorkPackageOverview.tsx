@@ -26,7 +26,7 @@ export function WorkPackageOverview(props: {
                 task.status === "dev_complete" || task.status === "verified",
         ).length
     return (
-        <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,_1fr)_320px]">
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
             <section>
                 <div class="mb-4 flex items-center justify-between">
                     <h2 class="title">Tasks</h2>
@@ -137,6 +137,9 @@ export function WorkPackageOverview(props: {
                     </p>
                     <div class="grid gap-2">
                         <button
+                            aria-busy={
+                                props.busy === "verify" ? "true" : "false"
+                            }
                             class="outlined"
                             disabled={!ready() || !!props.busy}
                             onClick={() =>
@@ -151,6 +154,9 @@ export function WorkPackageOverview(props: {
                             Verify all ({ready()})
                         </button>
                         <button
+                            aria-busy={
+                                props.busy === "close" ? "true" : "false"
+                            }
                             class="primary"
                             disabled={!closeable() || !!props.busy}
                             onClick={() =>

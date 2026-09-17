@@ -261,6 +261,9 @@ export function TaskDetailPanel(props: {
                     </div>
                     <div class="flex gap-2">
                         <button
+                            aria-busy={
+                                props.busy === "before" ? "true" : "false"
+                            }
                             class="outlined"
                             disabled={!!props.busy}
                             onClick={() =>
@@ -272,6 +275,9 @@ export function TaskDetailPanel(props: {
                             Capture before
                         </button>
                         <button
+                            aria-busy={
+                                props.busy === "after" ? "true" : "false"
+                            }
                             class="outlined"
                             disabled={!!props.busy}
                             onClick={() =>

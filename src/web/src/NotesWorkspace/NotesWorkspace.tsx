@@ -30,7 +30,7 @@ export function NotesWorkspace(props: {
     const [noteMode, setNoteMode] = createSignal<"write" | "preview">("preview")
     const [creating, setCreating] = createSignal(false)
     const [newTitle, setNewTitle] = createSignal("")
-    const [busy, setBusy] = createSignal(false)
+    const [busy, setBusy] = createSignal("")
     const [error, setError] = createSignal("")
     const listing = createMemo(() =>
         api.listNotes({
@@ -57,7 +57,7 @@ export function NotesWorkspace(props: {
     }
     const create = async () => {
         if (!newTitle().trim()) return
-        setBusy(true)
+        setBusy("create")
         setError("")
         try {
             const note = await api.createNote({
@@ -71,11 +71,11 @@ export function NotesWorkspace(props: {
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
         } finally {
-            setBusy(false)
+            setBusy("")
         }
     }
     const initialise = async () => {
-        setBusy(true)
+        setBusy("initialise")
         setError("")
         try {
             await api.initNotes()
@@ -83,11 +83,11 @@ export function NotesWorkspace(props: {
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
         } finally {
-            setBusy(false)
+            setBusy("")
         }
     }
     const sync = async () => {
-        setBusy(true)
+        setBusy("sync")
         setError("")
         try {
             await api.pullNotes()
@@ -96,11 +96,11 @@ export function NotesWorkspace(props: {
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
         } finally {
-            setBusy(false)
+            setBusy("")
         }
     }
     const push = async () => {
-        setBusy(true)
+        setBusy("push")
         setError("")
         try {
             await api.syncNotes(true)
@@ -109,7 +109,7 @@ export function NotesWorkspace(props: {
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught))
         } finally {
-            setBusy(false)
+            setBusy("")
         }
     }
 
@@ -139,16 +139,26 @@ export function NotesWorkspace(props: {
                                         }
                                     >
                                         <button
+                                            aria-busy={
+                                                busy() === "sync"
+                                                    ? "true"
+                                                    : "false"
+                                            }
                                             class="outlined"
-                                            disabled={busy()}
+                                            disabled={!!busy()}
                                             onClick={sync}
                                         >
-                                            {busy() ? "Syncing…" : "Sync"}
+                                            Sync
                                         </button>
                                         <button
+                                            aria-busy={
+                                                busy() === "push"
+                                                    ? "true"
+                                                    : "false"
+                                            }
                                             class="outlined"
                                             disabled={
-                                                busy() ||
+                                                !!busy() ||
                                                 !data.workspace.git.upstream
                                             }
                                             title={
@@ -157,13 +167,13 @@ export function NotesWorkspace(props: {
                                             }
                                             onClick={push}
                                         >
-                                            {busy() ? "Pushing…" : "Push"}
+                                            Push
                                         </button>
                                     </Show>
                                     <button
                                         class="primary"
                                         disabled={
-                                            !data.workspace.exists || busy()
+                                            !data.workspace.exists || !!busy()
                                         }
                                         onClick={() => setCreating(true)}
                                     >
@@ -299,7 +309,8 @@ export function NotesWorkspace(props: {
                                     </div>
                                     <NotesStatus
                                         workspace={data.workspace}
-                                        busy={busy()}
+                                        busy={!!busy()}
+                                        initialising={busy() === "initialise"}
                                         initialise={initialise}
                                     />
                                 </aside>
@@ -386,9 +397,14 @@ export function NotesWorkspace(props: {
                                                     class="primary"
                                                     disabled={
                                                         !newTitle().trim() ||
-                                                        busy()
+                                                        !!busy()
                                                     }
                                                     onClick={create}
+                                                    aria-busy={
+                                                        busy() === "create"
+                                                            ? "true"
+                                                            : "false"
+                                                    }
                                                 >
                                                     Create note
                                                 </button>

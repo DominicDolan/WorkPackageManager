@@ -4,6 +4,7 @@ import { Show } from "solid-js"
 export function NotesStatus(props: {
     workspace: NotesWorkspaceInfo
     busy: boolean
+    initialising: boolean
     initialise: () => Promise<void>
 }) {
     return (
@@ -25,6 +26,7 @@ export function NotesStatus(props: {
                 <button
                     class="primary"
                     disabled={props.busy}
+                    aria-busy={props.initialising ? "true" : "false"}
                     onClick={props.initialise}
                 >
                     Create folder

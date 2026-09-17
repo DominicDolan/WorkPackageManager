@@ -167,8 +167,13 @@ export function BranchCheckLauncher(props: {
                 <p class="notice error mt-4">{error()}</p>
             </Show>
             <div class="mt-5 flex justify-end">
-                <button class="primary" disabled={busy()} onClick={run}>
-                    {busy() ? "Starting…" : "Start agent"}
+                <button
+                    aria-busy={busy() ? "true" : "false"}
+                    class="primary"
+                    disabled={busy()}
+                    onClick={run}
+                >
+                    Start agent
                 </button>
             </div>
         </Modal>
