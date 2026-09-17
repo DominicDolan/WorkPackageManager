@@ -86,27 +86,39 @@ export function InvestigationPanel(props: {
                     <Show when={detail()} keyed>
                         {(investigation) => (
                             <>
-                                <div class="investigation-flow grid grid-cols-[repeat(3,_minmax(0,_1fr))] mb-[1rem] max-[560px]:grid-cols-[1fr]">
-                                    <div class="flow-step flow-step-current relative grid grid-cols-[1.6rem_1fr] gap-[0.15rem_0.65rem] p-[0.85rem_1rem] [&>span]:row-[1_/_3] [&>span]:grid [&>span]:w-[1.55rem] [&>span]:h-[1.55rem] [&>span]:place-items-center [&_strong]:self-end">
-                                        <span>1</span>
+                                <ol class="stepper investigation-flow grid grid-cols-[repeat(3,_minmax(0,_1fr))] mb-[1rem] max-[560px]:grid-cols-[1fr]">
+                                    <li
+                                        aria-current={
+                                            investigation.status === "draft"
+                                                ? "step"
+                                                : undefined
+                                        }
+                                    >
                                         <strong>Brief</strong>
                                         <small>Define the question</small>
-                                    </div>
-                                    <div
-                                        class={`flow-step ${investigation.status !== "draft" ? "flow-step-current" : ""} relative grid grid-cols-[1.6rem_1fr] gap-[0.15rem_0.65rem] p-[0.85rem_1rem] [&>span]:row-[1_/_3] [&>span]:grid [&>span]:w-[1.55rem] [&>span]:h-[1.55rem] [&>span]:place-items-center [&_strong]:self-end`}
+                                    </li>
+                                    <li
+                                        aria-current={
+                                            investigation.status ===
+                                            "investigating"
+                                                ? "step"
+                                                : undefined
+                                        }
                                     >
-                                        <span>2</span>
                                         <strong>Investigate</strong>
                                         <small>Agent researches</small>
-                                    </div>
-                                    <div
-                                        class={`flow-step ${investigation.status === "complete" ? "flow-step-current" : ""} relative grid grid-cols-[1.6rem_1fr] gap-[0.15rem_0.65rem] p-[0.85rem_1rem] [&>span]:row-[1_/_3] [&>span]:grid [&>span]:w-[1.55rem] [&>span]:h-[1.55rem] [&>span]:place-items-center [&_strong]:self-end`}
+                                    </li>
+                                    <li
+                                        aria-current={
+                                            investigation.status === "complete"
+                                                ? "step"
+                                                : undefined
+                                        }
                                     >
-                                        <span>3</span>
                                         <strong>Tasks</strong>
                                         <small>Work lands here</small>
-                                    </div>
-                                </div>
+                                    </li>
+                                </ol>
                                 <article class="[&>header]:flex [&>header]:items-start [&>header]:justify-between [&>header]:gap-[1rem] [&>header]:p-[1.25rem_1.5rem] [&>header_h3]:m-[0.3rem_0_0]">
                                     <header>
                                         <div>

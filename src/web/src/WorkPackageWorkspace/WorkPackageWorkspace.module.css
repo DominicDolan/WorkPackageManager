@@ -5,37 +5,6 @@
         :global(.topbar-divider) {
             background: rgb(255 255 255 / 0.18);
         }
-        :global(.investigation-flow) {
-            border: 1px solid var(--line);
-            background: var(--paper);
-        }
-        :global(.flow-step) {
-            border-right: 1px solid var(--line);
-            color: var(--color-slate-400);
-        }
-        :global(.flow-step):last-child {
-            border-right: 0;
-        }
-        :global(.flow-step) > span {
-            border: 1px solid var(--line-strong);
-            border-radius: 50%;
-            font-size: 0.68rem;
-        }
-        :global(.flow-step) strong {
-            font-size: 0.76rem;
-            font-weight: 600;
-        }
-        :global(.flow-step) small {
-            font-size: 0.67rem;
-        }
-        :global(.flow-step-current) {
-            color: var(--graphite);
-        }
-        :global(.flow-step-current) > span {
-            border-color: var(--cobalt);
-            background: #24396e;
-            color: #b9c7ff;
-        }
         :global(.investigation-brief) textarea {
             line-height: 1.65;
         }
@@ -155,13 +124,6 @@
         }
 
         @media (max-width: 560px) {
-            :global(.flow-step) {
-                border-right: 0;
-                border-bottom: 1px solid var(--line);
-            }
-            :global(.flow-step):last-child {
-                border-bottom: 0;
-            }
         }
     }
 }
