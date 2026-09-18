@@ -19,6 +19,8 @@ import { useError } from "../hooks/useError"
 import { renderMarkdown } from "../markdown"
 import type { WorkspaceSnapshot } from "../types/workspace"
 import { BranchCheckLauncher } from "./BranchCheckLauncher"
+import { BranchTasks } from "./BranchTasks"
+import { TabHeading } from "./TabHeading"
 
 export function BranchPanel(props: {
     workPackage: WorkPackageDetail
@@ -260,19 +262,41 @@ export function BranchPanel(props: {
 
     return (
         <section class="branch-workspace mx-auto max-w-4xl grid gap-[1.1rem]">
-            <div class="branch-heading flex items-start justify-between gap-[1rem] mb-[0.15rem] max-[560px]:block">
-                <div>
-                    <h2 class="m-[0_0_0.55rem]">Delivery branch</h2>
-                    <code>{props.branch.branchName}</code>
-                    <span class="ml-[0.65rem]">
-                        from <code>{props.branch.base}</code>
-                    </span>
-                </div>
+            <TabHeading
+                title={props.branch.label}
+                description={
+                    props.branch.origin === "existing"
+                        ? "An existing branch this work package delivers through."
+                        : "A branch this work package delivers through."
+                }
+                rename={(label) =>
+                    api.updateWorkPackageBranch(
+                        props.workPackage.ref,
+                        props.branch.id,
+                        { label },
+                    )
+                }
+                remove={{
+                    label: "Remove",
+                    confirm: `Remove the '${props.branch.label}' tab? The Git branch '${props.branch.branchName}' and everything merged into it stay as they are.`,
+                    run: () =>
+                        api.removeWorkPackageBranch(
+                            props.workPackage.ref,
+                            props.branch.id,
+                        ),
+                }}
+                changed={props.workPackageChanged}>
                 <span
-                    class={`badge ${props.branch.git.exists ? "success" : ""} p-[0.3rem_0.7rem] max-[560px]:inline-block max-[560px]:mt-[0.8rem]`}>
+                    class={`badge ${props.branch.git.exists ? "success" : ""} p-[0.3rem_0.7rem]`}>
                     {props.branch.git.exists
                         ? "Local branch ready"
                         : "Not created yet"}
+                </span>
+            </TabHeading>
+            <div class="branch-heading mb-[0.15rem]">
+                <code>{props.branch.branchName}</code>
+                <span class="ml-[0.65rem]">
+                    from <code>{props.branch.base}</code>
                 </span>
             </div>
 
@@ -364,6 +388,12 @@ export function BranchPanel(props: {
                     )}
                 </Show>
             </BranchSection>
+
+            <BranchTasks
+                workPackage={props.workPackage}
+                branch={props.branch}
+                changed={props.workPackageChanged}
+            />
 
             <BranchSection
                 variant="elevated"

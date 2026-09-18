@@ -9,6 +9,7 @@ import {
 import {
     action,
     createOptimistic,
+    For,
     Loading,
     Show,
     createEffect,
@@ -25,10 +26,18 @@ import { PageSkeleton } from "../components/PageSkeleton"
 import { BackIcon, PlusIcon } from "../components/icons"
 import type { WorkspaceSnapshot } from "../types/workspace"
 import { UNASSIGNED_REF } from "../utils/workPackages"
+import { AddBranchDialog } from "./AddBranchDialog"
+import { AddTabMenu, type NewTabKind } from "./AddTabMenu"
 import { BranchPanel } from "./BranchPanel"
 import { InvestigationPanel } from "./InvestigationPanel"
 import { LegacyWorkPackage } from "./LegacyWorkPackage"
 import { WorkPackageOverview } from "./WorkPackageOverview"
+import {
+    TASKS_TAB,
+    branchTab,
+    investigationTab,
+    workPackageTabs,
+} from "./workPackageTabs"
 import styles from "./WorkPackageWorkspace.module.css"
 
 export function WorkPackageWorkspace(props: {
@@ -47,17 +56,71 @@ export function WorkPackageWorkspace(props: {
     )
     const { capture, clear, Banner } = useError()
     const [busy, setBusy] = createOptimistic("")
+    const tabs = createMemo(() => {
+        const detail = workPackage()
+        return detail ? workPackageTabs(detail) : []
+    })
     const {
+        activeTab,
         setActiveTab: setTab,
         matches,
         tabProps,
         windowProps,
-    } = useTabs<"overview" | "investigation" | "branch">(() =>
-        workPackage()?.tasks.length ? "overview" : "investigation",
+    } = useTabs<string>(() => {
+        const detail = workPackage()
+        if (!detail || detail.tasks.length) return TASKS_TAB
+        return tabs()[0]?.key ?? TASKS_TAB
+    })
+    // A removed tab cannot stay selected; the Tasks tab is always there.
+    createEffect(
+        () =>
+            activeTab() !== TASKS_TAB &&
+            !tabs().some((tab) => tab.key === activeTab()),
+        (missing) => {
+            if (missing) setTab(TASKS_TAB)
+        },
     )
     const changed = () => {
         refresh(workPackage)
         props.changed()
+    }
+    const { openDialog: openAddBranch } = useDialog(({ closeDialog }) => (
+        <Show when={workPackage()} keyed>
+            {(detail) => (
+                <AddBranchDialog
+                    workPackage={detail}
+                    snapshot={props.snapshot}
+                    close={closeDialog}
+                    created={(id) => {
+                        closeDialog()
+                        changed()
+                        setTab(branchTab(id))
+                    }}
+                />
+            )}
+        </Show>
+    ))
+    const addInvestigation = action(async function* () {
+        const detail = workPackage()
+        if (busy() || !detail) return
+        setBusy("add-tab")
+        clear()
+        try {
+            const count = detail.investigations.length
+            const result = await api.addWorkPackageInvestigation(detail.ref, {
+                title: count ? `Investigation ${count + 1}` : detail.name,
+            })
+            yield
+            changed()
+            setTab(investigationTab(result.investigation.ref))
+        } catch (caught) {
+            yield
+            capture(caught)
+        }
+    })
+    const addTab = (kind: NewTabKind) => {
+        if (kind === "investigation") void addInvestigation()
+        if (kind === "branch") openAddBranch()
     }
     const { openDialog: openAgent } = useDialog(({ closeDialog }) => (
         <Show when={workPackage()} keyed>
@@ -86,7 +149,11 @@ export function WorkPackageWorkspace(props: {
         </Show>
     ))
     const { openDialog: openInvestigation } = useDialog(({ closeDialog }) => (
-        <Show when={workPackage()?.investigations[0]} keyed>
+        <Show
+            when={workPackage()?.investigations.find(
+                (item) => item.status !== "complete",
+            )}
+            keyed>
             {(item) => (
                 <InvestigationLauncher
                     investigation={item}
@@ -143,8 +210,14 @@ export function WorkPackageWorkspace(props: {
         return (
             <Show when={workPackage()} keyed>
                 {(detail) => {
-                    const investigation = () => detail.investigations[0]
-                    const branch = () => detail.branches[0]
+                    const investigation = (ref: string) =>
+                        detail.investigations.find((item) => item.ref === ref)
+                    const branch = (id: number) =>
+                        detail.branches.find((item) => item.id === id)
+                    const runnable = () =>
+                        detail.investigations.find(
+                            (item) => item.status !== "complete",
+                        )
                     const delivery = (branch: WorkPackageBranchDetail) =>
                         props.snapshot.branches.find(
                             (item) => item.branchName === branch.branchName,
@@ -197,7 +270,7 @@ export function WorkPackageWorkspace(props: {
                                                 {detail.name}
                                             </h1>
                                             <Show when={detail.brief}>
-                                                <p class="description max-w-[70ch] m-[0.8rem_0_0]">
+                                                <p class="description line-clamp-2 max-w-[70ch] m-[0.8rem_0_0]">
                                                     {detail.brief}
                                                 </p>
                                             </Show>
@@ -214,21 +287,15 @@ export function WorkPackageWorkspace(props: {
                                             <Show
                                                 when={detail.tasks.length > 0}
                                                 fallback={
-                                                    <button
-                                                        class="primary"
-                                                        onClick={() =>
-                                                            investigation()
-                                                                ? openInvestigation()
-                                                                : setTab(
-                                                                      "investigation",
-                                                                  )
-                                                        }>
-                                                        {investigation()
-                                                            ?.status ===
-                                                        "complete"
-                                                            ? "Run investigation again"
-                                                            : "Run investigation"}
-                                                    </button>
+                                                    <Show when={runnable()}>
+                                                        <button
+                                                            class="primary"
+                                                            onClick={() =>
+                                                                openInvestigation()
+                                                            }>
+                                                            Run investigation
+                                                        </button>
+                                                    </Show>
                                                 }>
                                                 <button
                                                     class="primary"
@@ -251,70 +318,112 @@ export function WorkPackageWorkspace(props: {
                                             </Show>
                                         </div>
                                     </div>
-                                    <nav
-                                        role="tablist"
-                                        aria-label="Work package"
-                                        class="underlined flex gap-[1.5rem] mt-[2rem] max-[560px]:gap-[1rem]">
-                                        <button ref={tabProps("overview")}>
-                                            Tasks
-                                        </button>
-                                        <button ref={tabProps("investigation")}>
-                                            Investigation
-                                        </button>
-                                        <button ref={tabProps("branch")}>
-                                            Branch
-                                        </button>
-                                    </nav>
+                                    <div class="mt-[2rem] flex items-end gap-[1.5rem] max-[560px]:gap-[1rem]">
+                                        <nav
+                                            role="tablist"
+                                            aria-label="Work package"
+                                            class="underlined flex flex-wrap gap-[1.5rem] max-[560px]:gap-[1rem]">
+                                            <button ref={tabProps(TASKS_TAB)}>
+                                                Tasks
+                                            </button>
+                                            <For each={tabs()}>
+                                                {(tab) => (
+                                                    <button
+                                                        ref={tabProps(tab.key)}
+                                                        title={
+                                                            tab.kind ===
+                                                            "branch"
+                                                                ? "Branch"
+                                                                : "Investigation"
+                                                        }>
+                                                        {tab.label}
+                                                    </button>
+                                                )}
+                                            </For>
+                                        </nav>
+                                        <AddTabMenu
+                                            choose={addTab}
+                                            busy={busy() === "add-tab"}
+                                            unavailable={{
+                                                run: "Coming soon.",
+                                            }}
+                                        />
+                                    </div>
                                 </div>
                             </header>
                             <div class="mx-auto max-w-[1600px] px-5 py-8 sm:px-8">
                                 <Banner />
-                                <section {...windowProps("overview")}>
-                                    <Show when={matches("overview")}>
+                                <section {...windowProps(TASKS_TAB)}>
+                                    <Show when={matches(TASKS_TAB)}>
                                         <WorkPackageOverview
                                             workPackage={detail}
                                             openTask={props.openTask}
                                             busy={busy()}
                                             mutate={mutate}
                                             openNote={props.openNote}
-                                            notesChanged={() => {
-                                                refresh(workPackage)
-                                                props.changed()
-                                            }}
+                                            notesChanged={changed}
                                         />
                                     </Show>
                                 </section>
-                                <section {...windowProps("investigation")}>
-                                    <Show when={matches("investigation")}>
-                                        <InvestigationPanel
-                                            investigation={investigation()}
-                                            workPackage={detail}
-                                            changed={() => {
-                                                props.changed()
-                                                refresh(workPackage)
-                                            }}
-                                        />
-                                    </Show>
-                                </section>
-                                <section {...windowProps("branch")}>
-                                    <Show
-                                        when={matches("branch") && branch()}
-                                        keyed>
-                                        {(branch) => (
-                                            <BranchPanel
-                                                workPackage={detail}
-                                                branch={branch}
-                                                delivery={delivery(branch)}
-                                                tools={props.snapshot.tools}
-                                                changed={props.changed}
-                                                workPackageChanged={() => {
-                                                    refresh(workPackage)
-                                                    props.changed()
-                                                }}
-                                            />
-                                        )}
-                                    </Show>
-                                </section>
+                                <For each={detail.investigations}>
+                                    {(item) => (
+                                        <section
+                                            {...windowProps(
+                                                investigationTab(item.ref),
+                                            )}>
+                                            <Show
+                                                when={
+                                                    matches(
+                                                        investigationTab(
+                                                            item.ref,
+                                                        ),
+                                                    ) && investigation(item.ref)
+                                                }
+                                                keyed>
+                                                {(current) => (
+                                                    <InvestigationPanel
+                                                        investigation={current}
+                                                        workPackage={detail}
+                                                        changed={changed}
+                                                    />
+                                                )}
+                                            </Show>
+                                        </section>
+                                    )}
+                                </For>
+                                <For each={detail.branches}>
+                                    {(item) => (
+                                        <section
+                                            {...windowProps(
+                                                branchTab(item.id),
+                                            )}>
+                                            <Show
+                                                when={
+                                                    matches(
+                                                        branchTab(item.id),
+                                                    ) && branch(item.id)
+                                                }
+                                                keyed>
+                                                {(current) => (
+                                                    <BranchPanel
+                                                        workPackage={detail}
+                                                        branch={current}
+                                                        delivery={delivery(
+                                                            current,
+                                                        )}
+                                                        tools={
+                                                            props.snapshot.tools
+                                                        }
+                                                        changed={props.changed}
+                                                        workPackageChanged={
+                                                            changed
+                                                        }
+                                                    />
+                                                )}
+                                            </Show>
+                                        </section>
+                                    )}
+                                </For>
                             </div>
                         </>
                     )
