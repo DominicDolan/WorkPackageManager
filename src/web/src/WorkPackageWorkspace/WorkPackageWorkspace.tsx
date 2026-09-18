@@ -23,7 +23,14 @@ import { api } from "../api"
 import { useError } from "../hooks/useError"
 import { Brand } from "../components/Brand"
 import { PageSkeleton } from "../components/PageSkeleton"
-import { BackIcon, PlusIcon } from "../components/icons"
+import {
+    BackIcon,
+    BranchIcon,
+    InvestigationIcon,
+    PlusIcon,
+    RunIcon,
+    TasksIcon,
+} from "../components/icons"
 import type { WorkspaceSnapshot } from "../types/workspace"
 import { UNASSIGNED_REF } from "../utils/workPackages"
 import { AddBranchDialog } from "./AddBranchDialog"
@@ -42,10 +49,10 @@ import {
 } from "./workPackageTabs"
 import styles from "./WorkPackageWorkspace.module.css"
 
-const TAB_KIND_LABELS = {
-    investigation: "Investigation",
-    branch: "Branch",
-    run: "Run",
+const TAB_KINDS = {
+    investigation: { label: "Investigation", Icon: InvestigationIcon },
+    branch: { label: "Branch", Icon: BranchIcon },
+    run: { label: "Run", Icon: RunIcon },
 } as const
 
 export function WorkPackageWorkspace(props: {
@@ -333,21 +340,28 @@ export function WorkPackageWorkspace(props: {
                                             role="tablist"
                                             aria-label="Work package"
                                             class="underlined flex flex-wrap gap-[1.5rem] max-[560px]:gap-[1rem]">
-                                            <button ref={tabProps(TASKS_TAB)}>
+                                            <button
+                                                ref={tabProps(TASKS_TAB)}
+                                                class="inline-flex items-center gap-[0.4rem]">
+                                                <TasksIcon />
                                                 Tasks
                                             </button>
                                             <For each={tabs()}>
-                                                {(tab) => (
-                                                    <button
-                                                        ref={tabProps(tab.key)}
-                                                        title={
-                                                            TAB_KIND_LABELS[
-                                                                tab.kind
-                                                            ]
-                                                        }>
-                                                        {tab.label}
-                                                    </button>
-                                                )}
+                                                {(tab) => {
+                                                    const { label, Icon } =
+                                                        TAB_KINDS[tab.kind]
+                                                    return (
+                                                        <button
+                                                            ref={tabProps(
+                                                                tab.key,
+                                                            )}
+                                                            class="inline-flex items-center gap-[0.4rem]"
+                                                            title={label}>
+                                                            <Icon />
+                                                            {tab.label}
+                                                        </button>
+                                                    )
+                                                }}
                                             </For>
                                         </nav>
                                         <AddTabMenu

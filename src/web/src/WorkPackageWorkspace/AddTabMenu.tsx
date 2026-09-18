@@ -1,21 +1,34 @@
-import { For, Show, createSignal } from "solid-js"
-import { PlusIcon } from "../components/icons"
+import { For, Show, createSignal, type Element } from "solid-js"
+import {
+    BranchIcon,
+    InvestigationIcon,
+    PlusIcon,
+    RunIcon,
+} from "../components/icons"
 
 export type NewTabKind = "investigation" | "branch" | "run"
 
-const CHOICES: { kind: NewTabKind; title: string; detail: string }[] = [
+const CHOICES: {
+    kind: NewTabKind
+    title: string
+    detail: string
+    Icon: () => Element
+}[] = [
     {
         kind: "investigation",
+        Icon: InvestigationIcon,
         title: "Investigation",
         detail: "A question for an agent to research into tasks.",
     },
     {
         kind: "branch",
+        Icon: BranchIcon,
         title: "Branch",
         detail: "A branch to deliver some of the tasks through.",
     },
     {
         kind: "run",
+        Icon: RunIcon,
         title: "Run",
         detail: "An agent working through the tasks.",
     },
@@ -73,7 +86,8 @@ export function AddTabMenu(props: {
                                     setOpen(false)
                                     props.choose(choice.kind)
                                 }}>
-                                <strong class="block text-sm">
+                                <strong class="flex items-center gap-[0.4rem] text-sm">
+                                    <choice.Icon />
                                     {choice.title}
                                 </strong>
                                 <span class="caption muted block">

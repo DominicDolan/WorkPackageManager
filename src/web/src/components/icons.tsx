@@ -19,3 +19,53 @@ export function PlusIcon() {
         </svg>
     )
 }
+
+/* Tab kinds on the work package page. Sized to sit beside tab text. */
+
+export function TasksIcon() {
+    return (
+        <svg
+            class="icon w-[1rem] h-[1rem]"
+            viewBox="0 0 20 20"
+            aria-hidden="true">
+            <path d="M3.5 5.5 5 7l2.5-2.5M3.5 12.5 5 14l2.5-2.5M10 6h6.5M10 13h6.5" />
+        </svg>
+    )
+}
+
+export function InvestigationIcon() {
+    return (
+        <svg
+            class="icon w-[1rem] h-[1rem]"
+            viewBox="0 0 20 20"
+            aria-hidden="true">
+            <circle cx="8.5" cy="8.5" r="4.75" />
+            <path d="m12 12 4.5 4.5" />
+        </svg>
+    )
+}
+
+export function BranchIcon() {
+    return (
+        <svg
+            class="icon w-[1rem] h-[1rem]"
+            viewBox="0 0 20 20"
+            aria-hidden="true">
+            <circle cx="6" cy="4.5" r="1.75" />
+            <circle cx="6" cy="15.5" r="1.75" />
+            <circle cx="14" cy="6.5" r="1.75" />
+            <path d="M6 6.25v7.5M14 8.25c0 3.5-8 2.5-8 5.5" />
+        </svg>
+    )
+}
+
+export function RunIcon() {
+    return (
+        <svg
+            class="icon w-[1rem] h-[1rem]"
+            viewBox="0 0 20 20"
+            aria-hidden="true">
+            <path d="M6.5 4.5v11l9-5.5z" stroke-linejoin="round" />
+        </svg>
+    )
+}
