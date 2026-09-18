@@ -90,16 +90,18 @@ export function BranchFields(props: {
             </label>
             <div
                 role="group"
-                class="segmented flex w-fit"
+                class="segmented inset inline-flex w-fit gap-[0.2rem] p-[0.2rem]"
                 aria-label="Branch source">
                 <button
                     type="button"
+                    class="p-[0.38rem_0.7rem]"
                     aria-pressed={props.draft.mode === "new" ? "true" : "false"}
                     onClick={() => set({ mode: "new", branchName: "" })}>
                     New branch
                 </button>
                 <button
                     type="button"
+                    class="p-[0.38rem_0.7rem]"
                     aria-pressed={
                         props.draft.mode === "existing" ? "true" : "false"
                     }

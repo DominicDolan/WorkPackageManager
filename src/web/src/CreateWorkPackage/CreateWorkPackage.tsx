@@ -1,16 +1,29 @@
 import {
     action,
+    createMemo,
     createOptimistic,
+    createSignal,
     For,
     Show,
-    createMemo,
-    createSignal,
 } from "solid-js"
 import { WORK_PACKAGE_COLORS } from "@shared/types"
 import { api } from "../api"
-import { useError } from "../hooks/useError"
+import {
+    BranchFields,
+    branchDraftProblem,
+    emptyBranchDraft,
+    toNewBranchInput,
+    type BranchDraft,
+} from "../components/BranchFields"
+import { PlusIcon } from "../components/icons"
 import { Modal } from "../components/Modal"
+import { useError } from "../hooks/useError"
 import type { WorkspaceSnapshot } from "../types/workspace"
+
+interface InvestigationDraft {
+    title: string
+    brief: string
+}
 
 export function CreateWorkPackage(props: {
     snapshot: WorkspaceSnapshot
@@ -18,64 +31,60 @@ export function CreateWorkPackage(props: {
     created: (ref: string) => void
 }) {
     const [name, setName] = createSignal("")
-    const [description, setDescription] = createSignal("")
     const [color, setColor] = createSignal<string>(WORK_PACKAGE_COLORS[0])
-    const [branchName, setBranchName] = createSignal("")
-    const [branchMenuOpen, setBranchMenuOpen] = createSignal(false)
+    const [investigations, setInvestigations] = createSignal<
+        InvestigationDraft[]
+    >([])
+    const [branches, setBranches] = createSignal<BranchDraft[]>([])
     const [busy, setBusy] = createOptimistic(false)
     const { capture, clear, Banner } = useError()
-    const claimedBranches = createMemo(
+
+    const claimed = createMemo(
         () =>
             new Set(
                 props.snapshot.workPackages.flatMap((workPackage) =>
-                    workPackage.branchNames.map((name) => name.toLowerCase()),
+                    workPackage.branchNames.map((branch) =>
+                        branch.toLowerCase(),
+                    ),
                 ),
             ),
     )
-    const branchOptions = createMemo(() =>
-        [...props.snapshot.localBranches].sort((left, right) => {
-            if (left === props.snapshot.currentBranch) return -1
-            if (right === props.snapshot.currentBranch) return 1
-            return left.localeCompare(right)
-        }),
-    )
-    const matchingBranches = createMemo(() => {
-        const query = branchName().trim().toLowerCase()
-        return branchOptions().filter(
-            (branch) => !query || branch.toLowerCase().includes(query),
-        )
-    })
-    const selectedBranchValid = createMemo(() => {
-        const branch = branchName().trim()
-        return (
-            !branch ||
-            (props.snapshot.localBranches.includes(branch) &&
-                !claimedBranches().has(branch.toLowerCase()))
-        )
-    })
-
-    const chooseBranch = (branch: string) => {
-        if (claimedBranches().has(branch.toLowerCase())) return
-        setBranchName(branch)
-        setBranchMenuOpen(false)
+    const problem = () => {
+        const names = new Set<string>()
+        for (const draft of branches()) {
+            const issue = branchDraftProblem(
+                draft,
+                props.snapshot.localBranches,
+                claimed(),
+            )
+            if (issue) return issue
+            const branch = draft.branchName.trim().toLowerCase()
+            if (branch && names.has(branch))
+                return `'${draft.branchName.trim()}' is listed twice.`
+            names.add(branch)
+        }
+        return null
     }
 
+    const replace = <T,>(list: T[], index: number, value: T) =>
+        list.map((item, at) => (at === index ? value : item))
+    const without = <T,>(list: T[], index: number) =>
+        list.filter((_, at) => at !== index)
+
     const submit = action(async function* () {
-        if (busy()) return
+        if (busy() || problem()) return
 
         setBusy(true)
         clear()
         try {
-            const branch = branchName().trim()
             const result = await api.createWorkPackage({
                 name: name(),
                 color: color(),
-                investigations: description().trim()
-                    ? [{ brief: description() }]
-                    : [],
-                branches: [
-                    branch ? { branchName: branch, existing: true } : {},
-                ],
+                investigations: investigations().map((draft) => ({
+                    title: draft.title.trim() || undefined,
+                    brief: draft.brief,
+                })),
+                branches: branches().map(toNewBranchInput),
             })
             yield
             props.created(result.workPackage.ref)
@@ -88,9 +97,9 @@ export function CreateWorkPackage(props: {
     return (
         <Modal title="Create work package" close={props.close}>
             <p class="description m-0">
-                Define the outcome, then give an agent the question and context
-                it needs to investigate. The tasks it creates will be filed into
-                this work package.
+                Name the outcome, then add what it starts with: the questions an
+                agent should investigate, and the branches the work will be
+                delivered through. Both can be added later as tabs.
             </p>
             <label class="field mt-4">
                 <span>Work package name</span>
@@ -101,118 +110,123 @@ export function CreateWorkPackage(props: {
                     placeholder="e.g. Improve release confidence"
                 />
             </label>
-            <label class="field mt-4">
-                <span>Investigation</span>
-                <textarea
-                    value={description()}
-                    onInput={(event) =>
-                        setDescription(event.currentTarget.value)
-                    }
-                    placeholder="What should the agent investigate? Include the problem, context and any constraints."
-                />
-            </label>
-            <div class="field mt-4">
-                <label class="label" for="create-work-package-branch">
-                    Existing branch <small class={"optional"}>(optional)</small>
-                </label>
-                <div class="relative">
-                    <input
-                        id="create-work-package-branch"
-                        class={"code"}
-                        value={branchName()}
-                        onInput={(event) => {
-                            setBranchName(event.currentTarget.value)
-                            setBranchMenuOpen(true)
-                        }}
-                        onFocus={() => setBranchMenuOpen(true)}
-                        onBlur={() => setBranchMenuOpen(false)}
-                        onKeyDown={(event) => {
-                            if (event.key === "Escape") setBranchMenuOpen(false)
-                            if (event.key === "Enter" && branchMenuOpen()) {
-                                const first = matchingBranches().find(
-                                    (branch) =>
-                                        !claimedBranches().has(
-                                            branch.toLowerCase(),
-                                        ),
-                                )
-                                if (first) {
-                                    event.preventDefault()
-                                    chooseBranch(first)
-                                }
-                            }
-                        }}
-                        placeholder="Search local branches…"
-                        autocomplete="off"
-                        role="combobox"
-                        aria-expanded={branchMenuOpen() ? "true" : "false"}
-                        aria-controls="create-work-package-branch-options"
-                        aria-autocomplete="list"
-                    />
-                    <Show when={branchMenuOpen()}>
-                        <div
-                            id="create-work-package-branch-options"
-                            class="menu absolute z-[10] top-[calc(100%_+_0.3rem)] left-0 right-0 max-h-[15rem] overflow-y-auto p-[0.3rem]"
-                            role="listbox">
-                            <For
-                                each={matchingBranches()}
-                                fallback={
-                                    <p class="hint m-0 p-[0.75rem]">
-                                        No branches match your search.
-                                    </p>
-                                }>
-                                {(branch) => {
-                                    const claimed = () =>
-                                        claimedBranches().has(
-                                            branch.toLowerCase(),
-                                        )
-                                    return (
-                                        <button
-                                            type="button"
-                                            class={`option ${claimed() ? "muted" : ""} flex w-full items-center justify-between gap-[1rem] p-[0.62rem_0.65rem]`}
-                                            disabled={claimed()}
-                                            role="option"
-                                            aria-selected={
-                                                branchName() === branch
-                                                    ? "true"
-                                                    : "false"
-                                            }
-                                            onMouseDown={(event) => {
-                                                event.preventDefault()
-                                                chooseBranch(branch)
-                                            }}>
-                                            <code class="overflow-hidden">
-                                                {branch}
-                                            </code>
-                                            <span class="muted flex flex-none items-center gap-[0.45rem]">
-                                                <Show
-                                                    when={
-                                                        branch ===
-                                                        props.snapshot
-                                                            .currentBranch
-                                                    }>
-                                                    <small class="badge info p-[0.12rem_0.42rem]">
-                                                        Current
-                                                    </small>
-                                                </Show>
-                                                <Show when={claimed()}>
-                                                    <small>
-                                                        Already assigned
-                                                    </small>
-                                                </Show>
-                                            </span>
-                                        </button>
+
+            <For each={investigations()} keyed={false}>
+                {(draft, index) => (
+                    <article class="tonal mt-4 grid gap-3 p-4">
+                        <header class="flex items-center justify-between gap-3">
+                            <h3 class="m-0">
+                                Investigation
+                                {investigations().length > 1
+                                    ? ` ${index + 1}`
+                                    : ""}
+                            </h3>
+                            <button
+                                class="outlined"
+                                onClick={() =>
+                                    setInvestigations(
+                                        without(investigations(), index),
                                     )
-                                }}
-                            </For>
-                        </div>
-                    </Show>
-                </div>
-                <small class={"hint"}>
-                    {selectedBranchValid()
-                        ? "Select a local branch to use for this work package. Leave blank to generate a new work package branch."
-                        : "Choose an available branch from the results, or clear the field."}
-                </small>
+                                }>
+                                Remove
+                            </button>
+                        </header>
+                        <label class="field">
+                            <span>
+                                Title <small class="optional">(optional)</small>
+                            </span>
+                            <input
+                                value={draft().title}
+                                onInput={(event) =>
+                                    setInvestigations(
+                                        replace(investigations(), index, {
+                                            ...draft(),
+                                            title: event.currentTarget.value,
+                                        }),
+                                    )
+                                }
+                                placeholder={
+                                    name().trim() || "The work package's name"
+                                }
+                            />
+                        </label>
+                        <label class="field">
+                            <span>Brief</span>
+                            <textarea
+                                value={draft().brief}
+                                onInput={(event) =>
+                                    setInvestigations(
+                                        replace(investigations(), index, {
+                                            ...draft(),
+                                            brief: event.currentTarget.value,
+                                        }),
+                                    )
+                                }
+                                placeholder="What should the agent investigate? Include the problem, context and any constraints."
+                            />
+                        </label>
+                    </article>
+                )}
+            </For>
+
+            <For each={branches()} keyed={false}>
+                {(draft, index) => (
+                    <article class="tonal mt-4 grid gap-3 p-4">
+                        <header class="flex items-center justify-between gap-3">
+                            <h3 class="m-0">
+                                Branch
+                                {branches().length > 1 ? ` ${index + 1}` : ""}
+                            </h3>
+                            <button
+                                class="outlined"
+                                onClick={() =>
+                                    setBranches(without(branches(), index))
+                                }>
+                                Remove
+                            </button>
+                        </header>
+                        <BranchFields
+                            id={`create-work-package-branch-${index}`}
+                            draft={draft()}
+                            change={(next) =>
+                                setBranches(replace(branches(), index, next))
+                            }
+                            localBranches={props.snapshot.localBranches}
+                            currentBranch={props.snapshot.currentBranch}
+                            claimed={claimed()}
+                        />
+                    </article>
+                )}
+            </For>
+
+            <div class="mt-4 flex flex-wrap gap-2">
+                <button
+                    class="outlined"
+                    onClick={() =>
+                        setInvestigations([
+                            ...investigations(),
+                            { title: "", brief: "" },
+                        ])
+                    }>
+                    <PlusIcon />
+                    Add investigation
+                </button>
+                <button
+                    class="outlined"
+                    onClick={() =>
+                        setBranches([...branches(), emptyBranchDraft()])
+                    }>
+                    <PlusIcon />
+                    Add branch
+                </button>
             </div>
+            <Show when={!branches().length}>
+                <p class="hint mt-2">
+                    Without a branch, tasks are not merged anywhere until one is
+                    added.
+                </p>
+            </Show>
+
             <div class="mt-4">
                 <span class="label">Colour</span>
                 <div class="mt-2 flex gap-2">
@@ -239,9 +253,8 @@ export function CreateWorkPackage(props: {
                 <button
                     aria-busy={busy() ? "true" : "false"}
                     class="primary"
-                    disabled={
-                        !name().trim() || !selectedBranchValid() || busy()
-                    }
+                    disabled={!name().trim() || !!problem() || busy()}
+                    title={problem() ?? undefined}
                     onClick={submit}>
                     Create work package
                 </button>
