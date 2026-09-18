@@ -247,8 +247,13 @@ view in the web UI, above Tasks.
 
 ```bash
 tasks investigation new "Why is the plan gantt slow on mobile" \
-  --brief "It janks while dragging. Start at GanttChart.vue."
+  --brief "It janks while dragging. Start at GanttChart.vue." --work-package WP-1
 ```
+
+An investigation belongs to a work package, and a work package can have as many
+as it needs — each is a tab on the work package's page. `--work-package` is
+optional: one written down on its own gets a work package made for it when it
+files its first task.
 
 Then run it with the **`/plan-tasks I-1`** slash command in Claude Code, Codex or `pi`.
 The agent reads the brief, investigates, files what it finds as tasks carrying
@@ -264,7 +269,7 @@ Deleting an investigation keeps the tasks it filed — the work still needs doin
 and simply unlinks them.
 
 ```bash
-tasks work-package new "Plan improvements"
+tasks work-package new "Plan improvements" --with-branch
 tasks new "Make the plan gantt responsive" --work-package WP-1 --priority high --tag frontend
 # Every task receives a branch; create/switch to it before starting.
 tasks branch T-1
@@ -486,7 +491,7 @@ agents should use.
 | `tasks init [--dir <path>] [--track]`                                              | Scaffold `.tasks/` in this repository                                                                       |
 | `tasks investigation list [--status s]`                                            | All investigations, unrun first                                                                             |
 | `tasks investigation show <ref>`                                                   | The brief, the findings, and the tasks it filed                                                             |
-| `tasks investigation new "<title>"`                                                | Create one. `--brief`                                                                                       |
+| `tasks investigation new "<title>"`                                                | Create one. `--brief`, `--work-package`                                                                     |
 | `tasks investigation edit <ref>`                                                   | Change `--title`, `--brief`, `--findings`, `--status`                                                       |
 | `tasks investigation start\|complete <ref>`                                        | Move it along; `complete` takes `--findings`                                                                |
 | `tasks investigation rm <ref>`                                                     | Delete it; the tasks it filed are kept, unlinked                                                            |
@@ -497,8 +502,10 @@ agents should use.
 | `tasks note <ref> <text>`                                                          | Append a note to the history                                                                                |
 | `tasks work-package list`                                                          | Every work package, in the order the list draws them                                                        |
 | `tasks work-package show <ref\|name>`                                              | One work package and everything in it                                                                       |
-| `tasks work-package new "<name>"`                                                  | Create one. `--desc`, `--color`, `--branch`                                                                 |
-| `tasks work-package edit <ref\|name>`                                              | Change `--name`, `--desc`, `--color`, `--branch`                                                            |
+| `tasks work-package new "<name>"`                                                  | Create one. `--brief` writes an investigation, `--with-branch` adds a branch, `--color`                     |
+| `tasks work-package edit <ref\|name>`                                              | Change `--name`, `--color`                                                                                  |
+| `tasks work-package branch list\|add\|edit\|rm <ref\|name>`                        | Its branches. `add --existing <b>` adopts one; `--name`, `--base`, `--label`, `--tasks`                     |
+| `tasks work-package branch assign\|unassign <ref> <branch> <task-ref>...`          | Which tasks a branch carries                                                                                |
 | `tasks work-package queue <ref\|name>`                                             | What is left in it, in dependency order — what `/work-package` follows                                      |
 | `tasks work-package add <ref\|name> <task-ref>...`                                 | Put tasks in it                                                                                             |
 | `tasks work-package rm <ref\|name>`                                                | Delete an empty work package                                                                                |
@@ -509,7 +516,7 @@ agents should use.
 | `tasks move <ref> --before\|--after <ref>`                                         | Reorder relative to another task                                                                            |
 | `tasks branch <ref> [--from <branch>]`                                             | Create or switch to the task's assigned branch                                                              |
 | `tasks start\|done\|verify\|reopen <ref>`                                          | Move through status; branch enforcement and work package merging apply only when the task uses Git.         |
-| `tasks merge <ref>`                                                                | Merge the task into its work package's branch and register it there                                         |
+| `tasks merge <ref>`                                                                | Merge the task into each of its target branches and register it there                                       |
 | `tasks checkpoint before\|after\|status <ref>`                                     | Drive aio-vr for one task                                                                                   |
 | `tasks checkpoint before <ref> --retro [--at <commit>] [--settle <s>] [--dry-run]` | Capture `before` at the commit the task started from                                                        |
 | `tasks baselines [--all]`                                                          | What has drifted from its approved baseline                                                                 |
@@ -584,27 +591,47 @@ work package leaves it where it is, so an unassigned row can sit further down th
 than the section above it — `tasks list` numbers every row with its actual place,
 and `tasks list --flat` shows the queue with no sections at all.
 
-#### A work package is a branch
+#### A work package delivers through branches
 
-Every work package has a **branch**, defaulted from its name (`feature/wp-1-search-rework`)
-and changeable with `--branch` or the **Branch** field in the work package dialog. That
-branch is where the work package's work adds up:
+A work package has any number of **branches** — usually one; two when a fix has
+to ship on a release branch as well as on main, or when a large package goes out
+as two PRs. Each is a tab on the work package's page, and each carries an
+explicit set of the work package's tasks.
 
-- `tasks branch T-4` cuts T-4's branch from its **work package's** branch rather than
-  from master, so a task starts with everything the work package has finished so far.
-- `tasks done T-4` merges T-4's branch back into the work package branch with a merge
-  commit, and **registers T-4 on it** — the work package branch appears in the Branches
-  view with its tasks listed, ready to raise as one PR.
+```bash
+tasks work-package branch add WP-1                           # feature/wp-1-search-rework
+tasks work-package branch add WP-1 --existing release/2.4 --label "Release"
+tasks work-package branch assign WP-1 Release T-4            # T-4 goes on both
+```
 
-The Git branch is created lazily, the first time a task in the work package is
-branched — filing tasks under a heading does not put branches in your
-repository. A task in no work package behaves exactly as before.
+- A **new branch** takes every task in the work package that is not yet Dev
+  Complete. `--tasks T-1,T-2` or `--no-tasks` says otherwise.
+- A **new task** joins the work package's newest branch. The branch's tab has a
+  task selector for changing that.
+- A branch is either **new** — named from the work package unless `--name`
+  says otherwise, and cut from `--base` or the base branch — or an **existing**
+  local branch adopted with `--existing`, commits and all.
 
-The work package's **Branch** tab distinguishes the local and remote names.
-**Rename local branch** uses Git's branch rename, so the new name keeps the old
-branch's commits. **Remote branch name** controls the name used by the next push
-and pull request without changing the local branch. Leave it blank to use the
-local name remotely.
+Each task's `targetBranches` lists the branches it has to land on, oldest
+assignment first. That is where its work adds up:
+
+- `tasks branch T-4` cuts T-4's branch from its **first** target branch rather
+  than from master, so a task starts with everything that branch has finished so
+  far.
+- `tasks done T-4` merges T-4 into **every** target branch and **registers it**
+  on each. The first is rebased onto and fast-forwarded, as always; the others
+  get a copy of just T-4's own commits, replayed the same way. Every branch
+  stays a straight line of commits.
+
+A new Git branch is created lazily, the first time a task on it is branched —
+filing tasks under a heading does not put branches in your repository. A task on
+no branch behaves exactly as a task in no work package did.
+
+A branch tab distinguishes the local and remote names. **Rename local branch**
+uses Git's branch rename, so the new name keeps the old branch's commits.
+**Remote branch name** controls the name used by the next push and pull request
+without changing the local branch. Leave it blank to use the local name
+remotely. **Remove** forgets the tab; the Git branch is left alone.
 
 #### Tasks without a Git workflow
 
@@ -620,7 +647,7 @@ anything into the work package branch. The mode can be changed later with
 `tasks edit <ref> --git` or `--no-git`.
 
 ```bash
-tasks work-package new "Search rework"       # branch: feature/wp-1-search-rework
+tasks work-package new "Search rework" --with-branch   # feature/wp-1-search-rework
 tasks work-package add "Search rework" T-4 T-5
 tasks branch T-4                      # cut from feature/wp-1-search-rework
 tasks done T-4                        # merged back into it, and registered
@@ -629,25 +656,33 @@ tasks branch T-5                      # cut from it too, so it has T-4's work
 
 #### The work package page
 
-Click **Open** on a work package's heading in `tasks web` (or go to `/work packages/WP-1`, which
-is a real, linkable route) for the work package's own page: its description, its branch
-and that branch's live Git state, the tasks on it, and the **work order** — the
-work package's unfinished tasks sorted so nothing comes before what it depends on. A
-task waiting on something _outside_ the work package is called out, because working the
-work package alone will never clear it.
+Click **Open** on a work package's heading in `tasks web` (or go to `/work-packages/WP-1`, which
+is a real, linkable route) for the work package's own page. Its first tab,
+**Tasks**, lists the tasks and the **work order** — the work package's
+unfinished tasks sorted so nothing comes before what it depends on. A task
+waiting on something _outside_ the work package is called out, because working
+the work package alone will never clear it.
+
+After it comes a tab for each investigation, branch and run, in the order they
+were added. **+** at the end of the tab bar adds another; **Rename** and
+**Remove** on a tab's heading do what they say.
+
+The **New work package** dialog has no description or branch field. **Add
+investigation** and **Add branch** each add a section to fill in, as many as it
+starts with — or none, and add them as tabs later.
 
 `tasks work-package queue WP-1` is the same order from the CLI, and `--json` is what an
 agent reads.
 
-Finished tasks are marked **✓ merged** or **not merged** against the work package
-branch, taken from the branch's own roster rather than guessed — a task that is
-Dev Complete but not on the branch is the one thing you actually need to spot.
+Finished tasks are marked **✓ merged** or **not merged** against a branch,
+taken from the branch's own roster rather than guessed — a task that is Dev
+Complete but not on its branch is the one thing you actually need to spot.
 
 #### Next up
 
 The work package page names the task to work next: the first in the work order that
 nothing unfinished is holding up. **Start** points an agent at just that one
-(`/work-task T-4`), branched from the work package's branch like any other.
+(`/work-task T-4`), branched from its first target branch like any other.
 
 It never launches anything by itself. The queue _advances_ on its own — the page
 re-reads on every change, so finishing a task moves this on to the next — but
@@ -660,23 +695,34 @@ task is in progress — including a task in **another work package**, since the 
 is the working tree, not the work package. When the in-flight task _is_ the next one,
 the button reads **Continue** instead: that is resuming, not starting a second.
 
-#### Working a whole work package with an agent
+#### Runs
 
-The work package page has a **Work with Agent** button, which runs `/work-package WP-1`.
-It works every task in the queue order, branching each from the work package's branch
-and merging it back when it is done — `/work-task` in a loop, with the order
-decided by `tasks work-package queue` rather than by the agent.
+**Work with an agent** on the work package page, or **+ → Run**, starts a run,
+and every run gets a **Run** tab. There are three kinds:
 
-It stops and hands back rather than guessing when a merge conflicts, a
-dependency outside the work package is unmet, or a checkpoint fails. A stopped run
-leaves the work package partly delivered, which is a normal state: the tasks it did
-finish are merged and registered.
+- **Work next task** — `/work-task` on the next task nothing is holding up.
+- **Guided work package run** — `/work-package WP-1`: one agent works every
+  task in queue order, branching each from its first target branch and merging
+  it into all of them — `/work-task` in a loop, with the order decided by
+  `tasks work-package queue` rather than by the agent.
+- **Unattended work package** — a fresh headless agent per task, with this
+  server driving the queue between them. Always headless, and "Never ask"
+  unless you pick otherwise.
 
-`tasks done --no-merge` skips the merge when you want to review first;
-`tasks merge T-4` does it afterwards. A merge that hits conflicts leaves them in
-the working tree on the work package branch — resolve them, commit, then
-`tasks merge T-4` to register the task. Both are idempotent: a task already on
-the branch is registered without a second merge.
+The tab says which kind it is, how it is going, and lists the tasks it set out
+to work, each marked worked, working or still to work. **Stop** ends a run in
+flight; **Resume in a terminal** reopens the agent's conversation.
+
+A run stops and hands back rather than guessing when a merge conflicts, a
+dependency outside the work package is unmet, or a checkpoint fails. A stopped
+run leaves the work package partly delivered, which is a normal state: the
+tasks it did finish are merged and registered.
+
+`tasks done --no-merge` skips the merges when you want to review first;
+`tasks merge T-4` does them afterwards. A conflict aborts and leaves every
+branch as it was; resolve it by hand, then `tasks merge T-4` registers the task
+and carries on to any target branch it has not reached yet. Both are idempotent:
+a task already on a branch is registered without a second merge.
 
 A work package containing tasks cannot be deleted. Move its tasks into another work package
 first; this keeps the mandatory membership invariant intact.
@@ -684,12 +730,13 @@ first; this keeps the mandatory membership invariant intact.
 #### Tasks from an investigation are grouped automatically
 
 Filing a task with `--investigation I-3` — which is what `/plan-tasks` does for
-every task it files — puts it in a work package for that investigation, creating the
-work package on the first task if it is not there yet. A run of `/plan-tasks` therefore
+every task it files — puts it in that investigation's work package, on its
+newest branch. An investigation written down on its own gets a work package,
+with a branch, on the first task it files. A run of `/plan-tasks` therefore
 arrives as one bundle you can collapse, filter and read as a unit rather than as
 eight loose rows in the backlog.
 
-The work package is keyed on the investigation, not on its name, so renaming the work package
+The investigation points at its work package, not at its name, so renaming the work package
 or re-running the same investigation refills the one that exists.
 
 Tasks filed before work packages existed stay visible in the read-only **Unassigned**
@@ -747,8 +794,8 @@ work from another branch. Existing `backlog` and `in_progress` tasks are
 backfilled when the database is first opened. Historical completed tasks are
 left unassigned.
 
-A new branch is cut from the task's **work package branch** when it has one (see
-[A work package is a branch](#a-work-package-is-a-branch)), otherwise from the branch of a
+A new branch is cut from the task's **first target branch** when it has one (see
+[A work package delivers through branches](#a-work-package-delivers-through-branches)), otherwise from the branch of a
 finished task it depends on, otherwise from the base branch — never from
 whatever happens to be checked out. `--from <branch>` overrides all of that.
 
@@ -797,7 +844,7 @@ has to be installed globally in Claude Code, Codex or `pi` for them to work:
   With no ref it takes the task at the top of the list. It stops rather than
   starting a second task when one is already `in_progress`, and stops to ask when
   the task is waiting on a [dependency](#dependencies) that is not finished. It
-  branches from the task's [work package branch](#a-work-package-is-a-branch) when it has one,
+  branches from the task's first [target branch](#a-work-package-delivers-through-branches) when it has one,
   otherwise from a finished dependency's branch, otherwise from the base — and
   reports which. It also owns the **scenario coverage** of its own change: if the
   task moves something a user can see, a scenario has to show it. One is written
@@ -807,8 +854,8 @@ has to be installed globally in Claude Code, Codex or `pi` for them to work:
   [`--retro`](#capturing-before-after-the-fact).
 - **`/work-package <WP-n>`** — the same thing for a whole [work package](#work-packages), one task
   at a time, in the order `tasks work-package queue` gives. Git-workflow tasks are
-  branched from the work package's branch and merged back; no-Git tasks skip those
-  steps. It requires a ref — a work package is a commitment to a branch, and guessing
+  branched from their first target branch and merged into every one; no-Git tasks skip those
+  steps. It requires a ref — a work package is a commitment to its branches, and guessing
   which one is not something the user recovers from by noticing later. It stops
   and hands back on a merge conflict, on a dependency outside the work package, or on a
   failed checkpoint, leaving the tasks it did finish merged and registered.
@@ -828,12 +875,12 @@ happens if the capture fails, so this is how you find out that it did.
 Every command can be fired from the web UI rather than typed into a terminal,
 against whatever is on screen:
 
-| Where                       | Button              | What it runs         |
-| --------------------------- | ------------------- | -------------------- |
-| Issues → an open issue      | **Investigate**     | `/plan-tasks #677`   |
-| Investigations → **Run it** | **Run it here**     | `/plan-tasks I-3`    |
-| Tasks → a selected task     | **Work with agent** | `/work-task T-12`    |
-| A work package's page       | **Work with Agent** | `/work-package WP-1` |
+| Where                       | Button                               | What it runs                                                            |
+| --------------------------- | ------------------------------------ | ----------------------------------------------------------------------- |
+| Issues → an open issue      | **Investigate**                      | `/plan-tasks #677`                                                      |
+| Investigations → **Run it** | **Run it here**                      | `/plan-tasks I-3`                                                       |
+| Tasks → a selected task     | **Work with agent**                  | `/work-task T-12`                                                       |
+| A work package's page       | **Work with an agent** / **+ → Run** | `/work-task`, `/work-package WP-1`, or an unattended loop, as a Run tab |
 
 Every resumable run records a **session id**, so **Resume** on a run — the one on screen, or any
 in the run history — opens a new terminal window on that same conversation
@@ -1111,6 +1158,19 @@ Selecting a task opens its workflow and visual evidence.
 
 The Solid prerelease references are vendored in
 [`docs/solid-2.0`](docs/solid-2.0/README.md).
+
+### Upgrading to work package tabs
+
+Opening an existing database moves each work package's single investigation and
+branch into tabs, once: the investigation is linked to its work package, and the
+branch becomes a **Branch** tab carrying every task the work package had. A
+description with no investigation behind it becomes one. Nothing moves in Git.
+
+`tasks work-package new/edit` no longer take `--desc` or `--branch`; use
+`--brief`, `--with-branch` and `tasks work-package branch`. The API's
+`WorkPackage` loses `description`, `branchName` and `investigationRef`;
+`WorkPackageDetail` has `investigations`, `branches` and `workRuns` in place of
+`git` and `delivery`, and each task carries `targetBranches`.
 
 ### Upgrading from groups
 
