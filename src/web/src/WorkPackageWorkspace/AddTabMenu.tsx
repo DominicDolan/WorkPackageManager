@@ -33,8 +33,14 @@ export function AddTabMenu(props: {
         <div
             class="relative self-center"
             onFocusOut={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget as Node))
-                    setOpen(false)
+                // Removing the focused menu item fires this mid-render, when a
+                // write is not allowed — and the menu is already closed then.
+                if (
+                    !open() ||
+                    event.currentTarget.contains(event.relatedTarget as Node)
+                )
+                    return
+                queueMicrotask(() => setOpen(false))
             }}
             onKeyDown={(event) => {
                 if (event.key === "Escape") setOpen(false)

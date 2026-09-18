@@ -139,6 +139,7 @@ import {
     type AgentCommand,
     type AgentPermissionMode,
     type AgentRunMode,
+    type WorkRunKind,
     type CombinedBranchDetail,
     type WorkPackageAdvanceOutcome,
     type InvestigationStatus,
@@ -153,6 +154,13 @@ import {
     workPackageBranchDetail,
 } from "./workPackageBranch"
 import { approveBaseline, readBaselines, runBaselines } from "./baselines"
+import {
+    deleteWorkRun,
+    renameWorkRun,
+    requireWorkRun,
+    startWorkRun,
+    stopWorkRun,
+} from "./workRuns"
 
 const ws = workspace()
 const port = Number(process.env.TASKS_API_PORT ?? ws.config.apiPort)
@@ -1417,6 +1425,72 @@ async function handleWorkPackages(
             },
             201,
         )
+    }
+
+    // /api/work-packages/:ref/work-runs[/:id[/stop]] — its Run tabs.
+    if (action === "work-runs") {
+        const workPackage = requireWorkPackage(ref)
+        const id = rawNotePath
+        if (id === undefined) {
+            if (request.method !== "POST")
+                return fail("Method not allowed.", 405)
+            const input = await body<{
+                kind?: string
+                label?: string
+                harness?: string
+                model?: string
+                mode?: string
+                permissionMode?: string
+                extra?: string
+            }>(request)
+            if (!input.harness) return fail("A harness is required.")
+            if (
+                input.permissionMode !== undefined &&
+                !AGENT_PERMISSION_MODES.includes(
+                    input.permissionMode as AgentPermissionMode,
+                )
+            ) {
+                return fail(
+                    `permissionMode must be one of: ${AGENT_PERMISSION_MODES.join(", ")}.`,
+                )
+            }
+            const workRun = startWorkRun({
+                workPackageRef: workPackage.ref,
+                kind: input.kind as WorkRunKind,
+                label: input.label,
+                harness: input.harness,
+                model: input.model ?? "",
+                mode: (input.mode ?? "terminal") as AgentRunMode,
+                permissionMode: (input.permissionMode ??
+                    "manual") as AgentPermissionMode,
+                extra: input.extra ?? "",
+            })
+            return json(
+                {
+                    workRun,
+                    workPackage: getWorkPackageDetail(workPackage.ref),
+                },
+                201,
+            )
+        }
+        const runId = Number(id)
+        if (!Number.isInteger(runId)) return fail("A run id must be a number.")
+        if (requireWorkRun(runId).workPackageRef !== workPackage.ref)
+            return fail(`Run ${runId} is not in ${workPackage.ref}.`, 404)
+        const verb = rest[3]
+        if (verb === "stop") {
+            if (request.method !== "POST")
+                return fail("Method not allowed.", 405)
+            stopWorkRun(runId)
+        } else if (request.method === "PATCH") {
+            const input = await body<{ label?: string }>(request)
+            renameWorkRun(runId, input.label ?? "")
+        } else if (request.method === "DELETE") {
+            deleteWorkRun(runId)
+        } else {
+            return fail("Method not allowed.", 405)
+        }
+        return json({ workPackage: getWorkPackageDetail(workPackage.ref) })
     }
 
     // /api/work-packages/:ref/branches[/:id] — the branches it delivers through.

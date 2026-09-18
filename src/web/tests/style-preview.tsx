@@ -127,6 +127,7 @@ const workPackage = {
     inProgress: [task],
     baseBranch: "main",
     run: null,
+    workRuns: [],
 }
 const branch = {
     branchName: "feature/shared-style",

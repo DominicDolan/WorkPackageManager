@@ -1182,6 +1182,11 @@ export function deleteWorkPackage(refOrName: string): {
             )
             .run({ $ref: workPackage.ref })
         getDb()
+            .query(
+                "DELETE FROM work_runs WHERE work_package_ref = $ref COLLATE NOCASE",
+            )
+            .run({ $ref: workPackage.ref })
+        getDb()
             .query("DELETE FROM work_packages WHERE id = $id")
             .run({ $id: workPackage.id })
     })()

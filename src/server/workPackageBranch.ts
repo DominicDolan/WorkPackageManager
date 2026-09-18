@@ -41,6 +41,7 @@ import {
     type WorkPackageDetail,
 } from "../shared/types"
 import { linkedNotes } from "./noteLinks"
+import { listWorkRuns, workRunDetail } from "./workRuns"
 
 /**
  * A work package's branches as integration branches.
@@ -409,5 +410,6 @@ export function getWorkPackageDetail(refOrName: string): WorkPackageDetail {
         // every button on the work package page is allowed to offer, so it has to arrive
         // with the queue it is working, not a request later.
         run: latestWorkPackageRun(workPackage.ref),
+        workRuns: listWorkRuns(workPackage.ref).map(workRunDetail),
     }
 }

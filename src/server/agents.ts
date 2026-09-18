@@ -483,6 +483,15 @@ function readRow(id: number): RunRow {
     return row
 }
 
+/** One run's record, or null when there is no such run. */
+export function findAgentRun(id: number): AgentRun | null {
+    try {
+        return toRun(readRow(id))
+    } catch {
+        return null
+    }
+}
+
 /**
  * Told when a run reaches a final state, whatever put it there.
  *

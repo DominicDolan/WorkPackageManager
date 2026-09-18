@@ -31,6 +31,8 @@ import type {
     BaselineReport,
     WorkPackageBranchDetail,
     WorkPackageDetail,
+    WorkRunDetail,
+    WorkRunKind,
     WorkPackageSummary,
     ToolAvailability,
 } from "@shared/types"
@@ -213,6 +215,43 @@ export const api = {
             method: "PATCH",
             body: JSON.stringify(input),
         }),
+
+    /** Put an agent to work on a work package, as a new Run tab. */
+    startWorkRun: (
+        ref: string,
+        input: {
+            kind: WorkRunKind
+            label?: string
+            harness: string
+            model: string
+            mode: AgentRunMode
+            permissionMode: AgentPermissionMode
+            extra: string
+        },
+    ) =>
+        request<{ workRun: WorkRunDetail; workPackage: WorkPackageDetail }>(
+            `/work-packages/${encodeURIComponent(ref)}/work-runs`,
+            { method: "POST", body: JSON.stringify(input) },
+        ),
+
+    renameWorkRun: (ref: string, id: number, label: string) =>
+        request<{ workPackage: WorkPackageDetail }>(
+            `/work-packages/${encodeURIComponent(ref)}/work-runs/${id}`,
+            { method: "PATCH", body: JSON.stringify({ label }) },
+        ),
+
+    stopWorkRun: (ref: string, id: number) =>
+        request<{ workPackage: WorkPackageDetail }>(
+            `/work-packages/${encodeURIComponent(ref)}/work-runs/${id}/stop`,
+            { method: "POST" },
+        ),
+
+    /** Forget a Run tab. Its agent's own record is kept. */
+    removeWorkRun: (ref: string, id: number) =>
+        request<{ workPackage: WorkPackageDetail }>(
+            `/work-packages/${encodeURIComponent(ref)}/work-runs/${id}`,
+            { method: "DELETE" },
+        ),
 
     /** Forget a branch tab. The Git branch is left alone. */
     removeWorkPackageBranch: (ref: string, id: number) =>

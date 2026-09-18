@@ -31,14 +31,22 @@ import { AddTabMenu, type NewTabKind } from "./AddTabMenu"
 import { BranchPanel } from "./BranchPanel"
 import { InvestigationPanel } from "./InvestigationPanel"
 import { LegacyWorkPackage } from "./LegacyWorkPackage"
+import { RunPanel } from "./RunPanel"
 import { WorkPackageOverview } from "./WorkPackageOverview"
 import {
     TASKS_TAB,
     branchTab,
     investigationTab,
+    runTab,
     workPackageTabs,
 } from "./workPackageTabs"
 import styles from "./WorkPackageWorkspace.module.css"
+
+const TAB_KIND_LABELS = {
+    investigation: "Investigation",
+    branch: "Branch",
+    run: "Run",
+} as const
 
 export function WorkPackageWorkspace(props: {
     workPackageRef: string
@@ -121,6 +129,7 @@ export function WorkPackageWorkspace(props: {
     const addTab = (kind: NewTabKind) => {
         if (kind === "investigation") void addInvestigation()
         if (kind === "branch") openAddBranch()
+        if (kind === "run") openAgent()
     }
     const { openDialog: openAgent } = useDialog(({ closeDialog }) => (
         <Show when={workPackage()} keyed>
@@ -129,6 +138,7 @@ export function WorkPackageWorkspace(props: {
                     workPackage={detail}
                     close={closeDialog}
                     finished={changed}
+                    started={(id) => setTab(runTab(id))}
                 />
             )}
         </Show>
@@ -331,10 +341,9 @@ export function WorkPackageWorkspace(props: {
                                                     <button
                                                         ref={tabProps(tab.key)}
                                                         title={
-                                                            tab.kind ===
-                                                            "branch"
-                                                                ? "Branch"
-                                                                : "Investigation"
+                                                            TAB_KIND_LABELS[
+                                                                tab.kind
+                                                            ]
                                                         }>
                                                         {tab.label}
                                                     </button>
@@ -344,9 +353,6 @@ export function WorkPackageWorkspace(props: {
                                         <AddTabMenu
                                             choose={addTab}
                                             busy={busy() === "add-tab"}
-                                            unavailable={{
-                                                run: "Coming soon.",
-                                            }}
                                         />
                                     </div>
                                 </div>
@@ -418,6 +424,33 @@ export function WorkPackageWorkspace(props: {
                                                         workPackageChanged={
                                                             changed
                                                         }
+                                                    />
+                                                )}
+                                            </Show>
+                                        </section>
+                                    )}
+                                </For>
+                                <For each={detail.workRuns}>
+                                    {(item) => (
+                                        <section
+                                            {...windowProps(runTab(item.id))}>
+                                            <Show
+                                                when={
+                                                    matches(runTab(item.id)) &&
+                                                    detail.workRuns.find(
+                                                        (run) =>
+                                                            run.id === item.id,
+                                                    )
+                                                }
+                                                keyed>
+                                                {(current) => (
+                                                    <RunPanel
+                                                        workPackage={detail}
+                                                        run={current}
+                                                        openTask={
+                                                            props.openTask
+                                                        }
+                                                        changed={changed}
                                                     />
                                                 )}
                                             </Show>

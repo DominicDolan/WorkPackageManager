@@ -180,6 +180,28 @@ const SCHEMA = [
 
     `CREATE INDEX IF NOT EXISTS idx_branch_tasks_task ON branch_tasks(task_ref)`,
 
+    // A Run tab: one agent put to work on a work package, and the tasks it set
+    // out to do. Points at what it launched by id, not by foreign key, like
+    // agent_runs itself — the record should outlive whatever it points at.
+    `CREATE TABLE IF NOT EXISTS work_runs (
+     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+     work_package_ref    TEXT    NOT NULL,
+     label               TEXT    NOT NULL,
+     kind                TEXT    NOT NULL,
+     harness             TEXT    NOT NULL,
+     model               TEXT    NOT NULL DEFAULT '',
+     mode                TEXT    NOT NULL,
+     permission_mode     TEXT    NOT NULL,
+     extra               TEXT    NOT NULL DEFAULT '',
+     task_refs_json      TEXT    NOT NULL DEFAULT '[]',
+     agent_run_id        INTEGER,
+     work_package_run_id INTEGER,
+     created_at          TEXT    NOT NULL,
+     updated_at          TEXT    NOT NULL
+   )`,
+
+    `CREATE INDEX IF NOT EXISTS idx_work_runs_package ON work_runs(work_package_ref, id)`,
+
     // One-off data migrations that must not run twice.
     `CREATE TABLE IF NOT EXISTS schema_migrations (
      name       TEXT PRIMARY KEY,

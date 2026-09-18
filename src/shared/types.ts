@@ -883,6 +883,8 @@ export interface WorkPackageDetail extends WorkPackageSummary {
      * button on the page has to know that before it offers to start anything.
      */
     run: WorkPackageRun | null
+    /** Its Run tabs, oldest first. */
+    workRuns: WorkRunDetail[]
 }
 
 /**
@@ -1137,6 +1139,75 @@ export interface WorkPackageRun {
     stopReason: string
     createdAt: string
     finishedAt: string | null
+}
+
+/* ---------------------------------------------------------------- run tabs */
+
+/**
+ * An agent put to work on a work package, kept as a tab on its page.
+ *
+ * One of three shapes, all launched through the existing machinery: `next-task`
+ * is a single `/work-task`, `guided` is one `/work-package` conversation, and
+ * `unattended` is a `WorkPackageRun` loop of fresh headless agents. A work run is
+ * the record that ties the launch to the work package and says which tasks it
+ * set out to do, so the tab can show them being worked through.
+ */
+export const WORK_RUN_KINDS = ["next-task", "guided", "unattended"] as const
+export type WorkRunKind = (typeof WORK_RUN_KINDS)[number]
+
+export const WORK_RUN_KIND_LABELS: Record<WorkRunKind, string> = {
+    "next-task": "Work next task",
+    guided: "Guided work package run",
+    unattended: "Unattended work package",
+}
+
+export interface WorkRun {
+    id: number
+    workPackageRef: string
+    /** The tab's name. */
+    label: string
+    kind: WorkRunKind
+    harness: AgentHarnessId
+    model: string
+    mode: AgentRunMode
+    permissionMode: AgentPermissionMode
+    extra: string
+    /** The tasks it set out to work, in order, as they stood at launch. */
+    taskRefs: string[]
+    /** The agent launched, for `next-task` and `guided`. */
+    agentRunId: number | null
+    /** The loop driving it, for `unattended`. */
+    workPackageRunId: number | null
+    createdAt: string
+    updatedAt: string
+}
+
+/**
+ * Where one task stands within a run.
+ *
+ * This list is deliberately the run's timeline rather than a copy of the task
+ * list: it is where agents working in the same run will later leave each other
+ * messages, interleaved with the tasks they concern.
+ */
+export interface WorkRunItem {
+    ref: string
+    title: string
+    /** Null when the task has since been deleted. */
+    status: Status | null
+    state: "done" | "working" | "waiting"
+}
+
+export type WorkRunStatus =
+    "launched" | "running" | "finished" | "stopped" | "blocked" | "failed"
+
+export interface WorkRunDetail extends WorkRun {
+    status: WorkRunStatus
+    /** Why it stopped, when it did for a reason worth saying. */
+    statusDetail: string
+    items: WorkRunItem[]
+    /** The agent working right now, or the last one to have — what Stop and
+     *  Resume act on. */
+    agentRun: AgentRun | null
 }
 
 /** True while the loop still owns the work package — nothing else should start a task. */

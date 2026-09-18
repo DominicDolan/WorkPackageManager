@@ -28,6 +28,8 @@ export function AgentLauncher(props: {
     task?: Task
     close: () => void
     finished: () => void
+    /** Told the id of the Run tab a work package run was recorded as. */
+    started?: (workRunId: number) => void
 }) {
     type RunChoice = "task" | "guided-work-package" | "unattended"
     const initial: RunChoice = props.task ? "task" : "guided-work-package"
@@ -39,6 +41,7 @@ export function AgentLauncher(props: {
     const [permission, setPermission] =
         createSignal<AgentPermissionMode>("manual")
     const [extra, setExtra] = createSignal("")
+    const [label, setLabel] = createSignal("")
     const [busy, setBusy] = createOptimistic(false)
     const [resuming, setResuming] = createOptimistic<number | null>(null)
     const { capture, clear, Banner } = useError()
@@ -93,7 +96,7 @@ export function AgentLauncher(props: {
             capture(caught)
         }
     })
-    const run = action(function* () {
+    const run = action(async function* () {
         if (busy() || isPending(harness)) return
 
         setBusy(true)
@@ -102,49 +105,65 @@ export function AgentLauncher(props: {
             const selectedHarness = chosenHarness()
             if (!selectedHarness)
                 throw new Error("No supported agent harness is installed.")
-            if (choice() === "unattended") {
-                yield api.startWorkPackageRun(props.workPackage.ref, {
+            const launchMode =
+                mode() === "terminal" && !environment().terminalAvailable
+                    ? "print"
+                    : mode()
+            if (!props.task) {
+                // From the work package: every run becomes a Run tab.
+                const result = await api.startWorkRun(props.workPackage.ref, {
+                    kind:
+                        choice() === "unattended"
+                            ? "unattended"
+                            : choice() === "guided-work-package"
+                              ? "guided"
+                              : "next-task",
+                    label: label().trim() || undefined,
                     harness: selectedHarness,
                     model: model(),
-                    permissionMode:
-                        permission() === "manual"
-                            ? "bypassPermissions"
-                            : permission(),
-                    extra: extra(),
-                    excluded: [],
-                })
-            } else {
-                const task = next()
-                const target =
-                    choice() === "task" ? task?.ref : props.workPackage.ref
-                if (!target) throw new Error("There is no task ready to work.")
-                yield api.startAgentRun({
-                    harness: selectedHarness,
-                    model: model(),
-                    mode:
-                        mode() === "terminal" &&
-                        !environment().terminalAvailable
-                            ? "print"
-                            : mode(),
-                    command: choice() === "task" ? "work-task" : "work-package",
-                    target,
-                    extra: extra(),
-                    subjectKind: choice() === "task" ? "task" : "work-package",
-                    subjectRef:
-                        choice() === "task" ? target : props.workPackage.ref,
+                    mode: launchMode,
                     permissionMode: permission(),
+                    extra: extra(),
                 })
+                yield
+                props.finished()
+                props.started?.(result.workRun.id)
+                props.close()
+                return
             }
-            yield refresh(history)
+            const task = next()
+            if (!task) throw new Error("There is no task ready to work.")
+            await api.startAgentRun({
+                harness: selectedHarness,
+                model: model(),
+                mode: launchMode,
+                command: "work-task",
+                target: task.ref,
+                extra: extra(),
+                subjectKind: "task",
+                subjectRef: task.ref,
+                permissionMode: permission(),
+            })
+            yield
+            refresh(history)
             props.finished()
             props.close()
         } catch (caught) {
+            yield
             capture(caught)
         }
     })
 
     return (
-        <Modal title="Work with an agent" close={props.close}>
+        <Modal
+            title={props.task ? "Work with an agent" : "Start a run"}
+            close={props.close}>
+            <Show when={!props.task}>
+                <p class="description m-[0_0_1rem]">
+                    The run gets a tab of its own, listing the tasks it works
+                    through.
+                </p>
+            </Show>
             <div class="grid gap-3 sm:grid-cols-3">
                 <RunChoice
                     selected={choice() === "task"}
@@ -187,6 +206,18 @@ export function AgentLauncher(props: {
                 />
             </Loading>
 
+            <Show when={!props.task}>
+                <label class="field mt-4">
+                    <span>
+                        Tab name <small class="optional">(optional)</small>
+                    </span>
+                    <input
+                        value={label()}
+                        onInput={(event) => setLabel(event.currentTarget.value)}
+                        placeholder="Named after the kind of run"
+                    />
+                </label>
+            </Show>
             <label class="field mt-4">
                 <span>Extra instructions</span>
                 <textarea
