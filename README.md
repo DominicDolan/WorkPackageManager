@@ -402,6 +402,80 @@ Everything here is read from aio-vr's own files (`runs/latest/results.json` and
 aio-vr's own commands. This app never decides what a baseline is, and nothing
 about baselines touches the task database.
 
+## Scratch scenarios
+
+Checkpoints and baselines both produce evidence that outlives the command. A
+**scratch scenario** produces nothing anybody has to keep. It is the exploration
+hatch: drive the app to some state that takes five steps to reach, add a
+`console.log`, and read what it printed.
+
+```bash
+tasks scratch new login-debug --url https://localhost:5173
+# edit .aio-vr/scratch/login-debug.cjs — it is a plain Playwright script
+tasks scratch run login-debug
+tasks scratch log login-debug          # re-read it after the output scrolled past
+tasks scratch requests login-debug     # the API calls it made, with their bodies
+tasks scratch clean --all              # delete the scenarios and their output
+```
+
+`tasks scratch run` streams everything the page logged as it arrives —
+`console.log`, `console.warn`, `console.error` and uncaught exceptions, each
+stamped with how far into the run it happened. The same transcript is saved to
+`.aio-vr/scratch/out/runs/<name>.console.log`, which is what `tasks scratch log`
+reads back and what `--json` returns.
+
+It streams the **API calls** the same way, one line each, with status, timing,
+size and both bodies:
+
+```
+┊ [0.012s] GET    200 OK         /api/tools?sort=name  3ms  48 B
+┊ [0.020s] POST   200 OK         /api/login  1ms  28 B
+┊ [0.022s] GET    404 Not Found  /api/missing  1ms  25 B
+┊   ← {"error":"no such thing"}
+┊ [0.526s] GET    FAILED net::ERR_CONNECTION_REFUSED /api/dead  1ms
+```
+
+A call that failed or came back non-2xx shows its body without being asked,
+because that is invariably why you are looking; everything else stays one line
+until you pass `--bodies`. The full transcript, bodies and all, goes to
+`.aio-vr/scratch/out/runs/<name>.network.log` and is read back with `tasks
+scratch requests`.
+
+This only _listens_. It does not intercept, so it never alters a response and
+works whether or not the scenario uses mocks — which matters, because turning
+mocking on to find out what the page asked for would change the thing being
+measured.
+
+Only `/api/**` is recorded by default, the same filter the mocking layer uses.
+Without it, a dev server that serves raw modules buries the two calls that
+matter under four hundred `.ts` files. `--requests '<glob>'` (repeatable)
+records something else instead; `--no-requests` skips capture entirely.
+
+Request payload keys that look like credentials — `password`, `token`, `apiKey`
+and friends — are replaced with `[redacted]` before anything reaches disk, since
+a login flow is exactly the kind of multi-step state a scratch scenario exists to
+reach. Responses are recorded verbatim: hiding the token a login call returns
+would hide the thing being debugged.
+
+Both transcripts are recorded for ordinary runs too — `tasks baselines run`,
+`tasks checkpoint before|after` — but only written to file there, since fifty
+chatty scenarios would bury the result.
+
+To log from the scenario rather than from the app, evaluate in the page:
+
+```js
+console.log(await page.evaluate(() => window.__store.state))
+```
+
+When navigating to the URL is the whole story, `tasks probe --url <url>` takes
+one screenshot with no file to create or clean up.
+
+The isolation is aio-vr's: scratch scenarios live in `.aio-vr/scratch/`, a
+_sibling_ of `scenarios/`, and discovery only ever reads `scenarios/`. So
+nothing written there can fail the suite, be captured into a checkpoint, or be
+promoted into a baseline — which is what makes it safe to hand to an agent that
+is guessing. Nothing here touches the task database either.
+
 ## CLI
 
 Run `tasks help` for the full list. Every command takes `--json`, which is what
@@ -441,6 +515,11 @@ agents should use.
 | `tasks baselines [--all]`                                                          | What has drifted from its approved baseline                                                                 |
 | `tasks baselines run [scenario...]`                                                | Re-run against the baselines                                                                                |
 | `tasks baselines approve <scenario>`                                               | Accept the current capture as the new baseline                                                              |
+| `tasks scratch new <name> [--url <base-url>]`                                      | Scaffold a throwaway scenario                                                                               |
+| `tasks scratch run [name...] [--headed]`                                           | Run it and stream everything the page logged                                                                |
+| `tasks scratch list\|log [name]\|clean [--all]`                                    | What exists, the last run's console output, and cleanup                                                     |
+| `tasks scratch requests [name]`                                                    | The API calls the last run made, with status, timing and bodies                                             |
+| `tasks probe --url <url> [--wait-for <sel>] [--out <path>]`                        | One screenshot of one URL, no scenario file                                                                 |
 | `tasks web [--port n] [--dev]`                                                     | Serve the Solid UI                                                                                          |
 | `tasks rm <ref>`                                                                   | Delete a task (the checkpoint on disk is left alone)                                                        |
 

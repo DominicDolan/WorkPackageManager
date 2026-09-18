@@ -54,6 +54,17 @@ import {
     runBaselines,
 } from "../server/baselines"
 import {
+    cleanScratch,
+    listScratchScenarios,
+    newScratch,
+    readScratchConsoleLog,
+    readScratchNetworkLog,
+    runProbe,
+    runScratch,
+    scratchPaths,
+    type ScratchLog,
+} from "../server/scratch"
+import {
     ensureWorkPackageBranch,
     workPackageBranchOf,
     mergeTaskIntoWorkPackageBranch,
@@ -111,7 +122,13 @@ interface Args {
 }
 
 /** Flags that may be repeated; their values collect into an array. */
-const REPEATABLE = new Set(["scenario", "folder", "tag", "depends-on"])
+const REPEATABLE = new Set([
+    "scenario",
+    "folder",
+    "tag",
+    "depends-on",
+    "requests",
+])
 
 function parseArgs(argv: string[]): Args {
     const positional: string[] = []
@@ -2940,6 +2957,25 @@ ${bold("Visual checkpoints")} (wraps aio-vr)
     a before image. Needs a clean working tree; the branch you were on is restored
     even if the capture fails.
 
+${bold("Scratch")} (wraps aio-vr)   drive the app, read its console, keep nothing
+  tasks scratch new <name> [--url <base-url>]  scaffold a throwaway scenario
+  tasks scratch run [name...] [--headed]       run it; console and API calls streamed
+  tasks scratch list                           what exists, and whether it has run
+  tasks scratch log [name]                     re-read the last run's console output
+  tasks scratch requests [name]                re-read the last run's API calls
+  tasks scratch clean [--all]                  delete the output, or --all for the files
+  tasks probe --url <url> [--wait-for <sel>] [--out <path>]
+                                 one screenshot of one URL, no file to clean up
+    --requests <glob>            record these URLs rather than the default /api/**
+    --bodies                     show bodies for successful calls, not just failures
+    --no-requests                skip API capture entirely
+    For exploring rather than recording: add a \`console.log\` to the app, run a
+    scratch scenario, read what it printed. Everything the page logs — including
+    uncaught errors — and every API call it made, with status, timing and both
+    bodies, is streamed and saved. Scratch scenarios live outside \`scenarios/\`,
+    so they can never fail the suite or reach a baseline, and nothing here is
+    attached to a task.
+
 ${bold("Notes")}   Markdown files in their own Git repository, not the database
   tasks notes list [--tag <t>] [--folder <f>] [--search <q>] [--json]
   tasks notes show <path> [--raw] [--json]
@@ -3082,6 +3118,274 @@ async function commandChecks(args: Args): Promise<void> {
     print()
 }
 
+/* --------------------------------------------------------------- scratch */
+
+const SCRATCH_USAGE =
+    "Usage: tasks scratch <new|run|list|log|requests|clean> [...]\n" +
+    "       tasks scratch new <name> [--url <base-url>]   scaffold a throwaway scenario\n" +
+    "       tasks scratch run [name...] [--headed]        run them; console and API calls are printed\n" +
+    "       tasks scratch list                            what exists, and whether it has run\n" +
+    "       tasks scratch log [name]                      re-read the last run's console output\n" +
+    "       tasks scratch requests [name]                 re-read the last run's API calls\n" +
+    "       tasks scratch clean [--all]                   delete the output, or --all for the files too"
+
+/**
+ * Prints one kind of transcript for one scenario or for all of them.
+ *
+ * Console output and API calls are read back identically — same files, same
+ * "has it been run?" question — so they share this rather than diverging over
+ * time in how they answer it.
+ */
+async function printScratchTranscripts(
+    args: Args,
+    read: (scenario: string) => Promise<ScratchLog | null>,
+    label: string,
+): Promise<void> {
+    const named = args.positional[2]
+    const scenarios = named ? [named] : await listScratchScenarios()
+    const logs: ScratchLog[] = []
+
+    for (const scenario of scenarios) {
+        const log = await read(scenario)
+        if (log) logs.push(log)
+    }
+
+    if (flagBool(args, "json")) {
+        emitJson({ logs })
+        return
+    }
+
+    if (!logs.length) {
+        print(
+            dim(
+                named
+                    ? `No ${label} recorded for ${named}. Has \`tasks scratch run ${named}\` been run?`
+                    : `No ${label} recorded. Run a scratch scenario first.`,
+            ),
+        )
+        return
+    }
+
+    for (const log of logs) {
+        print()
+        print(`  ${bold(log.scenario)}  ${dim(log.path)}`)
+        print()
+        for (const line of log.text.trimEnd().split("\n")) print(`  ${line}`)
+    }
+    print()
+}
+
+/**
+ * Throwaway scenarios, for exploring rather than recording.
+ *
+ * Every other visual command here produces evidence that outlives the command:
+ * a checkpoint attached to a task, a baseline the whole repo is measured
+ * against. This one produces nothing anybody has to keep. That is the point —
+ * it is the hatch for "drive the app to this state, add a console.log, and tell
+ * me what it says", which is the shape of most debugging and which the
+ * evidence-producing commands are actively bad at.
+ */
+async function commandScratch(args: Args): Promise<void> {
+    const sub = args.positional[1]
+    const asJson = flagBool(args, "json")
+
+    if (!sub || sub === "list" || sub === "ls") {
+        const scenarios = await listScratchScenarios()
+        const paths = scratchPaths()
+
+        if (asJson) {
+            emitJson({ scenarios, ...paths })
+            return
+        }
+
+        if (!scenarios.length) {
+            print()
+            print(dim("  No scratch scenarios."))
+            print(
+                dim(
+                    "  Create one with `tasks scratch new <name> --url <base-url>`,",
+                ),
+            )
+            print(
+                dim(
+                    "  or take a single screenshot with `tasks probe --url <url>`.",
+                ),
+            )
+            print()
+            return
+        }
+
+        print()
+        print(`  ${bold("Scratch scenarios")}  ${dim(paths.rootDirectory)}`)
+        print()
+        for (const scenario of scenarios) {
+            const captured = existsSync(
+                join(paths.outputDirectory, `${scenario}.png`),
+            )
+            const consoleLog = await readScratchConsoleLog(scenario)
+            const networkLog = await readScratchNetworkLog(scenario)
+            // Every call opens a line with its timestamp at column 0; its bodies
+            // are indented under it. Counting those beats splitting on blank
+            // lines, which a body containing one would throw off.
+            const calls = networkLog
+                ? networkLog.text
+                      .split("\n")
+                      .filter((line) => line.startsWith("[")).length
+                : 0
+            const lines = consoleLog
+                ? consoleLog.text.trimEnd().split("\n").length
+                : 0
+            const parts = [
+                lines ? `${lines} console line(s)` : "",
+                calls ? `${calls} API call(s)` : "",
+            ].filter(Boolean)
+            const note = !captured
+                ? dim("never run")
+                : dim(parts.join(", ") || "no output")
+            print(`  ${bold(scenario.padEnd(30))} ${note}`)
+        }
+        print()
+        print(
+            dim("  Nothing here is compared, captured or kept — run it, read"),
+        )
+        print(dim("  the output, then `tasks scratch clean --all`."))
+        print()
+        return
+    }
+
+    if (sub === "new" || sub === "create") {
+        const scenario = args.positional[2]
+        if (!scenario)
+            throw new Error(
+                "Usage: tasks scratch new <name> [--url <base-url>]",
+            )
+
+        const result = await newScratch(scenario, flagString(args, "url"))
+        if (asJson) {
+            emitJson(result)
+            return
+        }
+
+        print(`${green("created")}  ${bold(result.path)}`)
+        print(
+            dim(
+                `Edit its \`run()\`, then: tasks scratch run ${result.scenario}`,
+            ),
+        )
+        return
+    }
+
+    if (sub === "run") {
+        const scenarios = args.positional.slice(2)
+
+        // aio-vr's own "nothing to run" message names `aio-vr scratch new`,
+        // which is not the command anybody here typed. Answer it ourselves.
+        if (!scenarios.length && !(await listScratchScenarios()).length) {
+            if (asJson) {
+                emitJson({ exitCode: 0, output: "", consoleLogs: [] })
+                return
+            }
+            print(dim("No scratch scenarios yet."))
+            print(
+                dim(
+                    "Create one with `tasks scratch new <name> --url <base-url>`, or take a",
+                ),
+            )
+            print(dim("single screenshot with `tasks probe --url <url>`."))
+            return
+        }
+
+        const result = await runScratch({
+            scenarios,
+            headed: flagBool(args, "headed"),
+            inheritStdio: !asJson,
+            requests: flagList(args, "requests"),
+            bodies: flagBool(args, "bodies"),
+            noRequests: flagBool(args, "no-requests"),
+        })
+
+        if (asJson) {
+            emitJson(result)
+        } else if (
+            !result.consoleLogs.length &&
+            !result.networkLogs.length &&
+            result.exitCode === 0
+        ) {
+            print()
+            print(
+                dim(
+                    "The page logged nothing and made no matching API calls. Add a console.log",
+                ),
+            )
+            print(
+                dim(
+                    "to the app, or widen what counts as an API call: --requests '/rest/**'.",
+                ),
+            )
+            print()
+        }
+
+        // A scratch run has no verdict to fail on, but a scenario that threw
+        // should still be visible to whatever is scripting this.
+        if (result.exitCode !== 0) process.exitCode = result.exitCode
+        return
+    }
+
+    if (sub === "log" || sub === "logs") {
+        return printScratchTranscripts(
+            args,
+            readScratchConsoleLog,
+            "console output",
+        )
+    }
+
+    if (sub === "requests" || sub === "network" || sub === "api") {
+        return printScratchTranscripts(args, readScratchNetworkLog, "API calls")
+    }
+
+    if (sub === "clean") {
+        const all = flagBool(args, "all")
+        const output = await cleanScratch(all)
+        if (asJson) emitJson({ all, output })
+        else
+            print(
+                output.trim() ||
+                    (all ? "Removed everything." : "Removed the output."),
+            )
+        return
+    }
+
+    throw new Error(`Unknown scratch subcommand '${sub}'.\n\n${SCRATCH_USAGE}`)
+}
+
+/**
+ * One screenshot of one URL, with nothing to clean up afterwards. Kept
+ * alongside `scratch` because they answer the same question at different
+ * costs: reach for this when navigating there is the whole story.
+ */
+async function commandProbe(args: Args): Promise<void> {
+    const url = flagString(args, "url") ?? args.positional[1]
+    if (!url)
+        throw new Error(
+            "Usage: tasks probe --url <url> [--wait-for <selector>] [--out <path>]",
+        )
+
+    const asJson = flagBool(args, "json")
+    const result = await runProbe({
+        url,
+        waitFor: flagString(args, "wait-for"),
+        out: flagString(args, "out"),
+        headed: flagBool(args, "headed"),
+        inheritStdio: !asJson,
+        requests: flagList(args, "requests"),
+        bodies: flagBool(args, "bodies"),
+        noRequests: flagBool(args, "no-requests"),
+    })
+
+    if (asJson) emitJson(result)
+    if (result.exitCode !== 0) process.exitCode = result.exitCode
+}
+
 /* ------------------------------------------------------------------ entry */
 
 async function main(): Promise<void> {
@@ -3156,6 +3460,10 @@ async function main(): Promise<void> {
         case "baselines":
         case "baseline":
             return commandBaselines(args)
+        case "scratch":
+            return commandScratch(args)
+        case "probe":
+            return commandProbe(args)
         case "checks":
         case "check":
             return commandChecks(args)

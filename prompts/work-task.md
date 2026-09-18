@@ -240,6 +240,30 @@ capture again.
 Scenarios are not in Git — the visual-regression workspace is ignored — so
 writing one does not dirty the working tree and does not belong in your commit.
 
+To try a selector out, or to work out why the page is not in the state you
+expected, use a scratch scenario rather than the real suite:
+
+```bash
+tasks scratch new probe-dialog --url <base-url>
+# edit .aio-vr/scratch/probe-dialog.cjs, then:
+tasks scratch run probe-dialog
+```
+
+It is a plain Playwright script that captures a screenshot and streams
+everything the page logged — `console.log`, `console.warn`, `console.error` and
+uncaught exceptions — so a `console.log` added to the app under test comes back
+in the output. It streams the API calls too, with status, timing and bodies;
+anything that failed or came back non-2xx shows its response body. Read either
+back after the fact with `tasks scratch log <name>` and `tasks scratch requests
+<name>`, which is what to use when the run's output has been truncated.
+
+Only `/api/**` counts as an API call by default — pass `--requests '<glob>'` if
+this app serves its API from somewhere else.
+
+Scratch scenarios live outside `scenarios/`, so they cannot reach a baseline or a
+checkpoint and nothing they produce is attached to the task. Delete them when you
+are done: `tasks scratch clean --all`.
+
 Then capture. **This must happen before you edit anything:** `after` diffs
 against this fixed reference, and a reference captured after the fact shows the
 change already made.
