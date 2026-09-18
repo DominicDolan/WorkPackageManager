@@ -385,10 +385,10 @@ export function TaskDetailPanel(props: {
                             Add note
                         </button>
                     </div>
-                    <ol class="mt-5 space-y-4">
+                    <ol class="ruled mt-5 space-y-4">
                         <For each={[...props.task.events].reverse()}>
                             {(event) => (
-                                <li class="border-l-2 border-slate-200 pl-4">
+                                <li>
                                     <div class="flex gap-2 caption muted">
                                         <span class="capitalize">
                                             {event.type.replaceAll("_", " ")}

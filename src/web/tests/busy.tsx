@@ -31,6 +31,7 @@ api.runChecks = async () => {
             current: "Typecheck",
             done: 0,
             total: 2,
+            checks: [],
         },
     })
 }
@@ -156,13 +157,34 @@ async function run() {
     latest = {
         ...latest,
         updatedAt: "next",
-        checksRunning: { ...latest.checksRunning!, current: "Tests", done: 1 },
+        checksRunning: {
+            ...latest.checksRunning!,
+            current: "Tests",
+            done: 1,
+            checks: [
+                {
+                    name: "Typecheck",
+                    command: ["test"],
+                    cwd: ".",
+                    status: "passed",
+                    durationMs: 10,
+                    output: "",
+                    exitCode: 0,
+                },
+            ],
+        },
     }
     update(latest)
     await tick()
     check(
         busyRows().length === 1 && busyRows()[0].textContent?.includes("Tests"),
         "indicator follows progress",
+    )
+    check(
+        rows()
+            .find((row) => row.textContent?.includes("Typecheck"))
+            ?.textContent?.includes("Passed"),
+        "completed checks show their result while the suite continues",
     )
     latest = {
         ...latest,
@@ -202,6 +224,7 @@ async function run() {
             current: "Tests",
             done: 0,
             total: 1,
+            checks: [],
         },
     }
     update(latest)

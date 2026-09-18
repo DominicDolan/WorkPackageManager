@@ -194,8 +194,10 @@ export async function runChecks(input: {
     previous?: ChecksReport | null
     /** Called as each check starts, so a caller can say what is happening. */
     onProgress?: (current: string, done: number, total: number) => void
+    /** Called after every completed check, including skipped or invalid checks. */
+    onCheckComplete?: (run: CheckRun, done: number, total: number) => void
 }): Promise<ChecksReport> {
-    const { branch, base, check, previous, onProgress } = input
+    const { branch, base, check, previous, onProgress, onCheckComplete } = input
     const definitions = configuredChecks()
     const selected = check
         ? definitions.filter((definition) => definition.name === check)
@@ -215,11 +217,21 @@ export async function runChecks(input: {
     for (const [index, definition] of selected.entries()) {
         // Announced from inside, immediately before the command is spawned, so a
         // check that turns out to be skipped is never reported as running.
-        freshRuns.push(
-            await runOne(definition, { branch, base, touched }, () =>
-                onProgress?.(definition.name, index, selected.length),
-            ),
+        const run = await runOne(definition, { branch, base, touched }, () =>
+            onProgress?.(definition.name, index, selected.length),
         )
+        freshRuns.push(run)
+        onCheckComplete?.(run, freshRuns.length, selected.length)
+
+        // A failed command, timeout, or configuration error makes the suite
+        // fail. There is no value in continuing to consume time and obscuring
+        // the first actionable failure with later results.
+        if (
+            run.status === "failed" ||
+            run.status === "timed_out" ||
+            run.status === "error"
+        )
+            break
     }
 
     // A single-check rerun updates the suite rather than erasing its other
@@ -433,6 +445,7 @@ export function startChecks(input: {
         current: null,
         done: 0,
         total: check ? 1 : configuredChecks().length,
+        checks: [],
     }
     inFlight.set(branch, progress)
 
@@ -443,6 +456,11 @@ export function startChecks(input: {
         previous,
         onProgress: (current, done, total) => {
             progress.current = current
+            progress.done = done
+            progress.total = total
+        },
+        onCheckComplete: (run, done, total) => {
+            progress.checks.push(run)
             progress.done = done
             progress.total = total
         },

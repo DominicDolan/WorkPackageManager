@@ -202,6 +202,17 @@ ol.stepper > li[aria-current="step"]::before {
         border-bottom: 0;
     }
 }
+/* List items set off by a rule down their start edge. Set --rule-color on the
+   list or an item to tint it. */
+ol.ruled {
+    margin-block: 0;
+    padding: 0;
+    list-style: none;
+}
+ol.ruled > li {
+    padding-inline-start: 1rem;
+    border-inline-start: 2px solid var(--rule-color, var(--line));
+}
 article.elevated {
     border: 0;
     border-radius: 0.75rem;
@@ -753,12 +764,12 @@ details.collection > summary span {
 :root [aria-busy="true"] {
     background-image: linear-gradient(
         90deg,
-        var(--busy-color, var(--signal)) 0% 35%,
-        transparent 50% 65%,
-        var(--busy-color, var(--signal)) 80% 100%
+        transparent 0% 35%,
+        var(--busy-color, var(--signal)) 35% 65%,
+        transparent 65% 100%
     );
     background-size: 200% 3px;
-    background-position: 100% bottom;
+    background-position: 200% bottom;
     background-repeat: no-repeat;
     animation: busy-line 1.2s linear infinite;
 }
@@ -786,7 +797,7 @@ details.collection > summary span {
 }
 @keyframes busy-line {
     to {
-        background-position: -100% bottom;
+        background-position: 0% bottom;
     }
 }
 @media (prefers-reduced-motion: reduce) {

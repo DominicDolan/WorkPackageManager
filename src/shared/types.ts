@@ -710,6 +710,8 @@ export interface ChecksProgress {
     current: string | null
     done: number
     total: number
+    /** Results that have finished during this run, in configured order. */
+    checks: CheckRun[]
 }
 
 /** One run of the whole suite against one branch — what gates the PR button. */
