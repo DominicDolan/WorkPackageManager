@@ -151,7 +151,8 @@ before filing the rest. A wall of new tasks is worse than a focused list.
 ## 4. File them
 
 Every task gets `--investigation`, so the Investigations view shows what came out
-of the question:
+of the question. That also files it in the investigation's work package, on that
+work package's newest branch — do not pass `--work-package` as well:
 
 ```bash
 tasks new "<title>" --investigation I-<n> \

@@ -143,22 +143,30 @@ will only have to delete it and re-branch.
 reports which start point it used; **read that line and repeat it in your final
 report.**
 
-- **the task is in a work package** → the **work package's branch**. A work package owns a branch, and
-  everything its finished tasks have delivered has been merged there — so it is
-  the only start point that has all of it. The branch is created from the base
-  the first time a task in the work package needs it.
-- no work package, no finished dependencies → the base branch
-- no work package, one finished dependency → that task's branch. A finished
+- **the task has target branches** → the **first of them**. `tasks show <ref>
+--json` lists them as `targetBranches`: the work package branches this task's
+  work has to land on. A work package can deliver through several branches (a
+  fix that must also ship on a release branch, say), and a task is assigned to
+  one or more of them — usually exactly one. Everything the finished tasks on
+  that branch have delivered has been merged there, so it is the only start
+  point that has all of it. The branch is created from its base the first time
+  a task on it needs it.
+- no target branches, no finished dependencies → the base branch
+- no target branches, one finished dependency → that task's branch. A finished
   dependency's work is on _its_ branch and has not been merged anywhere yet, so
   a task that depends on it is cut from that branch — otherwise you would be
   writing against code that is not there.
-- no work package, several finished dependencies → `tasks branch` refuses, because one
+- no target branches, several finished dependencies → `tasks branch` refuses, because one
   branch cannot be cut from two. Stop and ask the user: the usual answer is to
   combine those tasks into one delivery branch in `tasks web` and then
   `tasks branch <ref> --from <that-branch>`. Do not pick one yourself.
-- a work package whose branch is missing a finished dependency's work → `tasks branch`
+- a target branch that is missing a finished dependency's work → `tasks branch`
   refuses and names it. Merge it first (`tasks merge <blocker-ref>`) or pass
   `--from`. Ask rather than choosing.
+
+**Your task branch has to be merged into _every_ branch in `targetBranches`**,
+not just the one it was cut from. `tasks done` does that for you (step 9); your
+job is to check its output says so for each of them.
 
 When you are branching off a work package branch or a dependency, the baseline you
 capture in step 5 includes that other work's changes. That is correct — the diff
@@ -188,8 +196,8 @@ work from somewhere else, replay onto it instead —
 git rebase <that-branch> <your-branch>
 ```
 
-`tasks done` already does exactly this for the task → work package step (it rebases,
-then fast-forwards). The gap is everything it does not do for you, and the one
+`tasks done` already does exactly this for the task → target branch step (it
+rebases, then fast-forwards). The gap is everything it does not do for you, and the one
 that comes up is a task whose _job_ is to bring the base branch in. Rebase there
 too; do not `git merge master`, however natural it looks. If the branch has
 already been pushed, rebasing needs a force-push — **stop and ask the user**
@@ -433,8 +441,10 @@ tasks done <ref>
 ```
 
 This captures a final `after` checkpoint and moves the task to `dev_complete`.
-For a Git-workflow task in a work package it also merges the task branch into the
-work package's branch and returns to the task branch. A no-Git task performs no merge.
+For a Git-workflow task it also merges the task into **every one of its target
+branches** and returns to the task branch. It prints one `merged into` (or
+`already on`) line per target branch; check there is one for each branch in
+`targetBranches`. A no-Git task performs no merge.
 If you just ran step 7 and do not want to re-drive the browser, use
 `tasks done <ref> --no-checkpoint`.
 
@@ -442,21 +452,23 @@ Read the output. Two things can go wrong independently of the status change,
 which happens either way:
 
 - **the capture failed** — reported as `captureError` with `--json`. Say so.
-- **the task's commits do not replay onto the work package branch** — reported as
-  `mergeError`. Its commits are rebased onto the work package branch and fast-forwarded
-  in, so the work package branch stays a straight list rather than a chain of merges,
-  and a collision with work already there stops that. **Nothing is left
-  half-done**: the rebase is aborted, both branches are as they were, and you are
-  back on the branch you started on. **Stop and hand it back.** Do not resolve a
-  collision between two of the user's tasks yourself. Say which two pieces of
-  work conflicted; once they have rebased and resolved it, `tasks merge <ref>`
-  registers the task.
+- **the task's commits do not replay onto a target branch** — reported as
+  `mergeError`, naming the branch. On the first target its commits are rebased
+  onto the branch and fast-forwarded in; on any later target just its own
+  commits are copied across the same way. Either way the branch stays a straight
+  list rather than a chain of merges, and a collision with work already there
+  stops it. **Nothing is left half-done**: the rebase is aborted, the branches
+  are as they were, and you are back on the branch you started on. **Stop and
+  hand it back.** Do not resolve a collision between two of the user's tasks
+  yourself. Say which branch and which two pieces of work conflicted; once they
+  have resolved it, `tasks merge <ref>` registers the task and carries on to any
+  target branch it has not reached yet.
 
     A branch that has already been pushed is refused outright, because replaying it
     would need a force-push afterwards. Report that and stop.
 
-`tasks done <ref> --no-merge` skips the merge if the user has asked you to leave
-the work package branch alone.
+`tasks done <ref> --no-merge` skips the merges if the user has asked you to leave
+the target branches alone.
 
 Leave the task at `dev_complete`. **Do not run `tasks verify`** — that is the
 user signing off after looking at the before/after themselves.
@@ -469,8 +481,8 @@ not leave it hanging there.
 Tell the user:
 
 - which task you worked and what you changed
-- for a Git-workflow task: the branch name, **what it was cut from**, and whether
-  it was merged into a work package branch
+- for a Git-workflow task: the branch name, **what it was cut from**, and which
+  of its target branches it was merged into
 - for a no-Git task: say that the Git workflow was intentionally skipped
 - the per-scenario checkpoint result (`unchanged` / `changed` + percentage)
 - which scenarios you wrote or extended for this task, and whether the before

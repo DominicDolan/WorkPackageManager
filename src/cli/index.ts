@@ -44,6 +44,12 @@ import {
     updateInvestigation,
     updateTask,
     validateBranchName,
+    assignBranchTasks,
+    createWorkPackageBranch,
+    deleteWorkPackageBranch,
+    listWorkPackageBranches,
+    resolveWorkPackageBranch,
+    updateWorkPackageBranch,
     type MoveTarget,
 } from "../server/repo"
 import { defaultBaseBranch, isAncestor } from "../server/branches"
@@ -66,8 +72,8 @@ import {
 } from "../server/scratch"
 import {
     ensureWorkPackageBranch,
-    workPackageBranchOf,
-    mergeTaskIntoWorkPackageBranch,
+    mergeTaskIntoTargetBranches,
+    primaryTargetOf,
 } from "../server/workPackageBranch"
 import { findIssue, issueFacets, listIssues } from "../server/issues"
 import {
@@ -112,6 +118,7 @@ import {
     type Status,
     type Task,
     type WorkPackage,
+    type WorkPackageBranch,
 } from "../shared/types"
 
 /* --------------------------------------------------------- arg handling */
@@ -480,7 +487,13 @@ function commandShow(args: Args): void {
     if (detail.workPackageRef) {
         const workPackage = requireWorkPackage(detail.workPackageRef)
         print(
-            `  ${dim(`work package: ${workPackage.name} (${workPackage.ref}) → ${workPackage.branchName}`)}`,
+            `  ${dim(
+                `work package: ${workPackage.name} (${workPackage.ref})${
+                    detail.targetBranches.length
+                        ? ` → ${detail.targetBranches.join(", ")}`
+                        : " — on none of its branches"
+                }`,
+            )}`,
         )
     }
     if (detail.description) {
@@ -817,8 +830,9 @@ function commandDependency(args: Args): void {
 /* --------------------------------------------------------------- work packages */
 
 const WORK_PACKAGE_USAGE =
-    "Usage: tasks work-package <list|show|new|edit|rm|add|clear|order|queue> [...]\n" +
-    '       tasks work-package new "Search rework" [--branch feature/search-rework]\n' +
+    "Usage: tasks work-package <list|show|new|edit|rm|add|clear|order|queue|branch> [...]\n" +
+    '       tasks work-package new "Search rework" [--brief <text>] [--with-branch]\n' +
+    "       tasks work-package branch add WP-1 [--name <git-branch>] [--existing <git-branch>]\n" +
     "       tasks work-package queue WP-1                      what to work, in order\n" +
     '       tasks work-package add "Search rework" T-4 T-5    put tasks in a work package\n' +
     "       tasks work-package clear T-4                      take a task out of one"
@@ -849,17 +863,16 @@ function workPackageList(args: Args): void {
 
     print()
     for (const workPackage of workPackages) {
-        const from = workPackage.investigationRef
-            ? dim(`  from ${workPackage.investigationRef}`)
-            : ""
         print(
             `  ${bold(workPackage.ref.padEnd(5))} ${workPackage.name.padEnd(32)} ${dim(
                 `${workPackage.openCount} open / ${workPackage.taskCount} task(s)`,
-            )}${from}`,
+            )}`,
         )
-        if (workPackage.description)
-            print(`        ${dim(workPackage.description)}`)
-        print(`        ${dim(workPackage.branchName)}`)
+        const brief = workPackage.brief.split("\n")[0]?.trim()
+        if (brief) print(`        ${dim(brief)}`)
+        print(
+            `        ${dim(workPackage.branchNames.join(", ") || "no branches")}`,
+        )
     }
     print()
     print(
@@ -880,19 +893,27 @@ function workPackageShow(args: Args): void {
         includeClosed: true,
     })
     const notes = linkedNotes("work-package", workPackage.ref)
+    const investigations = listInvestigations({
+        workPackageRef: workPackage.ref,
+    })
+    const branches = listWorkPackageBranches(workPackage.ref)
 
     if (flagBool(args, "json")) {
-        emitJson({ workPackage: { ...workPackage, notes }, tasks })
+        emitJson({
+            workPackage: { ...workPackage, notes, investigations, branches },
+            tasks,
+        })
         return
     }
 
     print()
     print(`  ${bold(workPackage.ref)}  ${workPackage.name}`)
-    if (workPackage.description) print(`  ${dim(workPackage.description)}`)
-    print(`  ${dim(`branch: ${workPackage.branchName}`)}`)
-    if (workPackage.investigationRef) {
-        print(`  ${dim(`from investigation ${workPackage.investigationRef}`)}`)
+    for (const investigation of investigations) {
+        print(
+            `  ${dim(`investigation ${investigation.ref}: ${investigation.title}`)}  ${investigationBadge(investigation.status)}`,
+        )
     }
+    for (const branch of branches) printBranchLine(branch)
     if (notes.length) {
         print(`  ${dim("reference notes")}`)
         for (const note of notes)
@@ -945,6 +966,7 @@ function workPackageQueue(args: Args): void {
             workPackage: {
                 ...workPackage,
                 notes: linkedNotes("work-package", workPackage.ref),
+                branches: listWorkPackageBranches(workPackage.ref),
             },
             queue: queue.map((task) => ({
                 ...task,
@@ -959,9 +981,7 @@ function workPackageQueue(args: Args): void {
     }
 
     print()
-    print(
-        `  ${bold(workPackage.ref)}  ${workPackage.name}  ${dim(workPackage.branchName)}`,
-    )
+    print(`  ${bold(workPackage.ref)}  ${workPackage.name}`)
     if (!queue.length) {
         print(
             `  ${dim("nothing left to work — everything here is dev complete or beyond")}`,
@@ -987,6 +1007,10 @@ function workPackageQueue(args: Args): void {
                 task.status
             ].padEnd(14)} ${task.title}${note}`,
         )
+        if (task.useGitWorkflow)
+            print(
+                `        ${dim(`→ ${task.targetBranches.join(", ") || "no target branch"}`)}`,
+            )
     })
     print()
     print(
@@ -997,34 +1021,47 @@ function workPackageQueue(args: Args): void {
     print()
 }
 
-function workPackageNew(args: Args): void {
+async function workPackageNew(args: Args): Promise<void> {
     const name = args.positional.slice(2).join(" ")
     if (!name)
         throw new Error(
-            'Usage: tasks work-package new "<name>" [--desc <text>] [--color #rrggbb]',
+            'Usage: tasks work-package new "<name>" [--brief <text>|-] [--with-branch] [--color #rrggbb]',
         )
 
+    const brief = await textFlag(args, "brief")
     const workPackage = createWorkPackage({
         name,
-        description:
-            flagString(args, "desc") ?? flagString(args, "description"),
         color: flagString(args, "color"),
-        branchName: flagString(args, "branch"),
-        investigationRef: flagString(args, "investigation"),
+        investigations: brief !== undefined ? [{ brief }] : [],
+        branches: flagBool(args, "with-branch") ? [{}] : [],
     })
+    const investigations = listInvestigations({
+        workPackageRef: workPackage.ref,
+    })
+    const branches = listWorkPackageBranches(workPackage.ref)
 
     if (flagBool(args, "json")) {
-        emitJson({ workPackage })
+        emitJson({ workPackage: { ...workPackage, investigations, branches } })
         return
     }
     print(
         `${green("created")}  ${bold(workPackage.ref)}  ${workPackage.name}  ${dim(workPackage.color)}`,
     )
-    print(
-        dim(
-            `branch: ${workPackage.branchName} — created when the first task in it is branched.`,
-        ),
-    )
+    for (const investigation of investigations)
+        print(dim(`investigation ${investigation.ref} written down.`))
+    for (const branch of branches)
+        print(
+            dim(
+                `branch: ${branch.branchName} — created when the first task on it is branched.`,
+            ),
+        )
+    if (!branches.length) {
+        print(
+            dim(
+                `No branch yet: add one with \`tasks work-package branch add ${workPackage.ref}\`.`,
+            ),
+        )
+    }
     print(
         dim(
             `Put tasks in it with \`tasks work-package add ${workPackage.ref} <ref>...\`.`,
@@ -1036,24 +1073,128 @@ function workPackageEdit(args: Args): void {
     const name = args.positional[2]
     if (!name)
         throw new Error(
-            "Usage: tasks work-package edit <ref|name> [--name <n>] [--desc <t>] [--color #rrggbb]",
+            "Usage: tasks work-package edit <ref|name> [--name <n>] [--color #rrggbb]",
         )
 
     const workPackage = updateWorkPackage(name, {
         name: flagString(args, "name"),
-        description:
-            flagString(args, "desc") ?? flagString(args, "description"),
         color: flagString(args, "color"),
-        branchName: flagString(args, "branch"),
     })
 
     if (flagBool(args, "json")) {
         emitJson({ workPackage })
         return
     }
+    print(`${green("updated")}  ${bold(workPackage.ref)}  ${workPackage.name}`)
+}
+
+const BRANCH_USAGE =
+    "Usage: tasks work-package branch <list|add|edit|rm|assign|unassign> <work-package> [...]\n" +
+    "       tasks work-package branch add WP-1 [--label <tab>] [--name <new-branch>] [--base <branch>]\n" +
+    "       tasks work-package branch add WP-1 --existing <branch> [--label <tab>]\n" +
+    "       tasks work-package branch add WP-1 --tasks T-1,T-2   (default: every task not yet Dev Complete)\n" +
+    "       tasks work-package branch edit WP-1 <branch> [--label <tab>] [--rename <git-branch>] [--base <branch>]\n" +
+    "       tasks work-package branch assign WP-1 <branch> T-4 T-5\n" +
+    "       tasks work-package branch unassign WP-1 <branch> T-4\n" +
+    "       tasks work-package branch rm WP-1 <branch>             forgets it; the Git branch stays\n" +
+    "  <branch> is its id, its Git name, or its tab label."
+
+function printBranchLine(branch: WorkPackageBranch): void {
     print(
-        `${green("updated")}  ${bold(workPackage.ref)}  ${workPackage.name}  ${dim(workPackage.branchName)}`,
+        `  ${dim(`branch ${branch.id}`)} ${bold(branch.label)}  ${branch.branchName}  ${dim(
+            `${branch.origin === "existing" ? "adopted, " : ""}from ${branch.baseBranch ?? defaultBaseBranch()} · ${
+                branch.taskRefs.length
+            } task(s)${branch.taskRefs.length ? `: ${branch.taskRefs.join(", ")}` : ""}`,
+        )}`,
     )
+}
+
+function workPackageBranch(args: Args): void {
+    const [, , verb, name, key, ...refs] = args.positional
+    if (!name) throw new Error(BRANCH_USAGE)
+    const workPackage = requireWorkPackage(name)
+    const asJson = flagBool(args, "json")
+    const tasksFlag = flagString(args, "tasks")
+    const taskRefs =
+        tasksFlag === undefined
+            ? undefined
+            : tasksFlag
+                  .split(",")
+                  .map((ref) => ref.trim())
+                  .filter(Boolean)
+
+    const report = (verbDone: string, branch: WorkPackageBranch) => {
+        if (asJson) {
+            emitJson({
+                branch,
+                branches: listWorkPackageBranches(workPackage.ref),
+            })
+            return
+        }
+        print(`${green(verbDone)}`)
+        printBranchLine(branch)
+    }
+
+    switch (verb) {
+        case "list":
+        case "ls": {
+            const branches = listWorkPackageBranches(workPackage.ref)
+            if (asJson) return emitJson({ branches })
+            if (!branches.length)
+                print(dim(`${workPackage.ref} has no branches.`))
+            for (const branch of branches) printBranchLine(branch)
+            return
+        }
+        case "add":
+        case "new": {
+            const existing = flagString(args, "existing")
+            const branch = createWorkPackageBranch({
+                workPackageRef: workPackage.ref,
+                label: flagString(args, "label"),
+                branchName: existing ?? flagString(args, "name"),
+                existing: existing !== undefined,
+                baseBranch: flagString(args, "base") ?? null,
+                taskRefs: flagBool(args, "no-tasks") ? [] : taskRefs,
+            })
+            return report("added", branch)
+        }
+        case "edit":
+        case "rename": {
+            if (!key) throw new Error(BRANCH_USAGE)
+            const branch = resolveWorkPackageBranch(workPackage.ref, key)
+            return report(
+                "updated",
+                updateWorkPackageBranch(branch.id, {
+                    label: flagString(args, "label"),
+                    branchName: flagString(args, "rename"),
+                    baseBranch: flagString(args, "base"),
+                }),
+            )
+        }
+        case "rm":
+        case "delete": {
+            if (!key) throw new Error(BRANCH_USAGE)
+            const branch = resolveWorkPackageBranch(workPackage.ref, key)
+            deleteWorkPackageBranch(branch.id)
+            if (asJson) return emitJson({ deleted: branch })
+            print(
+                `${green("removed")}  ${branch.label}  ${dim(branch.branchName)}`,
+            )
+            print(dim("The Git branch itself was left alone."))
+            return
+        }
+        case "assign":
+        case "unassign": {
+            if (!key || !refs.length) throw new Error(BRANCH_USAGE)
+            const branch = resolveWorkPackageBranch(workPackage.ref, key)
+            return report(
+                verb === "assign" ? "assigned" : "unassigned",
+                assignBranchTasks(branch.id, refs, verb === "unassign"),
+            )
+        }
+        default:
+            throw new Error(BRANCH_USAGE)
+    }
 }
 
 function workPackageRemove(args: Args): void {
@@ -1137,7 +1278,7 @@ function workPackageOrder(args: Args): void {
     )
 }
 
-function commandWorkPackage(args: Args): void {
+async function commandWorkPackage(args: Args): Promise<void> {
     switch (args.positional[1]) {
         case "list":
         case "ls":
@@ -1149,6 +1290,9 @@ function commandWorkPackage(args: Args): void {
         case "new":
         case "create":
             return workPackageNew(args)
+        case "branch":
+        case "branches":
+            return workPackageBranch(args)
         case "edit":
         case "update":
         case "rename":
@@ -1298,12 +1442,14 @@ async function investigationNew(args: Args): Promise<void> {
     const title = args.positional.slice(2).join(" ")
     if (!title)
         throw new Error(
-            'Usage: tasks investigation new "<title>" [--brief <text>]',
+            'Usage: tasks investigation new "<title>" [--brief <text>] [--work-package <ref|name>]',
         )
 
     const investigation = createInvestigation({
         title,
         brief: await textFlag(args, "brief"),
+        workPackageRef:
+            flagString(args, "work-package") ?? flagString(args, "group"),
     })
 
     if (flagBool(args, "json")) {
@@ -2501,24 +2647,29 @@ function branchStartPoint(
         )
         .filter((dep) => localBranchExists(dep.branchName!))
 
-    const workPackage = workPackageBranchOf(task)
-    if (workPackage) {
-        const { branch } = ensureWorkPackageBranch(workPackage.workPackage)
-        // A dependency outside the work package is not on the work package branch, and cutting
-        // from the work package branch would quietly leave its work out.
+    const target = primaryTargetOf(task)
+    if (target) {
+        const { branch } = ensureWorkPackageBranch(target)
+        // A dependency that is not on the target branch, and cutting from the
+        // target branch would quietly leave its work out.
         const absent = finished.filter(
             (dep) => !isAncestor(dep.branchName!, branch),
         )
         if (absent.length) {
             throw new Error(
-                `${task.ref} is in ${workPackage.workPackage.ref} (${workPackage.workPackage.name}), whose branch '${branch}' does not yet ` +
+                `${task.ref} targets ${target.workPackageRef}'s '${target.label}' branch '${branch}', which does not yet ` +
                     `contain the finished work of ${absent.map((one) => one.ref).join(", ")}. ` +
                     `Merge that in first (tasks merge ${absent[0]!.ref}), or pass --from to choose a start point.`,
             )
         }
+        const others = task.targetBranches.slice(1)
         return {
             start: branch,
-            reason: `${workPackage.workPackage.ref} (${workPackage.workPackage.name}) — the work package's branch`,
+            reason:
+                `${target.workPackageRef}'s '${target.label}' branch` +
+                (others.length
+                    ? ` — its first target; \`tasks done\` also merges it into ${others.join(", ")}`
+                    : ""),
         }
     }
 
@@ -2612,58 +2763,63 @@ function commandBranch(args: Args): void {
 }
 
 /**
- * Merge a task into its work package's branch and say what happened.
+ * Merge a task into every one of its target branches and say what happened.
  *
  * Shared by `tasks done` (where it runs automatically) and `tasks merge` (where
  * it is the whole command). Returns the message a `--json` caller reports as
  * `mergeError`, or null when all was well — a merge conflict is a real outcome
  * of `done`, not a reason to pretend the status change failed.
  */
-function mergeIntoWorkPackageBranch(
-    ref: string,
-    asJson: boolean,
-): string | null {
-    let result: ReturnType<typeof mergeTaskIntoWorkPackageBranch>
+function mergeIntoTargets(ref: string, asJson: boolean): string | null {
+    let result: ReturnType<typeof mergeTaskIntoTargetBranches>
     try {
-        result = mergeTaskIntoWorkPackageBranch(ref)
+        result = mergeTaskIntoTargetBranches(ref)
     } catch (error) {
         return error instanceof Error ? error.message : String(error)
     }
 
-    if (!result.workPackage) {
+    if (!result.targets.length) {
         if (!asJson)
             print(
                 dim(
-                    `${ref} is in no work package, so there is no work package branch to merge into.`,
+                    `${ref} is on none of its work package's branches, so there is nothing to merge into.`,
                 ),
             )
         return null
     }
 
-    if (!result.merged) {
-        return (
-            `${ref}'s commits do not replay onto '${result.branch}' — they collide with work already ` +
-            `there. Nothing was changed: the rebase was aborted and both branches are as they were. ` +
-            `To resolve it by hand: 'git rebase ${result.branch} ${result.taskBranch}', fix the ` +
-            `conflicts, 'git rebase --continue', then 'tasks merge ${ref}' to register it.\n${result.conflict}`
+    const errors: string[] = []
+    result.targets.forEach((target, index) => {
+        if (!target.merged) {
+            errors.push(
+                index === 0
+                    ? `${ref}'s commits do not replay onto '${target.branch}' — they collide with work already ` +
+                          `there. Nothing was changed: the rebase was aborted and every branch is as it was. ` +
+                          `To resolve it by hand: 'git rebase ${target.branch} ${result.taskBranch}', fix the ` +
+                          `conflicts, 'git rebase --continue', then 'tasks merge ${ref}' to register it and ` +
+                          `carry on to its other branches.\n${target.conflict}`
+                    : `${ref}'s commits could not be copied onto '${target.branch}'. Nothing was changed on ` +
+                          `it. Cherry-pick them by hand, then 'tasks merge ${ref}' to register it.\n${target.conflict}`,
+            )
+            return
+        }
+        if (asJson) return
+        if (target.createdBranch)
+            print(
+                dim(`created '${target.branch}' for ${target.workPackageRef}.`),
+            )
+        print(
+            `${green(target.alreadyMerged ? "already on" : "merged into")}  ${target.branch}  ${dim(
+                `${target.workPackageRef} · ${target.label}`,
+            )}`,
         )
-    }
-
-    if (asJson) return null
-    if (result.createdBranch)
-        print(dim(`created '${result.branch}' for ${result.workPackage.ref}.`))
-    print(
-        `${green(result.alreadyMerged ? "already on" : "merged into")}  ${result.branch}  ${dim(
-            `${result.workPackage.ref} · ${result.workPackage.name}`,
-        )}`,
-    )
-    if (result.returnedTo && result.returnedTo !== result.branch) {
+    })
+    if (!asJson && result.returnedTo)
         print(dim(`back on '${result.returnedTo}'.`))
-    }
-    return null
+    return errors.length ? errors.join("\n\n") : null
 }
 
-/** `tasks merge <ref>` — do the work package-branch merge on its own. Useful after
+/** `tasks merge <ref>` — do the target-branch merges on their own. Useful after
  *  resolving a conflict by hand, and after a `tasks done --no-merge`. */
 function commandMerge(args: Args): void {
     const ref = args.positional[1]
@@ -2675,7 +2831,7 @@ function commandMerge(args: Args): void {
             `${task.ref} has its Git workflow disabled, so it has no branch to merge.`,
         )
     const asJson = flagBool(args, "json")
-    const mergeError = mergeIntoWorkPackageBranch(task.ref, asJson)
+    const mergeError = mergeIntoTargets(task.ref, asJson)
 
     if (asJson) {
         emitJson({ task: getTaskDetail(task.ref), mergeError })
@@ -2729,13 +2885,14 @@ async function commandTransition(args: Args, status: Status): Promise<void> {
     }
 
     // Dev complete is the point at which the work is ready to join the rest of
-    // its work package's, so it is merged into the work package's branch and registered there.
+    // its work package's, so it is merged into each of its target branches and
+    // registered there.
     // `--no-merge` is the escape hatch for reviewing it first.
     const mergeError =
         status === "dev_complete" &&
         updated.useGitWorkflow &&
         flagBool(args, "merge", true)
-            ? mergeIntoWorkPackageBranch(updated.ref, asJson)
+            ? mergeIntoTargets(updated.ref, asJson)
             : null
 
     if (asJson) {
@@ -2846,7 +3003,7 @@ ${bold("Setup")}
 ${bold("Investigations")}   what to look into, before anyone looks
   tasks investigation list [--status draft|investigating|complete] [--json]
   tasks investigation show <ref> [--json]     the brief, the findings, the tasks filed
-  tasks investigation new "<title>" [--brief <text>]
+  tasks investigation new "<title>" [--brief <text>] [--work-package <ref|name>]
   tasks investigation edit <ref> [--title <t>] [--brief <text>] [--findings <text>]
   tasks investigation start <ref>             mark it as being worked on
   tasks investigation complete <ref> [--findings <text>]
@@ -2875,20 +3032,27 @@ ${bold("Work packages")}   a named bundle of tasks — a feature, a release, an 
   tasks work-package list [--json]
   tasks work-package show <ref|name> [--json]      the work package and everything in it
     tasks work-package "Search rework"             shorthand for show
-  tasks work-package new "<name>" [--desc <t>] [--color #rrggbb] [--branch <name>]
-  tasks work-package edit <ref|name> [--name <n>] [--desc <t>] [--color #rrggbb] [--branch <name>]
+  tasks work-package new "<name>" [--brief <t>|-] [--with-branch] [--color #rrggbb]
+                                                   --brief writes an investigation down with it
+  tasks work-package edit <ref|name> [--name <n>] [--color #rrggbb]
   tasks work-package queue <ref|name> [--json]     what is left, in dependency order
   tasks work-package add <ref|name> <task-ref>...  put tasks in it
   tasks work-package rm <ref|name>                 delete an empty work package
   tasks work-package order <ref|name>...           the order of the empty ones
+  tasks work-package branch list|add|edit|rm|assign|unassign <ref|name> [...]
+                                                   its branches, and which tasks each carries
     Every task belongs to one work package; tags stay what they are. Adding a task to a
     work package also moves it beside the rest of that work package in the queue, so the
     grouped list reads in the same order as the flat one.
     Tasks filed with --investigation are grouped under that investigation
     automatically, so a run of ${bold("/plan-tasks")} arrives as one bundle.
-    Every work package has a ${bold("branch")}, defaulted from its name. Its tasks are cut from
-    that branch and merged back into it, so the work package ships as one PR. The
-    branch is created the first time a member needs it, not at work package new.
+    A work package delivers through one or more ${bold("branches")}. Each carries a set of its
+    tasks: a task is cut from the first branch it is on and merged back into every
+    one, so each branch ships as one PR. A new branch takes every task not yet Dev
+    Complete; tasks filed later join the newest branch. A new Git branch is
+    created the first time a task needs it; --existing adopts one that is there.
+    Investigations are written down against a work package with
+    ${bold("tasks investigation new --work-package <ref>")}.
     Colours: ${WORK_PACKAGE_COLORS.join(" ")}
 
 ${bold("Dependencies")}   "this task waits for that one"
@@ -2910,13 +3074,13 @@ ${bold("List order")}   the list is the queue; ${bold("/work-task")} takes the t
 ${bold("Workflow")}   backlog → in_progress → dev_complete → verified
   tasks branch <ref>             create/switch to the task's assigned branch
     --from <branch>              cut it from this branch instead
-    A new branch is cut from its work package's branch — or, unassigned, from the base
-    branch, or from the branch of the task this one depends on when that task is
-    finished and its work is only there.
+    A new branch is cut from the first work package branch the task is on — or,
+    on none, from the base branch, or from the branch of the task this one
+    depends on when that task is finished and its work is only there.
   tasks start <ref>              move to in_progress (requires its branch only
                                  when the task uses the Git workflow)
   tasks done <ref>               capture the after-checkpoint, move to dev_complete,
-                                 and, for Git tasks, merge into the work package's branch
+                                 and, for Git tasks, merge into each of its target branches
                                  (--no-checkpoint / --no-merge to skip either)
   tasks merge <ref>              do that merge on its own — after --no-merge, or
                                  after resolving a conflict by hand

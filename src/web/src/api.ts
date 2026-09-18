@@ -29,10 +29,23 @@ import type {
     TaskDetail,
     WorkPackage,
     BaselineReport,
+    WorkPackageBranchDetail,
     WorkPackageDetail,
     WorkPackageSummary,
     ToolAvailability,
 } from "@shared/types"
+
+/** A branch as it is described when creating one. Every field is optional:
+ *  left out, the server names it from the work package, cuts it from the base
+ *  branch, and gives it every task not yet Dev Complete. */
+export interface NewBranchInput {
+    label?: string
+    branchName?: string
+    /** Adopt `branchName`, which already exists, rather than create it. */
+    existing?: boolean
+    baseBranch?: string | null
+    taskRefs?: string[]
+}
 
 export interface Meta {
     statuses: Status[]
@@ -139,8 +152,8 @@ export const api = {
             (r) => r.workPackages,
         ),
 
-    /** One work package, its tasks, the order they can be worked in, and the live state
-     *  of the branch they all sit on. */
+    /** One work package, its tasks, the order they can be worked in, its
+     *  investigations, and the live state of each of its branches. */
     getWorkPackage: (ref: string) =>
         request<{ workPackage: WorkPackageDetail }>(
             `/work-packages/${encodeURIComponent(ref)}`,
@@ -148,11 +161,9 @@ export const api = {
 
     createWorkPackage: (input: {
         name: string
-        description?: string
-        investigation?: string
         color?: string
-        branchName?: string
-        investigationRef?: string
+        investigations?: { title?: string; brief?: string }[]
+        branches?: NewBranchInput[]
     }) =>
         request<{
             workPackage: WorkPackage
@@ -162,24 +173,59 @@ export const api = {
             body: JSON.stringify(input),
         }),
 
-    /** Give a legacy work package its investigation record without moving or replacing it. */
-    ensureWorkPackageInvestigation: (ref: string, brief?: string) =>
+    /** Write another investigation down in a work package. */
+    addWorkPackageInvestigation: (
+        ref: string,
+        input: { title?: string; brief?: string },
+    ) =>
         request<{
-            investigation: Investigation
+            investigation: InvestigationDetail
             workPackage: WorkPackageDetail
-            workPackages: WorkPackageSummary[]
-        }>(`/work-packages/${encodeURIComponent(ref)}/investigation`, {
+        }>(`/work-packages/${encodeURIComponent(ref)}/investigations`, {
             method: "POST",
-            body: JSON.stringify({ brief }),
+            body: JSON.stringify(input),
         }),
+
+    addWorkPackageBranch: (ref: string, input: NewBranchInput) =>
+        request<{
+            branch: WorkPackageBranchDetail
+            workPackage: WorkPackageDetail
+        }>(`/work-packages/${encodeURIComponent(ref)}/branches`, {
+            method: "POST",
+            body: JSON.stringify(input),
+        }),
+
+    /** Rename a branch tab, rename its Git branch, or replace its tasks. */
+    updateWorkPackageBranch: (
+        ref: string,
+        id: number,
+        input: {
+            label?: string
+            branchName?: string
+            baseBranch?: string | null
+            taskRefs?: string[]
+        },
+    ) =>
+        request<{
+            branch: WorkPackageBranchDetail
+            workPackage: WorkPackageDetail
+        }>(`/work-packages/${encodeURIComponent(ref)}/branches/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify(input),
+        }),
+
+    /** Forget a branch tab. The Git branch is left alone. */
+    removeWorkPackageBranch: (ref: string, id: number) =>
+        request<{ workPackage: WorkPackageDetail }>(
+            `/work-packages/${encodeURIComponent(ref)}/branches/${id}`,
+            { method: "DELETE" },
+        ).then((r) => r.workPackage),
 
     updateWorkPackage: (
         ref: string,
         input: {
             name?: string
-            description?: string
             color?: string
-            branchName?: string
         },
     ) =>
         request<{ workPackages: WorkPackageSummary[]; tasks: Task[] }>(

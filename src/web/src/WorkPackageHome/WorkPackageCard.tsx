@@ -29,8 +29,8 @@ export function WorkPackageCard(props: {
                 </span>
                 <h3 class="m-[0.35rem_0_0]">{props.workPackage.name}</h3>
                 <p class="line-clamp-2 max-w-[52ch] m-[0.45rem_0_0] overflow-hidden">
-                    {props.workPackage.description ||
-                        "Add a description to define the outcome for this work package."}
+                    {props.workPackage.brief ||
+                        "Add an investigation to define the outcome for this work package."}
                 </p>
             </div>
             <div class="task-preview min-w-0 p-[1.25rem_0] max-[820px]:hidden">

@@ -1,13 +1,13 @@
 Work every unfinished task in one **work package**, in an order that respects their
 dependencies, leaving each one Dev Complete. Tasks with `useGitWorkflow: true`
-are merged into the work package's branch; no-Git tasks deliberately are not.
+are merged into each of their target branches; no-Git tasks deliberately are not.
 
 Work package (may be empty): `$1`
 
 This command is a loop around the `work-task` procedure, appended in full below
 this file. It does not replace it: each task is worked by the same steps, with
-the same checkpoint discipline. What this adds is the order, the work package branch,
-and knowing when to stop.
+the same checkpoint discipline. What this adds is the order, the work package's
+branches, and knowing when to stop.
 
 ## 0. Resolve the work package
 
@@ -19,8 +19,11 @@ If `$1` is empty, **stop and ask** which work package. Do not pick one — a wor
 commitment to a branch, and guessing which one is not recoverable by the user
 noticing later.
 
-That command returns the work package (including its `branchName`) and `queue`: the
+That command returns the work package (including its `branches`) and `queue`: the
 unfinished tasks already sorted so nothing comes before what it depends on.
+Each queued task carries `targetBranches` — the work package branches its work
+has to land on, the one it is cut from first. A work package can deliver
+through several branches, and a task is usually on exactly one of them.
 **That order is the answer.** Do not re-derive it, and do not reorder it because
 something looks easier.
 
@@ -87,34 +90,38 @@ For a task with `useGitWorkflow: false`, skip all branching, committing, and
 merging described below. Work in the current checkout and let `tasks done` only
 capture and change status.
 
-For a task with `useGitWorkflow: true`, **the branch comes from the work package, not
-from master.** `tasks branch <ref>` picks
-the start point itself and will choose the work package's branch, so still just run:
+For a task with `useGitWorkflow: true`, **the branch comes from the task's first
+target branch, not from master.** `tasks branch <ref>` picks the start point
+itself, so still just run:
 
 ```bash
 tasks branch <ref>
 ```
 
 It prints what it branched from. Read that line. If it says anything other than
-the work package's branch, **stop and report it** rather than carrying on — it means
-the work package's branch is not where you think it is.
+the first of the task's `targetBranches`, **stop and report it** rather than
+carrying on — it means the branch is not where you think it is. A task with no
+target branches is cut from the base branch; say so in your report, because its
+work will not be merged anywhere.
 
-For a Git-workflow task, **`tasks done` merges the task back into the work package branch** and registers it
-there, then returns you to the task's branch. Read its output:
+For a Git-workflow task, **`tasks done` merges the task into every one of its
+target branches** and registers it on each, then returns you to the task's
+branch. Read its output:
 
-- `merged into <work package branch>` — good, carry on to the next task.
-- A conflict — the task's commits do not replay onto the work package branch. It aborts
-  and changes nothing, leaving both branches as they were. **Stop the whole
-  run.** Do not resolve a collision between two of the user's tasks on your own
-  judgement. Report which two pieces of work collided and leave it for them.
+- one `merged into <branch>` (or `already on <branch>`) line for **each** of the
+  task's `targetBranches` — good, carry on to the next task.
+- A conflict on any of them — the task's commits do not replay onto that branch.
+  It aborts and changes nothing on it. **Stop the whole run.** Do not resolve a
+  collision between two of the user's tasks on your own judgement. Report which
+  branch and which two pieces of work collided and leave it for them.
 
-It rebases before it fast-forwards, which is what keeps the work package branch a
+It rebases before it fast-forwards, which is what keeps each work package branch a
 straight run of commits rather than a chain of merges. **Do not undo that with a
-merge of your own.** A merge commit anywhere on the work package branch cannot be
+merge of your own.** A merge commit anywhere on a work package branch cannot be
 cherry-picked, and downstream copies of the branch are cherry-picks — so one
 `git merge` here breaks the copy of every task on the branch, not just yours.
-That includes bringing the base branch in: if the work package branch needs `master`,
-that is `git rebase origin/master <work package branch>`, it needs a force-push if the
+That includes bringing the base branch in: if a work package branch needs `master`,
+that is `git rebase origin/master <that branch>`, it needs a force-push if the
 branch is pushed, and it is the user's call. Stop and ask.
 
 **Re-read the queue between tasks.** Working a task changes what is unblocked,
@@ -143,16 +150,17 @@ delivered, which is the normal and recoverable state, not a mess to tidy up.
 
 ## 5. Never touch the delivery
 
-Do not push, do not open a PR, do not merge the work package branch into master, and do
-not run `tasks verify`. The work package branch is the user's review surface for the
-tasks that use Git; no-Git tasks are intentionally absent from it.
+Do not push, do not open a PR, do not merge a work package branch into master, and do
+not run `tasks verify`. The work package's branches are the user's review surface for
+the tasks that use Git; no-Git tasks are intentionally absent from them.
 
 ## 6. Report back
 
 Tell the user:
 
-- the work package, its branch, and how many of its tasks you worked
-- per task: ref, title, what changed, whether its Git workflow was used, and the checkpoint result
+- the work package, its branches, and how many of its tasks you worked
+- per task: ref, title, what changed, whether its Git workflow was used, which
+  branches it was merged into, and the checkpoint result
   (`unchanged` / `changed` + percentage), plus any scenario you wrote or
   extended and any before state you had to recapture with `--retro`
 - anything you left unworked and why — a blocker, a conflict, a question
@@ -160,7 +168,7 @@ Tell the user:
   `--depends-on`
 - whether anything was worked while blocked
 
-Then point them at the work package's page, which shows the branch and what is on it:
+Then point them at the work package's page, which shows each branch and what is on it:
 
 ```bash
 tasks web

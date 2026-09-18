@@ -1,6 +1,5 @@
 import { onRunSettled, startRun, stopRun } from "./agents"
-import { branchExists, isAncestor } from "./branches"
-import { getWorkPackageDetail, workPackageBranchOf } from "./workPackageBranch"
+import { getWorkPackageDetail, missingTargets } from "./workPackageBranch"
 import {
     createWorkPackageRun,
     findTask,
@@ -19,6 +18,7 @@ import {
     type AgentPermissionMode,
     type AgentRun,
     type AgentRunStatus,
+    type Task,
     type WorkPackageRun,
     type WorkPackageDetail,
 } from "../shared/types"
@@ -299,7 +299,7 @@ function advance(agentRunId: number, status: AgentRunStatus): void {
     // aborts — and it exits 0 either way, so a task can sit at Dev Complete with
     // its work still only on its own branch. Waving that through would branch the
     // next task from a tip that is missing it.
-    const unmerged = whyNotOnWorkPackageBranch(task)
+    const unmerged = whyNotOnTargetBranches(task)
     if (unmerged) {
         settleWorkPackageRun(workPackageRun.id, "blocked", unmerged)
         return
@@ -360,44 +360,23 @@ function advance(agentRunId: number, status: AgentRunStatus): void {
 onRunSettled(advance)
 
 /**
- * Why a Dev Complete task's work is not on its work package's branch, or null when it
- * is.
- *
- * Answered from Git rather than from the delivery record, because the record is
- * written by the merge that may not have happened. Ancestry is the whole test,
- * and it holds precisely because the merge is a rebase and fast-forward: the
- * task branch tip *becomes* the work package branch tip, so a task that landed is
- * always an ancestor and one that did not never is.
+ * Why a Dev Complete task's work is not on all of its target branches, or null
+ * when it is. See `missingTargets` for how each is judged.
  */
-function whyNotOnWorkPackageBranch(task: {
-    ref: string
-    title: string
-    useGitWorkflow: boolean
-    branchName: string | null
-    workPackageRef: string | null
-}): string | null {
+function whyNotOnTargetBranches(task: Task): string | null {
     if (!task.useGitWorkflow) return null
-    const resolved = workPackageBranchOf(
-        task as Parameters<typeof workPackageBranchOf>[0],
-    )
-    if (!resolved) return null
+    const missing = missingTargets(task)
+    if (!missing.length) return null
 
     if (!task.branchName) {
-        return `${task.ref} (${task.title}) reached Dev Complete with no branch assigned, so there is nothing to merge into '${resolved.branch}'.`
+        return `${task.ref} (${task.title}) reached Dev Complete with no branch assigned, so there is nothing to merge into ${missing.map((one) => `'${one.branchName}'`).join(", ")}.`
     }
-    if (
-        !branchExists(resolved.branch) ||
-        !isAncestor(task.branchName, resolved.branch)
-    ) {
-        return (
-            `${task.ref} (${task.title}) reached Dev Complete but '${task.branchName}' is not on ` +
-            `'${resolved.branch}', so the merge did not happen — its branch may have been pushed, or its ` +
-            "commits may collide with work already there. Carrying on would branch the next task from a " +
-            "tip that is missing this one."
-        )
-    }
-
-    return null
+    return (
+        `${task.ref} (${task.title}) reached Dev Complete but is not on ` +
+        `${missing.map((one) => `'${one.branchName}'`).join(", ")}, so the merge did not happen — its branch may have been pushed, or its ` +
+        "commits may collide with work already there. Carrying on would branch the next task from a " +
+        "tip that is missing this one."
+    )
 }
 
 /* ------------------------------------------------------------- stop, reset */

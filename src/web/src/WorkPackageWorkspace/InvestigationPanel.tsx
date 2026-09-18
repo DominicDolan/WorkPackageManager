@@ -38,10 +38,7 @@ export function InvestigationPanel(props: {
         setBusy(true)
         clear()
         try {
-            yield api.ensureWorkPackageInvestigation(
-                props.workPackage.ref,
-                props.workPackage.description,
-            )
+            yield api.addWorkPackageInvestigation(props.workPackage.ref, {})
 
             props.changed()
         } catch (caught) {
@@ -67,16 +64,15 @@ export function InvestigationPanel(props: {
                             Add an investigation to this work package
                         </h3>
                         <p class="max-w-[65ch] m-[0.55rem_0_1.1rem]">
-                            This is an older work package. Its current
-                            description can become the investigation brief,
-                            without moving or changing any existing tasks.
+                            Write down the question an agent should research
+                            before it creates work.
                         </p>
                         <button
                             aria-busy={busy() ? "true" : "false"}
                             class="primary"
                             disabled={busy()}
                             onClick={attach}>
-                            Use description as investigation
+                            Add investigation
                         </button>
                         <Banner />
                     </article>

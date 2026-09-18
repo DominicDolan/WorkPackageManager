@@ -1,7 +1,11 @@
 /** Isolated browser regression checks. All branch requests are in-memory. */
 import { render } from "@solidjs/web"
 import { createSignal } from "solid-js"
-import type { CombinedBranchDetail, WorkPackageDetail } from "@shared/types"
+import type {
+    CombinedBranchDetail,
+    WorkPackageBranchDetail,
+    WorkPackageDetail,
+} from "@shared/types"
 import { api } from "../src/api"
 import { BranchPanel } from "../src/WorkPackageWorkspace/BranchPanel"
 import styles from "../src/WorkPackageWorkspace/WorkPackageWorkspace.module.css"
@@ -57,13 +61,16 @@ function Fixture() {
                 </ul>
             </div>
             <BranchPanel
-                workPackage={
+                workPackage={{ ref: "WP-1" } as unknown as WorkPackageDetail}
+                branch={
                     {
+                        id: 1,
                         branchName: initial.branchName,
+                        base: "main",
                         git,
-                    } as unknown as WorkPackageDetail
+                    } as unknown as WorkPackageBranchDetail
                 }
-                branch={branch()}
+                delivery={branch()}
                 tools={{
                     checkCount: 2,
                     checkNames: ["Typecheck", "Tests"],

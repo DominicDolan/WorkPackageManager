@@ -1,6 +1,7 @@
 import {
     type CheckRun,
     type CombinedBranchDetail,
+    type WorkPackageBranchDetail,
     type WorkPackageDetail,
 } from "@shared/types"
 import {
@@ -21,7 +22,9 @@ import { BranchCheckLauncher } from "./BranchCheckLauncher"
 
 export function BranchPanel(props: {
     workPackage: WorkPackageDetail
-    branch?: CombinedBranchDetail
+    branch: WorkPackageBranchDetail
+    /** The branch's delivery record, once it has one. */
+    delivery?: CombinedBranchDetail
     tools: WorkspaceSnapshot["tools"]
     changed: () => void
     workPackageChanged: () => void
@@ -29,9 +32,7 @@ export function BranchPanel(props: {
     const [current, setCurrent] = createSignal<
         CombinedBranchDetail | undefined
     >()
-    const [branchName, setBranchName] = createSignal(
-        props.workPackage.branchName,
-    )
+    const [branchName, setBranchName] = createSignal(props.branch.branchName)
     const [remoteBranch, setRemoteBranch] = createSignal("")
     const [title, setTitle] = createSignal("")
     const [body, setBody] = createSignal("")
@@ -50,7 +51,7 @@ export function BranchPanel(props: {
         setBody(branch.prBody ?? "")
     }
     createEffect(
-        () => props.branch,
+        () => props.delivery,
         (branch) => {
             if (branch && branch.updatedAt !== current()?.updatedAt)
                 applyBranch(branch)
@@ -58,7 +59,7 @@ export function BranchPanel(props: {
         },
     )
     createEffect(
-        () => props.workPackage.branchName,
+        () => props.branch.branchName,
         (name) => {
             setBranchName(name)
         },
@@ -166,17 +167,19 @@ export function BranchPanel(props: {
         if (busy()) return
 
         const next = branchName().trim()
-        if (!next || next === props.workPackage.branchName) return
+        if (!next || next === props.branch.branchName) return
         setBusy("branch-name")
         clear()
         setNotice("")
         try {
-            yield api.updateWorkPackage(props.workPackage.ref, {
-                branchName: next,
-            })
+            yield api.updateWorkPackageBranch(
+                props.workPackage.ref,
+                props.branch.id,
+                { branchName: next },
+            )
 
             setNotice(
-                props.workPackage.git.exists
+                props.branch.git.exists
                     ? "Local branch renamed with its commit history."
                     : "Delivery branch name updated.",
             )
@@ -260,14 +263,14 @@ export function BranchPanel(props: {
             <div class="branch-heading flex items-start justify-between gap-[1rem] mb-[0.15rem] max-[560px]:block">
                 <div>
                     <h2 class="m-[0_0_0.55rem]">Delivery branch</h2>
-                    <code>{props.workPackage.branchName}</code>
+                    <code>{props.branch.branchName}</code>
                     <span class="ml-[0.65rem]">
-                        from <code>{props.workPackage.baseBranch}</code>
+                        from <code>{props.branch.base}</code>
                     </span>
                 </div>
                 <span
-                    class={`badge ${props.workPackage.git.exists ? "success" : ""} p-[0.3rem_0.7rem] max-[560px]:inline-block max-[560px]:mt-[0.8rem]`}>
-                    {props.workPackage.git.exists
+                    class={`badge ${props.branch.git.exists ? "success" : ""} p-[0.3rem_0.7rem] max-[560px]:inline-block max-[560px]:mt-[0.8rem]`}>
+                    {props.branch.git.exists
                         ? "Local branch ready"
                         : "Not created yet"}
                 </span>
@@ -309,7 +312,7 @@ export function BranchPanel(props: {
                         disabled={
                             !!busy() ||
                             !branchName().trim() ||
-                            branchName().trim() === props.workPackage.branchName
+                            branchName().trim() === props.branch.branchName
                         }
                         onClick={() => void saveBranchName()}>
                         Rename local branch
@@ -365,30 +368,30 @@ export function BranchPanel(props: {
             <BranchSection
                 variant="elevated"
                 title="Contents"
-                description="The commits currently unique to this work package branch.">
+                description="The commits currently unique to this branch.">
                 <div class="branch-metrics grid grid-cols-[repeat(3,_minmax(0,_1fr))] gap-[0.75rem] max-[560px]:grid-cols-[1fr]">
                     <Metric
                         label="Commits"
-                        value={props.workPackage.git.commits.length}
+                        value={props.branch.git.commits.length}
                     />
                     <Metric
                         label="Files changed"
-                        value={props.workPackage.git.filesChanged}
+                        value={props.branch.git.filesChanged}
                     />
                     <Metric
                         label="Ahead of base"
-                        value={props.workPackage.git.aheadOfBase ?? "—"}
+                        value={props.branch.git.aheadOfBase ?? "—"}
                     />
                 </div>
                 <Show
-                    when={props.workPackage.git.commits.length}
+                    when={props.branch.git.commits.length}
                     fallback={
                         <p class="hint m-[1rem_0_0]">
                             No commits have landed on this branch yet.
                         </p>
                     }>
                     <ul class="branch-commits overflow-hidden m-[1rem_0_0] p-0">
-                        <For each={props.workPackage.git.commits}>
+                        <For each={props.branch.git.commits}>
                             {(commit) => (
                                 <li class="flex gap-[0.8rem] p-[0.65rem_0.8rem]">
                                     <code class="flex-[0_0_auto]">

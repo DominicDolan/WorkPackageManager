@@ -40,6 +40,7 @@ import {
     type TaskDetail,
     type TaskEvent,
     type WorkPackage,
+    type WorkPackageBranch,
     type WorkPackageSummary,
 } from "../shared/types"
 
@@ -80,6 +81,8 @@ interface TaskRow {
 interface DependencyIndex {
     dependsOn: Map<string, string[]>
     blocks: Map<string, string[]>
+    /** Lower-cased task ref → the Git names of its target branches, first first. */
+    targets: Map<string, string[]>
 }
 
 function dependencyIndex(): DependencyIndex {
@@ -93,7 +96,11 @@ function dependencyIndex(): DependencyIndex {
         )
         .all()
 
-    const index: DependencyIndex = { dependsOn: new Map(), blocks: new Map() }
+    const index: DependencyIndex = {
+        dependsOn: new Map(),
+        blocks: new Map(),
+        targets: new Map(),
+    }
     for (const row of rows) {
         const forward = index.dependsOn.get(row.task_ref)
         if (forward) forward.push(row.blocker_ref)
@@ -102,6 +109,23 @@ function dependencyIndex(): DependencyIndex {
         const reverse = index.blocks.get(row.blocker_ref)
         if (reverse) reverse.push(row.task_ref)
         else index.blocks.set(row.blocker_ref, [row.task_ref])
+    }
+
+    // Branch assignments ride along: they are just as small, and just as often
+    // wanted for a whole list at once.
+    const assignments = getDb()
+        .query<{ task_ref: string; branch_name: string }, []>(
+            `SELECT a.task_ref AS task_ref, b.branch_name AS branch_name
+         FROM branch_tasks a
+         JOIN work_package_branches b ON b.id = a.branch_id
+        ORDER BY a.id ASC`,
+        )
+        .all()
+    for (const row of assignments) {
+        const key = row.task_ref.toLowerCase()
+        const list = index.targets.get(key)
+        if (list) list.push(row.branch_name)
+        else index.targets.set(key, [row.branch_name])
     }
     return index
 }
@@ -127,6 +151,7 @@ function toTask(
         workPackageRef: row.work_package_ref,
         useGitWorkflow: row.use_git_workflow !== 0,
         branchName: row.branch_name,
+        targetBranches: edges.targets.get(row.ref.toLowerCase()) ?? [],
         checkpointName: row.checkpoint_name,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -430,6 +455,9 @@ export interface CreateInput {
     dependsOn?: string[]
     /** Plan duration in units. Defaults to one. */
     estimateUnits?: number
+    /** The work package branch to put it on. Left out, it goes on the work
+     *  package's newest branch; null puts it on none. */
+    branchId?: number | null
 }
 
 export function createTask(input: CreateInput): Task {
@@ -455,6 +483,17 @@ export function createTask(input: CreateInput): Task {
         input.workPackageRef === undefined
             ? workPackageForInvestigation(investigation!).ref
             : requireWorkPackage(input.workPackageRef).ref
+    const targetBranch =
+        input.branchId === undefined
+            ? newestBranchOf(workPackage)
+            : input.branchId === null
+              ? null
+              : requireWorkPackageBranch(input.branchId)
+    if (targetBranch && targetBranch.workPackageRef !== workPackage) {
+        throw new Error(
+            `Branch '${targetBranch.branchName}' belongs to ${targetBranch.workPackageRef}, not ${workPackage}.`,
+        )
+    }
     // Same reasoning as the investigation above: a ref that does not resolve must
     // fail before the task exists, not leave one behind with half its blockers.
     const blockers = [
@@ -515,6 +554,7 @@ export function createTask(input: CreateInput): Task {
         toStatus: "backlog",
         note: investigation ? `${title} (from ${investigation})` : title,
     })
+    if (targetBranch) insertBranchTasks(targetBranch.id, [task.ref])
     // A brand-new task cannot be part of a cycle, so this only ever inserts.
     for (const blockerRef of blockers) addDependency(task.ref, blockerRef)
     return requireTask(ref)
@@ -673,6 +713,9 @@ export function deleteTask(ref: string): void {
     const task = requireTask(ref)
     getDb().transaction(() => {
         detachAllNotes("task", task.ref)
+        getDb()
+            .query("DELETE FROM branch_tasks WHERE task_ref = $ref")
+            .run({ $ref: task.ref })
         getDb().query("DELETE FROM tasks WHERE id = $id").run({ $id: task.id })
     })()
     deleteTaskAttachments(task.ref)
@@ -870,11 +913,8 @@ interface WorkPackageRow {
     id: number
     ref: string
     name: string
-    description: string
     color: string
-    branch_name: string
     position: number
-    investigation_ref: string | null
     created_at: string
     updated_at: string
 }
@@ -884,11 +924,8 @@ function toWorkPackage(row: WorkPackageRow): WorkPackage {
         id: row.id,
         ref: row.ref,
         name: row.name,
-        description: row.description,
         color: row.color,
-        branchName: row.branch_name,
         position: row.position,
-        investigationRef: row.investigation_ref,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     }
@@ -903,6 +940,26 @@ function toWorkPackage(row: WorkPackageRow): WorkPackage {
  * with nothing in them sort after, by their own position.
  */
 export function listWorkPackages(): WorkPackageSummary[] {
+    const briefs = new Map<string, string>()
+    for (const row of getDb()
+        .query<{ work_package_ref: string; brief: string }, []>(
+            `SELECT work_package_ref, brief FROM investigations
+          WHERE work_package_ref IS NOT NULL ORDER BY id DESC`,
+        )
+        .all()) {
+        // Descending, so the oldest investigation is the one left standing.
+        briefs.set(row.work_package_ref.toLowerCase(), row.brief)
+    }
+    const branches = new Map<string, string[]>()
+    for (const row of getDb()
+        .query<{ work_package_ref: string; branch_name: string }, []>(
+            "SELECT work_package_ref, branch_name FROM work_package_branches ORDER BY id",
+        )
+        .all()) {
+        const key = row.work_package_ref.toLowerCase()
+        branches.set(key, [...(branches.get(key) ?? []), row.branch_name])
+    }
+
     return getDb()
         .query<
             WorkPackageRow & {
@@ -917,8 +974,7 @@ export function listWorkPackages(): WorkPackageSummary[] {
             // `open_count` along by one — which a long-running process, holding a
             // statement prepared before the migration, serves as silently mislabelled
             // values rather than as an error.
-            `SELECT g.id, g.ref, g.name, g.description, g.color, g.branch_name,
-              g.position, g.investigation_ref, g.created_at, g.updated_at,
+            `SELECT g.id, g.ref, g.name, g.color, g.position, g.created_at, g.updated_at,
               COUNT(t.id) AS task_count,
               COUNT(CASE WHEN t.status IN ('dev_complete', 'verified', 'closed') THEN 1 END) AS dev_complete_count,
               COUNT(CASE WHEN t.status != 'closed' THEN 1 END) AS open_count
@@ -932,6 +988,8 @@ export function listWorkPackages(): WorkPackageSummary[] {
         .all()
         .map((row) => ({
             ...toWorkPackage(row),
+            brief: briefs.get(row.ref.toLowerCase()) ?? "",
+            branchNames: branches.get(row.ref.toLowerCase()) ?? [],
             taskCount: row.task_count,
             devCompleteCount: row.dev_complete_count,
             openCount: row.open_count,
@@ -979,139 +1037,66 @@ function bottomWorkPackagePosition(): number {
 
 export interface CreateWorkPackageInput {
     name: string
-    description?: string
     /** `#rrggbb`. Left out, the next unused colour in `WORK_PACKAGE_COLORS` is taken. */
     color?: string
-    /** The branch the work package's work is built on. Left out, one is derived from the
-     *  ref and name — a work package always has a branch, so this only chooses which. */
-    branchName?: string
-    /** Set when the work package exists to hold one investigation's output. */
-    investigationRef?: string
-}
-
-/** No two work packages may share a branch, or merging a task into "its" work package branch
- *  would silently deliver it under another work package's name. */
-export function assertWorkPackageBranchFree(
-    branch: string,
-    exceptRef?: string,
-): void {
-    const clash = getDb()
-        .query<{ ref: string; name: string }, { $branch: string }>(
-            "SELECT ref, name FROM work_packages WHERE branch_name = $branch COLLATE NOCASE",
-        )
-        .get({ $branch: branch })
-    if (clash && clash.ref !== exceptRef) {
-        throw new Error(
-            `Branch '${branch}' is already the branch of ${clash.ref} (${clash.name}).`,
-        )
-    }
-}
-
-export function createWorkPackage(input: CreateWorkPackageInput): WorkPackage {
-    const name = input.name.trim()
-    if (!name) throw new Error("A work package needs a name.")
-    // Two work packages with the same name would make `findWorkPackage` a coin toss, and the
-    // name is how the CLI addresses one.
-    if (findWorkPackage(name))
-        throw new Error(`A work package called '${name}' already exists.`)
-
-    const color = input.color?.trim()
-        ? validateWorkPackageColor(input.color)
-        : nextWorkPackageColor(
-              getDb()
-                  .query<{ color: string }, []>(
-                      "SELECT color FROM work_packages",
-                  )
-                  .all()
-                  .map((row) => row.color),
-          )
-    const investigation = input.investigationRef
-        ? requireInvestigation(input.investigationRef).ref
-        : null
-
-    const at = nowIso()
-    const ref = nextWorkPackageRef()
-    // The ref is only known now, and it is what makes the default name unique.
-    const branch = input.branchName?.trim()
-        ? validateBranchName(input.branchName)
-        : workPackageBranchNameFor(
-              ref,
-              name,
-              workspace().config.workPackageBranchPrefix,
-          )
-    assertWorkPackageBranchFree(branch)
-
-    getDb()
-        .query(
-            `INSERT INTO work_packages (ref, name, description, color, branch_name, position, investigation_ref, created_at, updated_at)
-       VALUES ($ref, $name, $description, $color, $branch, $position, $investigation, $at, $at)`,
-        )
-        .run({
-            $ref: ref,
-            $name: name,
-            $description: input.description?.trim() ?? "",
-            $color: color,
-            $branch: branch,
-            $position: bottomWorkPackagePosition(),
-            $investigation: investigation,
-            $at: at,
-        })
-
-    return requireWorkPackage(ref)
+    /** Investigations to write down with it. A missing title takes the work package's name. */
+    investigations?: { title?: string; brief?: string }[]
+    /** Branches to deliver through. Each takes every open task, which on a new
+     *  work package is none — tasks join the newest branch as they are filed. */
+    branches?: Omit<CreateWorkPackageBranchInput, "workPackageRef">[]
 }
 
 /**
- * Create the question and the work package that will receive its tasks as one write.
- *
- * The separate rows remain intentional: the CLI and the legacy web UI still
- * speak in investigations, while the current UI can present the pair as one
- * work package workflow. A transaction prevents a rejected work package name or branch from
- * leaving an orphan investigation behind.
+ * Create a work package, and whatever investigations and branches it starts
+ * with, as one write — a rejected branch name must not leave a work package and
+ * an orphan investigation behind.
  */
-export function createInvestigatedWorkPackage(
-    input: Omit<CreateWorkPackageInput, "investigationRef"> & {
-        investigationBrief: string
-    },
-): WorkPackage {
+export function createWorkPackage(input: CreateWorkPackageInput): WorkPackage {
     return getDb().transaction(() => {
-        const investigation = createInvestigation({
-            title: input.name,
-            brief: input.investigationBrief,
-        })
-        return createWorkPackage({
-            name: input.name,
-            description: input.description,
-            color: input.color,
-            branchName: input.branchName,
-            investigationRef: investigation.ref,
-        })
-    })()
-}
+        const name = input.name.trim()
+        if (!name) throw new Error("A work package needs a name.")
+        // Two work packages with the same name would make `findWorkPackage` a coin toss, and the
+        // name is how the CLI addresses one.
+        if (findWorkPackage(name))
+            throw new Error(`A work package called '${name}' already exists.`)
 
-/** Attach an investigation to a work package made before work packages owned their brief. */
-export function ensureWorkPackageInvestigation(
-    refOrName: string,
-    brief?: string,
-): Investigation {
-    const workPackage = requireWorkPackage(refOrName)
-    if (workPackage.investigationRef)
-        return requireInvestigation(workPackage.investigationRef)
+        const color = input.color?.trim()
+            ? validateWorkPackageColor(input.color)
+            : nextWorkPackageColor(
+                  getDb()
+                      .query<{ color: string }, []>(
+                          "SELECT color FROM work_packages",
+                      )
+                      .all()
+                      .map((row) => row.color),
+              )
 
-    return getDb().transaction(() => {
-        const investigation = createInvestigation({
-            title: workPackage.name,
-            brief: brief ?? workPackage.description,
-        })
+        const at = nowIso()
+        const ref = nextWorkPackageRef()
         getDb()
             .query(
-                "UPDATE work_packages SET investigation_ref = $investigation, updated_at = $at WHERE ref = $ref",
+                `INSERT INTO work_packages (ref, name, color, position, created_at, updated_at)
+       VALUES ($ref, $name, $color, $position, $at, $at)`,
             )
             .run({
-                $investigation: investigation.ref,
-                $at: nowIso(),
-                $ref: workPackage.ref,
+                $ref: ref,
+                $name: name,
+                $color: color,
+                $position: bottomWorkPackagePosition(),
+                $at: at,
             })
-        return investigation
+
+        for (const investigation of input.investigations ?? []) {
+            createInvestigation({
+                title: investigation.title?.trim() || name,
+                brief: investigation.brief,
+                workPackageRef: ref,
+            })
+        }
+        for (const branch of input.branches ?? [])
+            createWorkPackageBranch({ ...branch, workPackageRef: ref })
+
+        return requireWorkPackage(ref)
     })()
 }
 
@@ -1129,9 +1114,7 @@ export function updateWorkPackage(
     refOrName: string,
     input: {
         name?: string
-        description?: string
         color?: string
-        branchName?: string
     },
 ): WorkPackage {
     const workPackage = requireWorkPackage(refOrName)
@@ -1150,36 +1133,9 @@ export function updateWorkPackage(
         assignments.push("name = $name")
         params.$name = name
     }
-    if (input.description !== undefined) {
-        assignments.push("description = $description")
-        params.$description = input.description
-    }
     if (input.color !== undefined) {
         assignments.push("color = $color")
         params.$color = validateWorkPackageColor(input.color)
-    }
-    if (input.branchName !== undefined) {
-        const branch = validateBranchName(input.branchName)
-        assertWorkPackageBranchFree(branch, workPackage.ref)
-        if (
-            branch !== workPackage.branchName &&
-            branchExists(workPackage.branchName)
-        ) {
-            if (branchExists(branch)) {
-                throw new Error(`Branch '${branch}' already exists locally.`)
-            }
-            if (findCombinedBranch(branch)) {
-                throw new Error(
-                    `A delivery record already exists for '${branch}'.`,
-                )
-            }
-            renameBranch(workPackage.branchName, branch)
-            if (findCombinedBranch(workPackage.branchName)) {
-                renameCombinedBranch(workPackage.branchName, branch)
-            }
-        }
-        assignments.push("branch_name = $branch")
-        params.$branch = branch
     }
 
     if (!assignments.length) return workPackage
@@ -1193,9 +1149,9 @@ export function updateWorkPackage(
 }
 
 /**
- * Delete the organizing, not the work. Members are turned loose rather than
- * cascaded away — the same reasoning as deleting an investigation, and the
- * reason membership is a nullable ref instead of a foreign key.
+ * Delete the organizing, not the work. A work package that still has tasks is
+ * refused; its investigations are kept and unlinked, and its branch records go —
+ * the Git branches themselves are left alone.
  */
 export function deleteWorkPackage(refOrName: string): {
     ref: string
@@ -1217,9 +1173,14 @@ export function deleteWorkPackage(refOrName: string): {
         detachAllNotes("work-package", workPackage.ref)
         getDb()
             .query(
-                "UPDATE tasks SET work_package_ref = NULL, updated_at = $at WHERE work_package_ref = $ref COLLATE NOCASE",
+                "UPDATE investigations SET work_package_ref = NULL, updated_at = $at WHERE work_package_ref = $ref COLLATE NOCASE",
             )
             .run({ $at: nowIso(), $ref: workPackage.ref })
+        getDb()
+            .query(
+                "DELETE FROM work_package_branches WHERE work_package_ref = $ref COLLATE NOCASE",
+            )
+            .run({ $ref: workPackage.ref })
         getDb()
             .query("DELETE FROM work_packages WHERE id = $id")
             .run({ $id: workPackage.id })
@@ -1271,6 +1232,9 @@ export function reorderWorkPackages(refs: string[]): WorkPackageSummary[] {
  * what keeps the grouped list in the same order as the flat one. A caller that
  * has just been told where to drop the row (the UI's drag) passes
  * `reposition: false` and sets the order itself.
+ *
+ * Its branch assignments move with it: off the old work package's branches, and
+ * onto the new one's newest branch, the same place a task filed there would go.
  */
 export function setWorkPackage(
     ref: string,
@@ -1283,29 +1247,31 @@ export function setWorkPackage(
             "Tasks must belong to a work package. Choose another work package instead.",
         )
     }
-    const workPackage = workPackageRefOrName
-        ? requireWorkPackage(workPackageRefOrName)
-        : null
-    if ((task.workPackageRef ?? null) === (workPackage?.ref ?? null))
-        return task
+    const workPackage = requireWorkPackage(workPackageRefOrName)
+    if ((task.workPackageRef ?? null) === workPackage.ref) return task
 
-    getDb()
-        .query(
-            "UPDATE tasks SET work_package_ref = $workPackage, updated_at = $at WHERE ref = $ref",
-        )
-        .run({
-            $workPackage: workPackage?.ref ?? null,
-            $at: nowIso(),
-            $ref: task.ref,
-        })
+    getDb().transaction(() => {
+        getDb()
+            .query(
+                "UPDATE tasks SET work_package_ref = $workPackage, updated_at = $at WHERE ref = $ref",
+            )
+            .run({
+                $workPackage: workPackage.ref,
+                $at: nowIso(),
+                $ref: task.ref,
+            })
+        getDb()
+            .query("DELETE FROM branch_tasks WHERE task_ref = $ref")
+            .run({ $ref: task.ref })
+        const branch = newestBranchOf(workPackage.ref)
+        if (branch) insertBranchTasks(branch.id, [task.ref])
+    })()
 
     addEvent(task.id, "edited", {
-        note: workPackage
-            ? `moved into work package ${workPackage.ref} (${workPackage.name})`
-            : "removed from its work package",
+        note: `moved into work package ${workPackage.ref} (${workPackage.name})`,
     })
 
-    if (workPackage && options.reposition !== false)
+    if (options.reposition !== false)
         appendToWorkPackageRun(task.ref, workPackage.ref)
     return requireTask(task.ref)
 }
@@ -1331,27 +1297,427 @@ function appendToWorkPackageRun(ref: string, workPackageRef: string): void {
 /**
  * The work package holding an investigation's tasks, made if it is not there yet.
  *
- * Keyed on the investigation rather than on the name, so renaming the work package —
- * or running the same investigation twice — refills the one that exists instead
- * of making a second one beside it.
+ * An investigation written down inside a work package already names it. One
+ * written down on its own gets a work package, with a branch, when it files its
+ * first task, and is linked to it — so running the same investigation twice
+ * refills the one that exists instead of making a second beside it.
  */
 export function workPackageForInvestigation(
     investigationRef: string,
 ): WorkPackage {
     const investigation = requireInvestigation(investigationRef)
-    const existing = getDb()
-        .query<WorkPackageRow, { $ref: string }>(
-            "SELECT * FROM work_packages WHERE investigation_ref = $ref COLLATE NOCASE ORDER BY id ASC",
-        )
-        .get({ $ref: investigation.ref })
-    if (existing) return toWorkPackage(existing)
+    const existing = investigation.workPackageRef
+        ? findWorkPackage(investigation.workPackageRef)
+        : null
+    if (existing) return existing
 
     // The investigation's own title is the name people already know it by. A
     // second work package that happens to be called that is disambiguated with the ref
     // rather than refused: auto-organizing must never fail a task's creation.
     const base = investigation.title.trim() || investigation.ref
     const name = findWorkPackage(base) ? `${base} (${investigation.ref})` : base
-    return createWorkPackage({ name, investigationRef: investigation.ref })
+    return getDb().transaction(() => {
+        const workPackage = createWorkPackage({ name, branches: [{}] })
+        getDb()
+            .query(
+                "UPDATE investigations SET work_package_ref = $workPackage WHERE ref = $ref",
+            )
+            .run({ $workPackage: workPackage.ref, $ref: investigation.ref })
+        return workPackage
+    })()
+}
+
+/* ------------------------------------------------------ work package branches */
+
+interface WorkPackageBranchRow {
+    id: number
+    work_package_ref: string
+    label: string
+    branch_name: string
+    base_branch: string | null
+    origin: string
+    created_at: string
+    updated_at: string
+}
+
+function toWorkPackageBranch(row: WorkPackageBranchRow): WorkPackageBranch {
+    return {
+        id: row.id,
+        workPackageRef: row.work_package_ref,
+        label: row.label,
+        branchName: row.branch_name,
+        baseBranch: row.base_branch,
+        origin: row.origin === "existing" ? "existing" : "new",
+        taskRefs: getDb()
+            .query<{ task_ref: string }, { $id: number }>(
+                "SELECT task_ref FROM branch_tasks WHERE branch_id = $id ORDER BY id",
+            )
+            .all({ $id: row.id })
+            .map((one) => one.task_ref),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+    }
+}
+
+/** A work package's branches, oldest first — the order its tabs are drawn in. */
+export function listWorkPackageBranches(
+    workPackageRef: string,
+): WorkPackageBranch[] {
+    return getDb()
+        .query<WorkPackageBranchRow, { $ref: string }>(
+            "SELECT * FROM work_package_branches WHERE work_package_ref = $ref COLLATE NOCASE ORDER BY id",
+        )
+        .all({ $ref: requireWorkPackage(workPackageRef).ref })
+        .map(toWorkPackageBranch)
+}
+
+export function findWorkPackageBranch(id: number): WorkPackageBranch | null {
+    const row = getDb()
+        .query<WorkPackageBranchRow, { $id: number }>(
+            "SELECT * FROM work_package_branches WHERE id = $id",
+        )
+        .get({ $id: id })
+    return row ? toWorkPackageBranch(row) : null
+}
+
+export function requireWorkPackageBranch(id: number): WorkPackageBranch {
+    const branch = findWorkPackageBranch(id)
+    if (!branch) throw new Error(`No work package branch with id ${id}.`)
+    return branch
+}
+
+/** The work package branch with this Git name, whichever work package it is in. */
+export function findWorkPackageBranchByName(
+    branchName: string,
+): WorkPackageBranch | null {
+    const row = getDb()
+        .query<WorkPackageBranchRow, { $name: string }>(
+            "SELECT * FROM work_package_branches WHERE branch_name = $name COLLATE NOCASE",
+        )
+        .get({ $name: branchName })
+    return row ? toWorkPackageBranch(row) : null
+}
+
+/**
+ * One of a work package's branches, by whatever a person has to hand: its id,
+ * its Git name, or its tab label. A label shared by two branches is refused
+ * rather than guessed at.
+ */
+export function resolveWorkPackageBranch(
+    workPackageRef: string,
+    key: string,
+): WorkPackageBranch {
+    const workPackage = requireWorkPackage(workPackageRef)
+    const branches = listWorkPackageBranches(workPackage.ref)
+    const value = key.trim()
+    const lower = value.toLowerCase()
+
+    const byId = /^\d+$/.test(value)
+        ? branches.find((one) => one.id === Number(value))
+        : undefined
+    if (byId) return byId
+    const byName = branches.find(
+        (one) => one.branchName.toLowerCase() === lower,
+    )
+    if (byName) return byName
+    const byLabel = branches.filter((one) => one.label.toLowerCase() === lower)
+    if (byLabel.length === 1) return byLabel[0]!
+    if (byLabel.length > 1) {
+        throw new Error(
+            `${byLabel.length} of ${workPackage.ref}'s branches are labelled '${value}'. Name one by its Git branch or id.`,
+        )
+    }
+    throw new Error(`${workPackage.ref} has no branch '${value}'.`)
+}
+
+/**
+ * Where a newly filed task goes: the work package's most recently added branch.
+ * The newest branch is the one still being put together; older ones are more
+ * likely to be out for review already.
+ */
+export function newestBranchOf(
+    workPackageRef: string,
+): WorkPackageBranch | null {
+    const row = getDb()
+        .query<WorkPackageBranchRow, { $ref: string }>(
+            "SELECT * FROM work_package_branches WHERE work_package_ref = $ref COLLATE NOCASE ORDER BY id DESC LIMIT 1",
+        )
+        .get({ $ref: workPackageRef })
+    return row ? toWorkPackageBranch(row) : null
+}
+
+/** No two work package branches may share a Git branch, or merging a task into
+ *  "its" branch would silently deliver it under another work package's name. */
+function assertBranchUnclaimed(branch: string, exceptId?: number): void {
+    const clash = findWorkPackageBranchByName(branch)
+    if (clash && clash.id !== exceptId) {
+        throw new Error(
+            `Branch '${branch}' is already a branch of ${clash.workPackageRef} ('${clash.label}').`,
+        )
+    }
+}
+
+export interface CreateWorkPackageBranchInput {
+    workPackageRef: string
+    /** The tab's name. Defaults to "Branch", then "Branch 2" and so on. */
+    label?: string
+    /** The Git branch. Required when adopting an existing one; otherwise derived
+     *  from the work package's ref and name. */
+    branchName?: string
+    /** Adopt a local branch that already exists, rather than name a new one. */
+    existing?: boolean
+    /** What a new branch is cut from and its PR targets. Left out, the base branch. */
+    baseBranch?: string | null
+    /** Tasks to put on it. Left out, every task in the work package that is not
+     *  yet Dev Complete. */
+    taskRefs?: string[]
+}
+
+export function createWorkPackageBranch(
+    input: CreateWorkPackageBranchInput,
+): WorkPackageBranch {
+    const workPackage = requireWorkPackage(input.workPackageRef)
+    const siblings = listWorkPackageBranches(workPackage.ref)
+    const label =
+        input.label?.trim() ||
+        (siblings.length ? `Branch ${siblings.length + 1}` : "Branch")
+
+    let branch: string
+    if (input.existing) {
+        if (!input.branchName?.trim())
+            throw new Error("Name the existing branch to adopt.")
+        branch = validateBranchName(input.branchName)
+        if (!branchExists(branch))
+            throw new Error(`There is no local branch '${branch}' to adopt.`)
+        assertBranchUnclaimed(branch)
+    } else if (input.branchName?.trim()) {
+        branch = validateBranchName(input.branchName)
+        assertBranchUnclaimed(branch)
+        // Quietly adopting a branch someone meant to create fresh would deliver
+        // whatever is already on it.
+        if (branchExists(branch)) {
+            throw new Error(
+                `Branch '${branch}' already exists. Adopt it as an existing branch, or choose another name.`,
+            )
+        }
+    } else {
+        const prefix = workspace().config.workPackageBranchPrefix
+        const stem = workPackageBranchNameFor(
+            workPackage.ref,
+            workPackage.name,
+            prefix,
+        )
+        branch = stem
+        for (
+            let suffix = siblings.length ? siblings.length + 1 : 2;
+            findWorkPackageBranchByName(branch) || branchExists(branch);
+            suffix++
+        ) {
+            branch = `${stem}-${suffix}`
+        }
+    }
+
+    const base = input.baseBranch?.trim()
+        ? validateBranchName(input.baseBranch)
+        : null
+    const members = listTasks({
+        workPackageRef: workPackage.ref,
+        includeClosed: true,
+    })
+    const taskRefs =
+        input.taskRefs === undefined
+            ? members
+                  .filter(
+                      (task) =>
+                          task.status === "backlog" ||
+                          task.status === "in_progress",
+                  )
+                  .map((task) => task.ref)
+            : input.taskRefs.map((ref) => memberRef(members, ref, workPackage))
+
+    const at = nowIso()
+    return getDb().transaction(() => {
+        const row = getDb()
+            .query<{ id: number }, Record<string, string | null>>(
+                `INSERT INTO work_package_branches
+               (work_package_ref, label, branch_name, base_branch, origin, created_at, updated_at)
+             VALUES ($ref, $label, $branch, $base, $origin, $at, $at)
+             RETURNING id`,
+            )
+            .get({
+                $ref: workPackage.ref,
+                $label: label,
+                $branch: branch,
+                $base: base,
+                $origin: input.existing ? "existing" : "new",
+                $at: at,
+            })!
+        insertBranchTasks(row.id, taskRefs)
+        return requireWorkPackageBranch(row.id)
+    })()
+}
+
+/** The canonical ref of `ref`, which has to be one of `members`. */
+function memberRef(
+    members: Task[],
+    ref: string,
+    workPackage: WorkPackage,
+): string {
+    const task = members.find(
+        (one) => one.ref.toLowerCase() === ref.toLowerCase(),
+    )
+    if (!task) {
+        requireTask(ref)
+        throw new Error(
+            `${ref} is not in ${workPackage.ref} (${workPackage.name}).`,
+        )
+    }
+    return task.ref
+}
+
+export function updateWorkPackageBranch(
+    id: number,
+    input: { label?: string; branchName?: string; baseBranch?: string | null },
+): WorkPackageBranch {
+    const current = requireWorkPackageBranch(id)
+    const assignments: string[] = []
+    const params: Record<string, string | number | null> = {
+        $id: current.id,
+        $at: nowIso(),
+    }
+
+    if (input.label !== undefined) {
+        const label = input.label.trim()
+        if (!label) throw new Error("A branch tab needs a name.")
+        assignments.push("label = $label")
+        params.$label = label
+    }
+    if (input.baseBranch !== undefined) {
+        assignments.push("base_branch = $base")
+        params.$base = input.baseBranch?.trim()
+            ? validateBranchName(input.baseBranch)
+            : null
+    }
+    if (input.branchName !== undefined) {
+        // A rename in Git as well as here, so the branch keeps its commits.
+        const branch = validateBranchName(input.branchName)
+        assertBranchUnclaimed(branch, current.id)
+        if (branch !== current.branchName && branchExists(current.branchName)) {
+            if (branchExists(branch)) {
+                throw new Error(`Branch '${branch}' already exists locally.`)
+            }
+            if (findCombinedBranch(branch)) {
+                throw new Error(
+                    `A delivery record already exists for '${branch}'.`,
+                )
+            }
+            renameBranch(current.branchName, branch)
+            if (findCombinedBranch(current.branchName)) {
+                renameCombinedBranch(current.branchName, branch)
+            }
+        }
+        assignments.push("branch_name = $branch")
+        params.$branch = branch
+    }
+
+    if (!assignments.length) return current
+    getDb()
+        .query(
+            `UPDATE work_package_branches SET ${assignments.join(", ")}, updated_at = $at WHERE id = $id`,
+        )
+        .run(params)
+    return requireWorkPackageBranch(current.id)
+}
+
+/** Forget a branch tab and its task assignments. The Git branch, and anything
+ *  already merged into it, is left exactly where it is. */
+export function deleteWorkPackageBranch(id: number): WorkPackageBranch {
+    const branch = requireWorkPackageBranch(id)
+    getDb()
+        .query("DELETE FROM work_package_branches WHERE id = $id")
+        .run({ $id: branch.id })
+    return branch
+}
+
+/**
+ * Make exactly `refs` the branch's tasks. Tasks it already had keep their
+ * assignment row, so this never changes which of a task's branches counts as
+ * its first.
+ */
+export function setBranchTasks(id: number, refs: string[]): WorkPackageBranch {
+    const branch = requireWorkPackageBranch(id)
+    const workPackage = requireWorkPackage(branch.workPackageRef)
+    const members = listTasks({
+        workPackageRef: workPackage.ref,
+        includeClosed: true,
+    })
+    const wanted = refs.map((ref) => memberRef(members, ref, workPackage))
+    const keep = new Set(wanted.map((ref) => ref.toLowerCase()))
+
+    getDb().transaction(() => {
+        const drop = getDb().query(
+            "DELETE FROM branch_tasks WHERE branch_id = $id AND task_ref = $ref",
+        )
+        for (const ref of branch.taskRefs) {
+            if (!keep.has(ref.toLowerCase()))
+                drop.run({ $id: branch.id, $ref: ref })
+        }
+        insertBranchTasks(branch.id, wanted)
+        getDb()
+            .query(
+                "UPDATE work_package_branches SET updated_at = $at WHERE id = $id",
+            )
+            .run({ $at: nowIso(), $id: branch.id })
+    })()
+    return requireWorkPackageBranch(branch.id)
+}
+
+/** Add to or take from a branch's tasks, leaving the rest alone. */
+export function assignBranchTasks(
+    id: number,
+    refs: string[],
+    remove = false,
+): WorkPackageBranch {
+    const branch = requireWorkPackageBranch(id)
+    const drop = new Set(refs.map((ref) => requireTask(ref).ref.toLowerCase()))
+    return setBranchTasks(
+        branch.id,
+        remove
+            ? branch.taskRefs.filter((ref) => !drop.has(ref.toLowerCase()))
+            : [...branch.taskRefs, ...refs],
+    )
+}
+
+function insertBranchTasks(branchId: number, refs: string[]): void {
+    const insert = getDb().query(
+        `INSERT INTO branch_tasks (branch_id, task_ref, created_at)
+         VALUES ($id, $ref, $at) ON CONFLICT(branch_id, task_ref) DO NOTHING`,
+    )
+    const at = nowIso()
+    for (const ref of refs) insert.run({ $id: branchId, $ref: ref, $at: at })
+}
+
+/**
+ * Where a task's own commits start on its first target branch — the exclusive
+ * lower end of the range that is replayed onto its other target branches.
+ * Null until the task has been merged into its first branch by this tool.
+ */
+export function ownCommitsFrom(ref: string): string | null {
+    return (
+        getDb()
+            .query<{ own_commits_from: string | null }, { $ref: string }>(
+                "SELECT own_commits_from FROM tasks WHERE ref = $ref COLLATE NOCASE",
+            )
+            .get({ $ref: ref })?.own_commits_from ?? null
+    )
+}
+
+export function recordOwnCommitsFrom(ref: string, sha: string): void {
+    getDb()
+        .query(
+            "UPDATE tasks SET own_commits_from = $sha WHERE ref = $ref COLLATE NOCASE",
+        )
+        .run({ $sha: sha, $ref: ref })
 }
 
 /* ----------------------------------------------------------- investigations */
@@ -1363,6 +1729,7 @@ interface InvestigationRow {
     brief: string
     findings: string
     status: string
+    work_package_ref: string | null
     created_at: string
     updated_at: string
     started_at: string | null
@@ -1377,6 +1744,7 @@ function toInvestigation(row: InvestigationRow): Investigation {
         brief: row.brief,
         findings: row.findings,
         status: row.status as InvestigationStatus,
+        workPackageRef: row.work_package_ref,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         startedAt: row.started_at,
@@ -1392,10 +1760,19 @@ const INVESTIGATION_TIMESTAMP: Partial<Record<InvestigationStatus, string>> = {
 
 export function listInvestigations(filter?: {
     status?: InvestigationStatus
+    workPackageRef?: string
 }): Investigation[] {
     const params: Record<string, string> = {}
-    if (filter?.status) params.$status = filter.status
-    const where = filter?.status ? "WHERE status = $status" : ""
+    const clauses: string[] = []
+    if (filter?.status) {
+        clauses.push("status = $status")
+        params.$status = filter.status
+    }
+    if (filter?.workPackageRef) {
+        clauses.push("work_package_ref = $workPackage COLLATE NOCASE")
+        params.$workPackage = requireWorkPackage(filter.workPackageRef).ref
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""
 
     return getDb()
         .query<InvestigationRow, typeof params>(
@@ -1430,14 +1807,11 @@ export function requireInvestigation(ref: string): Investigation {
  *  taken all the way through is part of the answer. */
 export function getInvestigationDetail(ref: string): InvestigationDetail {
     const investigation = requireInvestigation(ref)
-    const workPackage = getDb()
-        .query<{ ref: string }, { $ref: string }>(
-            "SELECT ref FROM work_packages WHERE investigation_ref = $ref COLLATE NOCASE ORDER BY id ASC LIMIT 1",
-        )
-        .get({ $ref: investigation.ref })
     return {
         ...investigation,
-        notes: workPackage ? linkedNotes("work-package", workPackage.ref) : [],
+        notes: investigation.workPackageRef
+            ? linkedNotes("work-package", investigation.workPackageRef)
+            : [],
         tasks: listTasks({
             investigationRef: investigation.ref,
             includeClosed: true,
@@ -1448,19 +1822,30 @@ export function getInvestigationDetail(ref: string): InvestigationDetail {
 export function createInvestigation(input: {
     title: string
     brief?: string
+    /** The work package whose tasks it files. */
+    workPackageRef?: string | null
 }): Investigation {
     const title = input.title.trim()
     if (!title) throw new Error("An investigation needs a title.")
+    const workPackage = input.workPackageRef
+        ? requireWorkPackage(input.workPackageRef).ref
+        : null
 
     const at = nowIso()
     const ref = nextInvestigationRef()
 
     getDb()
         .query(
-            `INSERT INTO investigations (ref, title, brief, findings, status, created_at, updated_at)
-       VALUES ($ref, $title, $brief, '', 'draft', $at, $at)`,
+            `INSERT INTO investigations (ref, title, brief, findings, status, work_package_ref, created_at, updated_at)
+       VALUES ($ref, $title, $brief, '', 'draft', $workPackage, $at, $at)`,
         )
-        .run({ $ref: ref, $title: title, $brief: input.brief ?? "", $at: at })
+        .run({
+            $ref: ref,
+            $title: title,
+            $brief: input.brief ?? "",
+            $workPackage: workPackage,
+            $at: at,
+        })
 
     return requireInvestigation(ref)
 }
@@ -1501,22 +1886,6 @@ export function updateInvestigation(
             `UPDATE investigations SET ${assignments.join(", ")}, updated_at = $at WHERE ref = $ref`,
         )
         .run(params)
-
-    // A linked work package's description is the compatibility projection of the brief:
-    // the current UI calls it Investigation, while older clients still read the
-    // description column. Keeping it mirrored lets both interfaces tell the same
-    // story without a schema-breaking migration.
-    if (input.brief !== undefined) {
-        getDb()
-            .query(
-                "UPDATE work_packages SET description = $brief, updated_at = $at WHERE investigation_ref = $ref COLLATE NOCASE",
-            )
-            .run({
-                $brief: input.brief,
-                $at: params.$at,
-                $ref: investigation.ref,
-            })
-    }
 
     return requireInvestigation(investigation.ref)
 }

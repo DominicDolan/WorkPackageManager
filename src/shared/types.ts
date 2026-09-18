@@ -101,6 +101,13 @@ export interface Task {
     /** The assigned Git branch. Null when the Git workflow is disabled, and on
      *  some legacy completed tasks. */
     branchName: string | null
+    /**
+     * The work package branches this task's work has to land on, as Git branch
+     * names, the first-assigned one first. The task branch is cut from the first
+     * of them, and `tasks done` merges the task into every one. Usually exactly
+     * one; empty when no branch of its work package has taken it on.
+     */
+    targetBranches: string[]
     checkpointName: string | null
     createdAt: string
     updatedAt: string
@@ -311,30 +318,24 @@ export interface WorkPackage {
     /** `WP-<n>`, counted separately from tasks and investigations. */
     ref: string
     name: string
-    description: string
     /** `#rrggbb`, used for the band on the plan and the dot in the list. Assigned
      *  from `WORK_PACKAGE_COLORS` when nobody picks one. */
     color: string
-    /**
-     * The branch this work package's work is built on. Every work package has one: members are
-     * cut from it rather than from the base branch, and `tasks done` merges each
-     * member back into it, so the work package is deliverable as a single PR.
-     */
-    branchName: string
     /** Where the work package sits among the others. Only decides the order of *empty*
      *  work packages and ties — a work package with tasks in it is ordered by the first of them
      *  in the queue, so the grouped list reads in the same order as the flat one. */
     position: number
-    /** The investigation whose tasks this work package collects, when it was created for
-     *  one. Set by the auto-organizing in `createTask`, and what makes that
-     *  idempotent — a second run of the same investigation refills the same work package. */
-    investigationRef: string | null
     createdAt: string
     updatedAt: string
 }
 
 /** A work package plus how much is in it — what a list of work packages actually needs. */
 export interface WorkPackageSummary extends WorkPackage {
+    /** The first investigation's brief, which is the closest thing a work package
+     *  has to a description. Empty when it has no investigation. */
+    brief: string
+    /** Git names of the work package's branches, oldest first. */
+    branchNames: string[]
     taskCount: number
     /** Members whose implementation is finished. This includes tasks that have
      *  subsequently moved on to verification or closure. */
@@ -457,6 +458,11 @@ export interface Investigation {
     /** What the agent concluded. Empty until an investigation has been run. */
     findings: string
     status: InvestigationStatus
+    /** The work package it belongs to, which is where the tasks it files land.
+     *  Plain ref, like everything else that points at a work package. Null for
+     *  an investigation written down on its own, whose tasks get a work package
+     *  made for them on the first one filed. */
+    workPackageRef: string | null
     createdAt: string
     updatedAt: string
     startedAt: string | null
@@ -784,18 +790,63 @@ export interface CombinedBranchDetail extends CombinedBranch {
     checksRunning: ChecksProgress | null
 }
 
+/* ------------------------------------------------------ work package branches */
+
+/**
+ * One branch a work package delivers through.
+ *
+ * A work package can have several — a fix that has to ship on a release branch as
+ * well as on main, or a large package split into two PRs. Each branch carries an
+ * explicit set of tasks, and every task on it is cut from (the first of) its
+ * branches and merged back into all of them by `tasks done`.
+ *
+ * The Git branch is created lazily from `baseBranch` the first time a task needs
+ * it, unless it was adopted from a branch that already existed.
+ */
+export interface WorkPackageBranch {
+    id: number
+    workPackageRef: string
+    /** The tab's name. Free text, unlike `branchName`. */
+    label: string
+    branchName: string
+    /** What a new branch is cut from, and what its PR targets. Null means the
+     *  repository's base branch, resolved when it is needed. */
+    baseBranch: string | null
+    /** `existing` when an existing Git branch was adopted rather than a new one
+     *  created. Only descriptive once the branch exists. */
+    origin: "new" | "existing"
+    /** Refs of the tasks assigned to this branch, in assignment order. */
+    taskRefs: string[]
+    createdAt: string
+    updatedAt: string
+}
+
+/** A work package branch plus its live Git state and delivery record. */
+export interface WorkPackageBranchDetail extends WorkPackageBranch {
+    /** `baseBranch`, resolved. */
+    base: string
+    git: BranchGitInfo
+    /** Null until the branch has commits. Existing branches attached to a work package
+     *  are registered even when no task merge created them. */
+    delivery: CombinedBranch | null
+}
+
 /* ------------------------------------------------------------ work package detail */
 
 /**
  * Everything the work package page shows: the work package, its tasks, the order they can be
- * worked in, and the live state of the branch they all sit on.
+ * worked in, its investigations, and the live state of each of its branches.
  *
- * The delivery record is the same `combined_branches` row `tasks done` registers
+ * Each branch's delivery record is the same `combined_branches` row `tasks done` registers
  * each merged task on, so the work package page and the Branches view are two readings
  * of one fact rather than two sources of truth.
  */
 export interface WorkPackageDetail extends WorkPackageSummary {
     tasks: Task[]
+    /** The questions written down for this work package, oldest first. */
+    investigations: Investigation[]
+    /** The branches it delivers through, oldest first. */
+    branches: WorkPackageBranchDetail[]
     /** Investigation and reference notes attached to this work package. */
     notes: NoteSummary[]
     /** The unfinished tasks, in dependency order — what an agent works through. */
@@ -820,12 +871,9 @@ export interface WorkPackageDetail extends WorkPackageSummary {
      * task can be started, and a task in another work package blocks it just as much.
      */
     inProgress: Task[]
-    /** What the work package branch is cut from, and what its PR would target. */
+    /** The repository's base branch — what a new work package branch is cut from
+     *  unless it names another. */
     baseBranch: string
-    git: BranchGitInfo
-    /** Null until the branch has commits. Existing branches attached to a work package
-     *  are registered even when no task merge created them. */
-    delivery: CombinedBranch | null
     /**
      * The unattended run working through this work package right now, or the last one to
      * have tried — null when the work package has never been run that way.

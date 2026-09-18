@@ -27,8 +27,8 @@ export function CreateWorkPackage(props: {
     const claimedBranches = createMemo(
         () =>
             new Set(
-                props.snapshot.workPackages.map((workPackage) =>
-                    workPackage.branchName.toLowerCase(),
+                props.snapshot.workPackages.flatMap((workPackage) =>
+                    workPackage.branchNames.map((name) => name.toLowerCase()),
                 ),
             ),
     )
@@ -66,12 +66,16 @@ export function CreateWorkPackage(props: {
         setBusy(true)
         clear()
         try {
+            const branch = branchName().trim()
             const result = await api.createWorkPackage({
                 name: name(),
-                description: description(),
-                investigation: description(),
                 color: color(),
-                branchName: branchName().trim() || undefined,
+                investigations: description().trim()
+                    ? [{ brief: description() }]
+                    : [],
+                branches: [
+                    branch ? { branchName: branch, existing: true } : {},
+                ],
             })
             yield
             props.created(result.workPackage.ref)

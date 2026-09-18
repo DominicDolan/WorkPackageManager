@@ -3,6 +3,7 @@ import { useDialog } from "../hooks/useDialog"
 import {
     workPackageRunActive,
     type Task,
+    type WorkPackageBranchDetail,
     type WorkPackageDetail,
 } from "@shared/types"
 import {
@@ -85,11 +86,7 @@ export function WorkPackageWorkspace(props: {
         </Show>
     ))
     const { openDialog: openInvestigation } = useDialog(({ closeDialog }) => (
-        <Show
-            when={props.snapshot.investigations.find(
-                (item) => item.ref === workPackage()?.investigationRef,
-            )}
-            keyed>
+        <Show when={workPackage()?.investigations[0]} keyed>
             {(item) => (
                 <InvestigationLauncher
                     investigation={item}
@@ -146,19 +143,17 @@ export function WorkPackageWorkspace(props: {
         return (
             <Show when={workPackage()} keyed>
                 {(detail) => {
-                    const investigation = () =>
-                        props.snapshot.investigations.find(
-                            (item) => item.ref === detail.investigationRef,
-                        )
-                    const branch = () =>
+                    const investigation = () => detail.investigations[0]
+                    const branch = () => detail.branches[0]
+                    const delivery = (branch: WorkPackageBranchDetail) =>
                         props.snapshot.branches.find(
-                            (item) => item.branchName === detail.branchName,
+                            (item) => item.branchName === branch.branchName,
                         ) ??
-                        (detail.delivery
+                        (branch.delivery
                             ? {
-                                  ...detail.delivery,
-                                  git: detail.git,
-                                  tasks: detail.delivery.taskRefs
+                                  ...branch.delivery,
+                                  git: branch.git,
+                                  tasks: branch.delivery.taskRefs
                                       .map((ref) =>
                                           detail.tasks.find(
                                               (task) => task.ref === ref,
@@ -201,10 +196,11 @@ export function WorkPackageWorkspace(props: {
                                             <h1 class="headline m-[0.55rem_0_0]">
                                                 {detail.name}
                                             </h1>
-                                            <p class="description max-w-[70ch] m-[0.8rem_0_0]">
-                                                {detail.description ||
-                                                    "Add a description to define the outcome for this work package."}
-                                            </p>
+                                            <Show when={detail.brief}>
+                                                <p class="description max-w-[70ch] m-[0.8rem_0_0]">
+                                                    {detail.brief}
+                                                </p>
+                                            </Show>
                                         </div>
                                         <div class="flex flex-wrap items-center justify-end gap-2">
                                             <button
@@ -301,17 +297,22 @@ export function WorkPackageWorkspace(props: {
                                     </Show>
                                 </section>
                                 <section {...windowProps("branch")}>
-                                    <Show when={matches("branch")}>
-                                        <BranchPanel
-                                            workPackage={detail}
-                                            branch={branch()}
-                                            tools={props.snapshot.tools}
-                                            changed={props.changed}
-                                            workPackageChanged={() => {
-                                                refresh(workPackage)
-                                                props.changed()
-                                            }}
-                                        />
+                                    <Show
+                                        when={matches("branch") && branch()}
+                                        keyed>
+                                        {(branch) => (
+                                            <BranchPanel
+                                                workPackage={detail}
+                                                branch={branch}
+                                                delivery={delivery(branch)}
+                                                tools={props.snapshot.tools}
+                                                changed={props.changed}
+                                                workPackageChanged={() => {
+                                                    refresh(workPackage)
+                                                    props.changed()
+                                                }}
+                                            />
+                                        )}
                                     </Show>
                                 </section>
                             </div>

@@ -7,20 +7,27 @@ import {
     isAncestor,
     isPushed,
     mergeInProgress,
+    patchesApplied,
     rebaseInProgress,
     rebaseOnto,
     readBranch,
     refExists,
+    replayRange,
+    resolveCommit,
     switchBranch,
     workingTreeClean,
 } from "./branches"
 import {
     findCombinedBranch,
-    findWorkPackage,
+    findWorkPackageBranchByName,
     latestWorkPackageRun,
+    listInvestigations,
+    listWorkPackageBranches,
     listWorkPackages,
     listTasks,
+    ownCommitsFrom,
     recordCombine,
+    recordOwnCommitsFrom,
     registerTaskOnBranch,
     requireWorkPackage,
     requireTask,
@@ -29,142 +36,145 @@ import {
     dependencyOrder,
     unmetDependencies,
     type Task,
-    type WorkPackage,
+    type WorkPackageBranch,
+    type WorkPackageBranchDetail,
     type WorkPackageDetail,
 } from "../shared/types"
 import { linkedNotes } from "./noteLinks"
 
 /**
- * A work package's branch as an integration branch.
+ * A work package's branches as integration branches.
  *
- * A work package is a piece of work made of several tasks, and its branch is where
- * that work adds up: every member is cut from it rather than from master, and
- * `tasks done` merges each member back into it. What the work package's PR contains is
- * then exactly its finished tasks, and nothing else has to be selected by hand.
+ * A work package is a piece of work made of several tasks, and each of its
+ * branches is where some of that work adds up. A task is assigned to one or more
+ * of them: it is cut from the first, and `tasks done` merges it into every one.
+ * What a branch's PR contains is then exactly its finished tasks, and nothing
+ * else has to be selected by hand.
  *
  * Every merge also registers the task on the branch's delivery record, so the
  * Branches view can answer "what is on this branch" from the database rather
  * than from Git archaeology.
  */
 
-export interface ResolvedWorkPackageBranch {
-    workPackage: WorkPackage
-    branch: string
+/** The branches a task has to land on, first first. Assignments naming a branch
+ *  that has since gone are skipped: the task is still perfectly workable. */
+export function targetBranchesOf(task: Task): WorkPackageBranch[] {
+    return task.targetBranches
+        .map((name) => findWorkPackageBranchByName(name))
+        .filter((branch): branch is WorkPackageBranch => branch !== null)
 }
 
-/** The work package branch a task belongs to, or null when the task is loose. A work package
- *  ref pointing at a deleted work package reads as loose rather than failing: the task
- *  is still perfectly workable. */
-export function workPackageBranchOf(
-    task: Task,
-): ResolvedWorkPackageBranch | null {
-    if (!task.workPackageRef) return null
-    const workPackage = findWorkPackage(task.workPackageRef)
-    if (!workPackage?.branchName) return null
-    return { workPackage, branch: workPackage.branchName }
+/** The branch a task is cut from, or null when it has no target branch. */
+export function primaryTargetOf(task: Task): WorkPackageBranch | null {
+    return targetBranchesOf(task)[0] ?? null
+}
+
+/** What a work package branch is cut from and compared against. */
+export function baseOf(branch: WorkPackageBranch): string {
+    return branch.baseBranch ?? defaultBaseBranch()
 }
 
 /**
- * The work package's branch, created from the base branch if Git does not have it yet.
+ * The work package branch, created from its base if Git does not have it yet.
  *
  * Creating it lazily is what keeps a work package cheap: filing tasks under a heading
  * should not put a branch in the repository, and the first task to actually be
  * worked is the moment one is needed. It is created without being checked out,
  * so this never moves the user off what they are on.
  */
-export function ensureWorkPackageBranch(workPackage: WorkPackage): {
+export function ensureWorkPackageBranch(branch: WorkPackageBranch): {
     branch: string
     created: boolean
 } {
-    const branch = workPackage.branchName
-    if (!branch)
+    const name = branch.branchName
+    if (branchExists(name)) return { branch: name, created: false }
+    if (branch.origin === "existing") {
         throw new Error(
-            `${workPackage.ref} (${workPackage.name}) has no branch assigned.`,
+            `'${name}' was adopted as ${branch.workPackageRef}'s '${branch.label}' branch, but it no longer exists locally.`,
         )
-    if (branchExists(branch)) return { branch, created: false }
+    }
 
-    const base = defaultBaseBranch()
+    const base = baseOf(branch)
     // `origin/<base>` covers a fresh clone where the base has never been checked
     // out locally — `refExists` resolves either form.
     const start = branchExists(base) ? base : `origin/${base}`
     if (!refExists(start)) {
         throw new Error(
-            `Cannot create ${workPackage.ref}'s branch '${branch}': the base branch '${base}' exists neither locally nor on origin.`,
+            `Cannot create ${branch.workPackageRef}'s branch '${name}': its base '${base}' exists neither locally nor on origin.`,
         )
     }
 
-    createBranch(branch, start)
-    return { branch, created: true }
+    createBranch(name, start)
+    return { branch: name, created: true }
 }
 
-export interface WorkPackageMergeResult {
-    /** Null when the task is in no work package, or its work package has no branch — the caller
-     *  reports that as "nothing to merge into", not as a failure. */
-    workPackage: WorkPackage | null
+/** What happened on one of a task's target branches. */
+export interface TargetMergeOutcome {
+    workPackageRef: string
+    label: string
     branch: string
+    /** True when the branch had to be created for this merge. */
+    createdBranch: boolean
+    /** The task's work is on the branch, either just now or already. */
+    merged: boolean
+    alreadyMerged: boolean
+    /** Set when the task's commits could not be replayed onto the branch.
+     *  Nothing is left half-done: the rebase is aborted and every branch is
+     *  exactly as it was. */
+    conflict: string
+}
+
+export interface TaskMergeResult {
     /** The task's own branch — named in the conflict message, since resolving one
      *  by hand means rebasing that branch specifically. */
     taskBranch: string
-    /** True when the work package branch had to be created for this merge. */
-    createdBranch: boolean
-    /** The task's work is on the work package branch, either just now or already. */
-    merged: boolean
-    alreadyMerged: boolean
-    /** Set when the task's commits could not be replayed onto the work package branch.
-     *  Nothing is left half-done: the rebase is aborted and both branches are
-     *  exactly as they were. */
-    conflict: string
+    /** One per target branch, first first. Empty when the task has none — the
+     *  caller reports that as "nothing to merge into", not as a failure. */
+    targets: TargetMergeOutcome[]
     /** Where the caller was before, and is again — including after a conflict,
      *  which no longer strands anyone mid-operation. */
     returnedTo: string | null
 }
 
 /**
- * Put a task's commits on its work package's branch and register it there.
+ * Put a task's commits on every branch it targets, and register it on each.
  *
- * Two steps, and the first is what keeps the branch readable: the task's commits
- * are replayed onto the work package branch's tip, and then the work package branch is
- * fast-forwarded to them. No merge commit, so the work package branch ends up a plain
- * list of the commits its tasks produced, in the order they were finished —
- * which is what somebody reviewing the work package's PR wants to read.
+ * The **first** target is merged the way a work package branch always has been:
+ * the task's commits are replayed onto the branch's tip, and the branch is
+ * fast-forwarded to them. No merge commit, so the branch ends up a plain list of
+ * the commits its tasks produced, in the order they were finished — which is
+ * what somebody reviewing the PR wants to read. Rebasing rewrites the task
+ * branch, so a branch that has been pushed is refused rather than quietly
+ * requiring a force-push afterwards.
  *
- * The task keeps whatever commits it made rather than being squashed into one.
- * A task is sometimes several steps, and sometimes has something added to it by
- * hand, and flattening that loses a distinction the author meant to make.
+ * Every **other** target gets a copy of just the task's own commits — the range
+ * recorded when it landed on the first — replayed the same way onto a scratch
+ * branch. The task branch itself is not touched again.
  *
- * Rebasing rewrites the task branch, so a branch that has been pushed is
- * refused rather than quietly requiring a force-push afterwards.
- *
- * A collision aborts and changes nothing — see `rebaseOnto`. Once the user has
- * rebased and resolved it themselves, running this again finds the task branch
- * already sitting on the work package branch and simply registers it.
+ * A collision on the first target stops everything; one on a later target is
+ * reported and the rest carry on, since they do not depend on each other. Once
+ * the user has resolved it themselves, running this again finds the work
+ * already there and simply registers it.
  */
-export function mergeTaskIntoWorkPackageBranch(
-    ref: string,
-): WorkPackageMergeResult {
+export function mergeTaskIntoTargetBranches(ref: string): TaskMergeResult {
     const task = requireTask(ref)
-    const resolved = workPackageBranchOf(task)
-    if (!resolved) {
+    const targets = targetBranchesOf(task)
+    if (!targets.length) {
         return {
-            workPackage: null,
-            branch: "",
             taskBranch: task.branchName ?? "",
-            createdBranch: false,
-            merged: false,
-            alreadyMerged: false,
-            conflict: "",
+            targets: [],
             returnedTo: null,
         }
     }
 
-    const { workPackage } = resolved
     if (!task.branchName)
         throw new Error(
             `${task.ref} has no assigned branch, so there is nothing to merge.`,
         )
-    if (!branchExists(task.branchName)) {
+    const taskBranch = task.branchName
+    if (!branchExists(taskBranch)) {
         throw new Error(
-            `${task.ref}'s branch '${task.branchName}' does not exist locally, so there is nothing to merge.`,
+            `${task.ref}'s branch '${taskBranch}' does not exist locally, so there is nothing to merge.`,
         )
     }
     if (mergeInProgress()) {
@@ -179,98 +189,170 @@ export function mergeTaskIntoWorkPackageBranch(
     }
     if (!workingTreeClean()) {
         throw new Error(
-            `The working tree must be clean before merging ${task.ref} into '${workPackage.branchName}'. Commit or stash first, or pass --no-merge.`,
+            `The working tree must be clean before merging ${task.ref} into ${targets
+                .map((one) => `'${one.branchName}'`)
+                .join(", ")}. Commit or stash first, or pass --no-merge.`,
         )
     }
 
     const from = currentBranch()
-    const { branch, created } = ensureWorkPackageBranch(workPackage)
+    const outcomes: TargetMergeOutcome[] = []
+    try {
+        const [primary, ...others] = targets
+        const first = mergeIntoPrimary(task.ref, taskBranch, primary!)
+        outcomes.push(first)
+        if (first.merged) {
+            for (const other of others)
+                outcomes.push(mergeIntoSecondary(task.ref, taskBranch, other))
+        }
+    } finally {
+        if (from && currentBranch() !== from) switchBranch(from)
+    }
+
+    return { taskBranch, targets: outcomes, returnedTo: from }
+}
+
+function outcomeFor(
+    target: WorkPackageBranch,
+    created: boolean,
+): TargetMergeOutcome {
+    return {
+        workPackageRef: target.workPackageRef,
+        label: target.label,
+        branch: target.branchName,
+        createdBranch: created,
+        merged: false,
+        alreadyMerged: false,
+        conflict: "",
+    }
+}
+
+function mergeIntoPrimary(
+    ref: string,
+    taskBranch: string,
+    target: WorkPackageBranch,
+): TargetMergeOutcome {
+    const { branch, created } = ensureWorkPackageBranch(target)
+    const outcome = outcomeFor(target, created)
 
     // Already contained: nothing to merge, but the registration may still be
     // missing — a conflict resolved by hand ends up exactly here.
-    if (isAncestor(task.branchName, branch)) {
-        registerTaskOnBranch(branch, task.ref, defaultBaseBranch())
-        return {
-            workPackage,
-            branch,
-            taskBranch: task.branchName,
-            createdBranch: created,
-            merged: true,
-            alreadyMerged: true,
-            conflict: "",
-            returnedTo: from,
-        }
+    if (isAncestor(taskBranch, branch)) {
+        registerTaskOnBranch(branch, ref, baseOf(target))
+        return { ...outcome, merged: true, alreadyMerged: true }
     }
 
     // Rewriting a branch somebody else may have fetched is not this tool's call
     // to make, and it is not recoverable by them noticing later.
-    if (isPushed(task.branchName)) {
+    if (isPushed(taskBranch)) {
         throw new Error(
-            `${task.ref}'s branch '${task.branchName}' has been pushed, so replaying it onto ` +
+            `${ref}'s branch '${taskBranch}' has been pushed, so replaying it onto ` +
                 `'${branch}' would need a force-push afterwards. Merge it by hand, or delete the ` +
                 "remote branch first if nothing depends on it.",
         )
     }
 
-    // Replay first, fast-forward second. The rebase is what makes the work package branch
+    // The task's own commits are whatever lands on top of where the branch is
+    // now, so its tip before the merge is where they start.
+    const tipBefore = resolveCommit(branch)
+
+    // Replay first, fast-forward second. The rebase is what makes the branch
     // a straight list rather than a chain of merge commits.
-    const replayed = rebaseOnto(task.branchName, branch)
-    if (!replayed.rebased) {
-        // Aborted, so nothing moved — but the rebase checked the task branch out on
-        // its way, and the caller should end up where they started.
-        if (from && currentBranch() !== from) switchBranch(from)
-        return {
-            workPackage,
-            branch,
-            taskBranch: task.branchName,
-            createdBranch: created,
-            merged: false,
-            alreadyMerged: false,
-            conflict: replayed.conflict,
-            returnedTo: from,
-        }
-    }
+    const replayed = rebaseOnto(taskBranch, branch)
+    if (!replayed.rebased) return { ...outcome, conflict: replayed.conflict }
 
     switchBranch(branch)
-    const outcome = fastForward(task.branchName)
+    const forwarded = fastForward(taskBranch)
+    if (!forwarded.merged) return { ...outcome, conflict: forwarded.conflict }
 
-    if (!outcome.merged) {
-        if (from && from !== branch) switchBranch(from)
+    if (tipBefore) recordOwnCommitsFrom(ref, tipBefore)
+    registerTaskOnBranch(branch, ref, baseOf(target))
+    return {
+        ...outcome,
+        merged: true,
+        alreadyMerged: forwarded.alreadyMerged,
+    }
+}
+
+function mergeIntoSecondary(
+    ref: string,
+    taskBranch: string,
+    target: WorkPackageBranch,
+): TargetMergeOutcome {
+    const { branch, created } = ensureWorkPackageBranch(target)
+    const outcome = outcomeFor(target, created)
+    const start = ownCommitsFrom(ref)
+
+    if (
+        isAncestor(taskBranch, branch) ||
+        (start && patchesApplied(branch, taskBranch, start))
+    ) {
+        registerTaskOnBranch(branch, ref, baseOf(target))
+        return { ...outcome, merged: true, alreadyMerged: true }
+    }
+    if (!start) {
         return {
-            workPackage,
-            branch,
-            taskBranch: task.branchName,
-            createdBranch: created,
-            merged: false,
-            alreadyMerged: false,
-            conflict: outcome.conflict,
-            returnedTo: from,
+            ...outcome,
+            conflict:
+                `${ref} was merged into its first branch before this tool recorded where its own ` +
+                `commits start, so they cannot be picked out for '${branch}'. Cherry-pick them onto ` +
+                `'${branch}' by hand, then run 'tasks merge ${ref}' to register it.`,
         }
     }
 
-    registerTaskOnBranch(branch, task.ref, defaultBaseBranch())
-    if (from && from !== branch) switchBranch(from)
+    const replayed = replayRange(start, taskBranch, branch)
+    if (!replayed.rebased) return { ...outcome, conflict: replayed.conflict }
+    registerTaskOnBranch(branch, ref, baseOf(target))
+    return { ...outcome, merged: true }
+}
 
-    return {
-        workPackage,
-        branch,
-        taskBranch: task.branchName,
-        createdBranch: created,
-        merged: true,
-        alreadyMerged: outcome.alreadyMerged,
-        conflict: "",
-        returnedTo: from && from !== branch ? from : branch,
+/**
+ * The target branches a finished task's work is missing from.
+ *
+ * Answered from Git for the first target, because the record is written by the
+ * merge that may not have happened: ancestry holds precisely because that merge
+ * is a rebase and fast-forward. Later targets hold a *copy*, so ancestry cannot
+ * see them, and the delivery record is what says they landed.
+ */
+export function missingTargets(task: Task): WorkPackageBranch[] {
+    if (!task.useGitWorkflow || !task.branchName) return targetBranchesOf(task)
+    return targetBranchesOf(task).filter((target, index) => {
+        if (!branchExists(target.branchName)) return true
+        if (index === 0) return !isAncestor(task.branchName!, target.branchName)
+        const record = findCombinedBranch(target.branchName)
+        return !record?.taskRefs.some(
+            (one) => one.toLowerCase() === task.ref.toLowerCase(),
+        )
+    })
+}
+
+/**
+ * One branch as the work package page draws it: the record plus its live Git
+ * state. Read fresh, like every other branch view — a branch can be advanced,
+ * pushed or deleted from a terminal at any time. A branch not created yet reads
+ * as `exists: false` rather than as an error.
+ */
+export function workPackageBranchDetail(
+    branch: WorkPackageBranch,
+): WorkPackageBranchDetail {
+    const base = baseOf(branch)
+    const git = readBranch(branch.branchName, base)
+    let delivery = findCombinedBranch(branch.branchName)
+    // An existing branch attached to a work package is already a delivery branch in
+    // practice. Initialise its metadata as soon as Git shows that it carries
+    // work, rather than waiting for a task merge that may never happen.
+    if (!delivery && git.exists && git.commits.length > 0) {
+        delivery = recordCombine({
+            branchName: branch.branchName,
+            baseBranch: base,
+            taskRefs: [],
+        })
     }
+    return { ...branch, base, git, delivery }
 }
 
 /**
  * Everything the work package page draws, assembled in one read.
- *
- * The Git state is read live, like every other branch view: a work package branch can
- * be advanced, pushed or deleted from a terminal at any time, and a page that
- * cached it would be quietly wrong. A work package whose branch has not been created
- * yet reads as `exists: false` rather than as an error — that is the normal
- * state of a work package nobody has started.
  */
 export function getWorkPackageDetail(refOrName: string): WorkPackageDetail {
     const workPackage = requireWorkPackage(refOrName)
@@ -283,7 +365,6 @@ export function getWorkPackageDetail(refOrName: string): WorkPackageDetail {
         workPackageRef: workPackage.ref,
         includeClosed: true,
     })
-    const base = defaultBaseBranch()
 
     // What is left to do, in an order that can actually be worked. Dev complete
     // and verified tasks are done being written, so they are not in the queue
@@ -308,31 +389,22 @@ export function getWorkPackageDetail(refOrName: string): WorkPackageDetail {
         }
     }
 
-    const git = readBranch(workPackage.branchName, base)
-    let delivery = findCombinedBranch(workPackage.branchName)
-    // An existing branch attached to a work package is already a delivery branch in
-    // practice. Initialise its metadata as soon as Git shows that it carries
-    // work, rather than waiting for a task merge that may never happen.
-    if (!delivery && git.exists && git.commits.length > 0) {
-        delivery = recordCombine({
-            branchName: workPackage.branchName,
-            baseBranch: base,
-            taskRefs: [],
-        })
-    }
-
     return {
         ...summary,
         tasks,
+        investigations: listInvestigations({
+            workPackageRef: workPackage.ref,
+        }).sort((left, right) => left.id - right.id),
+        branches: listWorkPackageBranches(workPackage.ref).map(
+            workPackageBranchDetail,
+        ),
         notes: linkedNotes("work-package", workPackage.ref),
         queue,
         outsideBlockers: [...outside.values()],
         // Workspace-wide, not work package-scoped: a task in flight anywhere is what stops
         // the next one starting, and `universe` is already to hand.
         inProgress: universe.filter((task) => task.status === "in_progress"),
-        baseBranch: base,
-        git,
-        delivery,
+        baseBranch: defaultBaseBranch(),
         // Read here rather than fetched alongside: a loop in flight changes what
         // every button on the work package page is allowed to offer, so it has to arrive
         // with the queue it is working, not a request later.

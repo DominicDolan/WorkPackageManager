@@ -134,8 +134,8 @@ export function WorkPackageHome(props: {
                                 {
                                     ref: UNASSIGNED_REF,
                                     name: "Unassigned",
-                                    description:
-                                        "Legacy tasks created before work package membership became mandatory.",
+                                    brief: "Legacy tasks created before work package membership became mandatory.",
+                                    branchNames: [] as string[],
                                     color: "#94a3b8",
                                     taskCount: loose().length,
                                     devCompleteCount: loose().filter(

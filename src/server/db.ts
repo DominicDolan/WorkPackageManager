@@ -2,8 +2,9 @@ import { Database } from "bun:sqlite"
 import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { workspace } from "../config/paths"
-import { branchNameFor, workPackageBranchNameFor } from "../shared/types"
+import { branchNameFor } from "../shared/types"
 import { migrateWorkPackages } from "./workPackageMigration"
+import { migrateWorkPackageTabs } from "./workPackageTabsMigration"
 
 let db: Database | undefined
 
@@ -114,6 +115,7 @@ const SCHEMA = [
     // A question written down before the investigating happens. Tasks point back
     // at one by ref (tasks.investigation_ref) rather than by foreign key: the
     // tasks are the durable output and must survive the investigation's deletion.
+    // It points at its work package the same way, which is where its tasks land.
     `CREATE TABLE IF NOT EXISTS investigations (
      id           INTEGER PRIMARY KEY AUTOINCREMENT,
      ref          TEXT    NOT NULL UNIQUE,
@@ -121,6 +123,7 @@ const SCHEMA = [
      brief        TEXT    NOT NULL DEFAULT '',
      findings     TEXT    NOT NULL DEFAULT '',
      status       TEXT    NOT NULL DEFAULT 'draft',
+     work_package_ref TEXT,
      created_at   TEXT    NOT NULL,
      updated_at   TEXT    NOT NULL,
      started_at   TEXT,
@@ -131,25 +134,57 @@ const SCHEMA = [
     // table, because a task belongs to at most one work package — expressing that in the
     // schema is what keeps it true. Tasks point back by ref rather than by foreign
     // key, matching investigations: deleting the organizing must not delete work.
+    //
+    // Older databases also carry `description`, `branch_name` and
+    // `investigation_ref` here. They were moved into investigations and
+    // `work_package_branches` by `migrateWorkPackageTabs`, and are no longer read.
     `CREATE TABLE IF NOT EXISTS work_packages (
      id                INTEGER PRIMARY KEY AUTOINCREMENT,
      ref               TEXT    NOT NULL UNIQUE,
      name              TEXT    NOT NULL,
-     description       TEXT    NOT NULL DEFAULT '',
      color             TEXT    NOT NULL DEFAULT '',
-     -- The branch this work package's work is built on. Every work package has one, so it is
-     -- backfilled rather than left null on an older database.
-     branch_name       TEXT    NOT NULL DEFAULT '',
      position          INTEGER NOT NULL DEFAULT 0,
-     -- Set when the work package was created to hold an investigation's output, which
-     -- is also what makes that auto-organizing idempotent.
-     investigation_ref TEXT,
      created_at        TEXT    NOT NULL,
      updated_at        TEXT    NOT NULL
    )`,
 
-    `CREATE INDEX IF NOT EXISTS idx_work_packages_investigation
-     ON work_packages(investigation_ref)`,
+    // The branches a work package delivers through. A Git branch belongs to at
+    // most one of them — two work packages merging into one branch would deliver
+    // each other's work under the wrong name — hence the unique name.
+    `CREATE TABLE IF NOT EXISTS work_package_branches (
+     id               INTEGER PRIMARY KEY AUTOINCREMENT,
+     work_package_ref TEXT    NOT NULL,
+     label            TEXT    NOT NULL,
+     branch_name      TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+     -- Null means the repository's base branch, resolved when needed.
+     base_branch      TEXT,
+     origin           TEXT    NOT NULL DEFAULT 'new',
+     created_at       TEXT    NOT NULL,
+     updated_at       TEXT    NOT NULL
+   )`,
+
+    `CREATE INDEX IF NOT EXISTS idx_work_package_branches_package
+     ON work_package_branches(work_package_ref, id)`,
+
+    // Which tasks each branch delivers. Many-to-many because a fix can have to
+    // land on two branches; the row id orders a task's branches, and the first is
+    // the one its own branch is cut from. The task side is a plain ref, as
+    // everywhere else, so it is cleaned up by hand when a task is deleted.
+    `CREATE TABLE IF NOT EXISTS branch_tasks (
+     id         INTEGER PRIMARY KEY AUTOINCREMENT,
+     branch_id  INTEGER NOT NULL REFERENCES work_package_branches(id) ON DELETE CASCADE,
+     task_ref   TEXT    NOT NULL COLLATE NOCASE,
+     created_at TEXT    NOT NULL,
+     UNIQUE (branch_id, task_ref)
+   )`,
+
+    `CREATE INDEX IF NOT EXISTS idx_branch_tasks_task ON branch_tasks(task_ref)`,
+
+    // One-off data migrations that must not run twice.
+    `CREATE TABLE IF NOT EXISTS schema_migrations (
+     name       TEXT PRIMARY KEY,
+     applied_at TEXT NOT NULL
+   )`,
 
     // Links from workflow records to Markdown notes. Notes themselves remain
     // files in the separately versioned notes folder; only their relative path
@@ -269,13 +304,13 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
         column: "estimate_units",
         definition: "INTEGER NOT NULL DEFAULT 1",
     },
-    // Work packages created before they had branches are backfilled below, because a
-    // work package without a branch has nothing for its tasks to be cut from.
-    {
-        table: "work_packages",
-        column: "branch_name",
-        definition: "TEXT NOT NULL DEFAULT ''",
-    },
+    // Investigations written before they belonged to a work package are linked
+    // by `migrateWorkPackageTabs`.
+    { table: "investigations", column: "work_package_ref", definition: "TEXT" },
+    // Where the task's own commits start on its first target branch, recorded
+    // when it is merged there. What lets the same commits be replayed onto its
+    // other target branches later, after the first merge has rebased them.
+    { table: "tasks", column: "own_commits_from", definition: "TEXT" },
     // Runs launched before sessions were tracked have none, and cannot be
     // resumed — the id was the harness's to pick and it was never recorded.
     { table: "agent_runs", column: "session_id", definition: "TEXT" },
@@ -321,6 +356,7 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
 const POST_MIGRATION_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_tasks_investigation ON tasks(investigation_ref)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_work_package ON tasks(work_package_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_investigations_work_package ON investigations(work_package_ref)",
 ]
 
 function applyColumnMigrations(database: Database): void {
@@ -358,39 +394,7 @@ function applyColumnMigrations(database: Database): void {
         })
     }
 
-    backfillWorkPackageBranches(database)
     backfillPositions(database)
-}
-
-/**
- * Give every work package a branch name. `''` is the never-assigned sentinel — nothing
- * writes it deliberately — so this is idempotent and also repairs a row that
- * somehow slipped in without one.
- */
-function backfillWorkPackageBranches(database: Database): void {
-    const rows = database
-        .query<{ ref: string; name: string }, []>(
-            "SELECT ref, name FROM work_packages WHERE branch_name = ''",
-        )
-        .all()
-    if (!rows.length) return
-
-    const prefix = workspace().config.workPackageBranchPrefix
-    const assign = database.query(
-        "UPDATE work_packages SET branch_name = $branch WHERE ref = $ref",
-    )
-    database.transaction(() => {
-        for (const workPackage of rows) {
-            assign.run({
-                $ref: workPackage.ref,
-                $branch: workPackageBranchNameFor(
-                    workPackage.ref,
-                    workPackage.name,
-                    prefix,
-                ),
-            })
-        }
-    })()
 }
 
 /**
@@ -498,6 +502,10 @@ export function getDb(): Database {
         applyColumnMigrations(database)
         for (const statement of POST_MIGRATION_INDEXES) database.exec(statement)
         backfillCombinedBranches(database)
+        migrateWorkPackageTabs(
+            database,
+            workspace().config.workPackageBranchPrefix,
+        )
     })()
 
     return db

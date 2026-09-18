@@ -18,7 +18,6 @@ import {
     addDependency,
     addNote,
     createWorkPackage,
-    createInvestigatedWorkPackage,
     createInvestigation,
     createTask,
     deleteWorkPackage,
@@ -32,7 +31,6 @@ import {
     isModelTier,
     isPriority,
     isStatus,
-    ensureWorkPackageInvestigation,
     listCombinedBranches,
     listWorkPackages,
     listInvestigations,
@@ -56,6 +54,13 @@ import {
     updateTask,
     updateTaskBranchName,
     setStatus,
+    createWorkPackageBranch,
+    deleteWorkPackageBranch,
+    requireWorkPackageBranch,
+    resolveWorkPackageBranch,
+    setBranchTasks,
+    updateWorkPackageBranch,
+    type CreateWorkPackageBranchInput,
 } from "./repo"
 import { issueFacets, listIssues, readIssue } from "./issues"
 import {
@@ -143,8 +148,9 @@ import {
 import { validateBranchName } from "./repo"
 import {
     getWorkPackageDetail,
-    workPackageBranchOf,
-    mergeTaskIntoWorkPackageBranch,
+    mergeTaskIntoTargetBranches,
+    primaryTargetOf,
+    workPackageBranchDetail,
 } from "./workPackageBranch"
 import { approveBaseline, readBaselines, runBaselines } from "./baselines"
 
@@ -215,20 +221,22 @@ function git(args: string[]): { code: number; stdout: string; stderr: string } {
 }
 
 /**
- * Merge a task into its work package's branch, flattened to "what went wrong, if
- * anything". A task in no work package is not a problem — there is simply nothing to
- * merge into — so that reads as success.
+ * Merge a task into its target branches, flattened to "what went wrong, if
+ * anything". A task with no target branch is not a problem — there is simply
+ * nothing to merge into — so that reads as success.
  */
-function mergeIntoWorkPackageBranch(ref: string): string | null {
+function mergeIntoTargetBranches(ref: string): string | null {
     try {
-        const result = mergeTaskIntoWorkPackageBranch(ref)
-        if (!result.workPackage || result.merged) return null
-        return (
-            `${ref}'s commits do not replay onto '${result.branch}' — they collide with work already there. ` +
-            `Nothing was changed: the rebase was aborted and both branches are as they were. Resolve it by ` +
-            `hand ('git rebase ${result.branch} ${result.taskBranch}', fix, 'git rebase --continue'), then ` +
-            `merge ${ref} again to register it.\n${result.conflict}`
-        )
+        const result = mergeTaskIntoTargetBranches(ref)
+        const failed = result.targets.filter((one) => !one.merged)
+        if (!failed.length) return null
+        return failed
+            .map(
+                (one) =>
+                    `${ref}'s commits do not replay onto '${one.branch}' — they collide with work already there. ` +
+                    `Nothing was changed on that branch. Resolve it by hand, then merge ${ref} again to register it.\n${one.conflict}`,
+            )
+            .join("\n\n")
     } catch (error) {
         return error instanceof Error ? error.message : String(error)
     }
@@ -431,13 +439,14 @@ async function combineTasks(
     // under this branch's name. The work package branch is already the delivery vehicle
     // for that work, so this points at it rather than guessing a range.
     for (const task of tasks) {
-        const owned = workPackageBranchOf(task)
-        if (!owned || !branchExists(owned.branch)) continue
-        if (!builtOnTopOf(baseBranch, owned.branch, task.branchName!)) continue
+        const owned = primaryTargetOf(task)
+        if (!owned || !branchExists(owned.branchName)) continue
+        if (!builtOnTopOf(baseBranch, owned.branchName, task.branchName!))
+            continue
         throw new Error(
-            `${task.ref} is in ${owned.workPackage.ref} (${owned.workPackage.name}), and its branch is built on that work package's ` +
-                `branch '${owned.branch}' — combining it here would carry the work package's other tasks with it. ` +
-                `Deliver the work package from '${owned.branch}' instead.`,
+            `${task.ref} is on ${owned.workPackageRef}'s '${owned.label}' branch, and its branch is built on ` +
+                `'${owned.branchName}' — combining it here would carry that branch's other tasks with it. ` +
+                `Deliver it from '${owned.branchName}' instead.`,
         )
     }
     // Every range is resolved before the branch is created, so a task with nothing
@@ -800,16 +809,20 @@ async function handleInvestigations(
         }
 
         if (request.method === "POST") {
-            const input = await body<{ title?: string; brief?: string }>(
-                request,
-            )
+            const input = await body<{
+                title?: string
+                brief?: string
+                workPackageRef?: string
+            }>(request)
             if (!input.title) return fail("An investigation needs a title.")
             return json(
                 {
                     investigation: getInvestigationDetail(
-                        createInvestigation(
-                            input as { title: string; brief?: string },
-                        ).ref,
+                        createInvestigation({
+                            title: input.title,
+                            brief: input.brief,
+                            workPackageRef: input.workPackageRef,
+                        }).ref,
                     ),
                 },
                 201,
@@ -1279,6 +1292,31 @@ async function handleAgents(
 
 /* ---------------------------------------------------------------- work packages */
 
+/** A branch as the browser describes one — every field optional. */
+interface BranchInput {
+    label?: string
+    branchName?: string
+    existing?: boolean
+    baseBranch?: string | null
+    taskRefs?: string[]
+}
+
+function branchInput(
+    input: BranchInput,
+): Omit<CreateWorkPackageBranchInput, "workPackageRef"> {
+    return {
+        label: typeof input.label === "string" ? input.label : undefined,
+        branchName:
+            typeof input.branchName === "string" ? input.branchName : undefined,
+        existing: input.existing === true,
+        baseBranch:
+            typeof input.baseBranch === "string" ? input.baseBranch : null,
+        taskRefs: Array.isArray(input.taskRefs)
+            ? input.taskRefs.filter((one) => typeof one === "string")
+            : undefined,
+    }
+}
+
 async function handleWorkPackages(
     request: Request,
     rest: string[],
@@ -1293,29 +1331,17 @@ async function handleWorkPackages(
         if (request.method === "POST") {
             const input = await body<{
                 name?: string
-                description?: string
-                investigation?: string
                 color?: string
-                branchName?: string
-                investigationRef?: string
+                investigations?: { title?: string; brief?: string }[]
+                branches?: BranchInput[]
             }>(request)
             if (!input.name) return fail("A work package needs a name.")
-            const workPackage =
-                input.investigation !== undefined && !input.investigationRef
-                    ? createInvestigatedWorkPackage({
-                          name: input.name,
-                          description: input.description ?? input.investigation,
-                          investigationBrief: input.investigation,
-                          color: input.color,
-                          branchName: input.branchName,
-                      })
-                    : createWorkPackage({
-                          name: input.name,
-                          description: input.description,
-                          color: input.color,
-                          branchName: input.branchName,
-                          investigationRef: input.investigationRef,
-                      })
+            const workPackage = createWorkPackage({
+                name: input.name,
+                color: input.color,
+                investigations: input.investigations,
+                branches: input.branches?.map(branchInput),
+            })
             return json({ workPackage, workPackages: listWorkPackages() }, 201)
         }
 
@@ -1350,11 +1376,9 @@ async function handleWorkPackages(
         if (request.method === "PATCH") {
             const input = await body<{
                 name?: string
-                description?: string
                 color?: string
-                branchName?: string
             }>(request)
-            updateWorkPackage(ref, input)
+            updateWorkPackage(ref, { name: input.name, color: input.color })
             return json({
                 workPackages: listWorkPackages(),
                 tasks: listTasks(),
@@ -1376,17 +1400,80 @@ async function handleWorkPackages(
         return fail("Method not allowed.", 405)
     }
 
-    // /api/work packages/:ref/investigation — migration path for work packages created before
-    // the current UI made the investigation brief part of every work package.
-    if (action === "investigation") {
+    // /api/work-packages/:ref/investigations — write another question down.
+    if (action === "investigations") {
         if (request.method !== "POST") return fail("Method not allowed.", 405)
-        const input = await body<{ brief?: string }>(request)
-        const investigation = ensureWorkPackageInvestigation(ref, input.brief)
-        return json({
-            investigation,
-            workPackage: getWorkPackageDetail(ref),
-            workPackages: listWorkPackages(),
+        const workPackage = requireWorkPackage(ref)
+        const input = await body<{ title?: string; brief?: string }>(request)
+        const investigation = createInvestigation({
+            title: input.title?.trim() || workPackage.name,
+            brief: input.brief,
+            workPackageRef: workPackage.ref,
         })
+        return json(
+            {
+                investigation: getInvestigationDetail(investigation.ref),
+                workPackage: getWorkPackageDetail(workPackage.ref),
+            },
+            201,
+        )
+    }
+
+    // /api/work-packages/:ref/branches[/:id] — the branches it delivers through.
+    if (action === "branches") {
+        const workPackage = requireWorkPackage(ref)
+        const id = rawNotePath
+        if (id === undefined) {
+            if (request.method !== "POST")
+                return fail("Method not allowed.", 405)
+            const input = await body<BranchInput>(request)
+            const branch = createWorkPackageBranch({
+                ...branchInput(input),
+                workPackageRef: workPackage.ref,
+            })
+            return json(
+                {
+                    branch: workPackageBranchDetail(branch),
+                    workPackage: getWorkPackageDetail(workPackage.ref),
+                },
+                201,
+            )
+        }
+
+        const branch = resolveWorkPackageBranch(
+            workPackage.ref,
+            decodeURIComponent(id),
+        )
+        if (request.method === "PATCH") {
+            const input = await body<BranchInput & { taskRefs?: unknown }>(
+                request,
+            )
+            if (
+                input.taskRefs !== undefined &&
+                (!Array.isArray(input.taskRefs) ||
+                    input.taskRefs.some((one) => typeof one !== "string"))
+            ) {
+                return fail("taskRefs must be an array of task refs.")
+            }
+            updateWorkPackageBranch(branch.id, {
+                label: input.label,
+                branchName: input.branchName,
+                baseBranch: input.baseBranch,
+            })
+            if (input.taskRefs !== undefined)
+                setBranchTasks(branch.id, input.taskRefs as string[])
+            return json({
+                branch: workPackageBranchDetail(
+                    requireWorkPackageBranch(branch.id),
+                ),
+                workPackage: getWorkPackageDetail(workPackage.ref),
+            })
+        }
+        if (request.method === "DELETE") {
+            deleteWorkPackageBranch(branch.id)
+            return json({ workPackage: getWorkPackageDetail(workPackage.ref) })
+        }
+        return fail("Method not allowed.", 405)
     }
 
     // /api/work packages/:ref/note-links — reference material for an investigation or
@@ -1985,7 +2072,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
             input.merge !== false &&
             task.useGitWorkflow
         ) {
-            mergeError = mergeIntoWorkPackageBranch(ref!)
+            mergeError = mergeIntoTargetBranches(ref!)
         }
         return json({ task: getTaskDetail(ref!), mergeError })
     }
@@ -1993,7 +2080,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
     // /api/tasks/:ref/merge — the work package-branch merge on its own, for after a
     // conflict has been resolved by hand or a merge was skipped.
     if (action === "merge") {
-        const mergeError = mergeIntoWorkPackageBranch(ref!)
+        const mergeError = mergeIntoTargetBranches(ref!)
         if (mergeError) return fail(mergeError)
         return json({ task: getTaskDetail(ref!), mergeError: null })
     }

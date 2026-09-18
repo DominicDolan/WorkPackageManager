@@ -464,6 +464,68 @@ export function rebaseOnto(branch: string, onto: string): RebaseOutcome {
     return { rebased: false, conflict: detail }
 }
 
+/**
+ * Whether every commit in `from..branch` already has an equivalent on `onto` —
+ * the same change, whatever its hash. How a cherry-picked copy is recognised.
+ */
+export function patchesApplied(
+    onto: string,
+    branch: string,
+    from: string,
+): boolean {
+    const result = git(["cherry", onto, branch, from])
+    if (result.code !== 0) return false
+    return result.stdout
+        .split("\n")
+        .filter(Boolean)
+        .every((line) => line.startsWith("-"))
+}
+
+/**
+ * Copy the commits `from..branch` onto the tip of `onto`, leaving `branch`
+ * where it is.
+ *
+ * How a task lands on its second and later target branches. Its first merge
+ * rebased the task branch onto the first target, so replaying the whole branch
+ * again would carry that target's other work along with it; only the task's
+ * own range is wanted. The replay happens on a throwaway branch, then `onto` is
+ * fast-forwarded to it — the same linear result a first merge gives.
+ *
+ * A conflict aborts and changes nothing, as `rebaseOnto` does.
+ */
+export function replayRange(
+    from: string,
+    branch: string,
+    onto: string,
+): RebaseOutcome {
+    const scratch = `tasks-replay/${Date.now()}`
+    createBranch(scratch, branch)
+    try {
+        const rebased = git(["rebase", "--onto", onto, from, scratch])
+        if (rebased.code !== 0) {
+            const detail =
+                rebased.stdout.trim() ||
+                rebased.stderr.trim() ||
+                `Replaying '${branch}' onto '${onto}' failed.`
+            git(["rebase", "--abort"])
+            return { rebased: false, conflict: detail }
+        }
+        switchBranch(onto)
+        const merged = git(["merge", "--ff-only", scratch])
+        if (merged.code !== 0) {
+            return {
+                rebased: false,
+                conflict:
+                    merged.stderr.trim() || `Fast-forwarding '${onto}' failed.`,
+            }
+        }
+        return { rebased: true, conflict: "" }
+    } finally {
+        if (currentBranch() === scratch) switchBranch(onto)
+        git(["branch", "-D", scratch])
+    }
+}
+
 export interface MergeOutcome {
     merged: boolean
     /** True when the branch was already contained, so nothing needed doing. */
