@@ -17,7 +17,6 @@ import {
 } from "solid-js"
 import { api } from "../api"
 import { useError } from "../hooks/useError"
-import { ConflictAgentDialog } from "../components/ConflictAgentDialog"
 import { renderMarkdown } from "../markdown"
 import type { WorkspaceSnapshot } from "../types/workspace"
 import { BranchCheckLauncher } from "./BranchCheckLauncher"
@@ -32,6 +31,9 @@ export function BranchPanel(props: {
     tools: WorkspaceSnapshot["tools"]
     changed: () => void
     workPackageChanged: () => void
+    /** A rebase stopped on conflicts. The panel remounts on the refresh a
+     * rebase attempt causes, so the offer is shown by the workspace. */
+    conflicted: (conflict: GitConflict) => void
 }) {
     const [current, setCurrent] = createSignal<
         CombinedBranchDetail | undefined
@@ -48,7 +50,6 @@ export function BranchPanel(props: {
     const { capture, clear, Banner } = useError()
     const [notice, setNotice] = createSignal("")
     const [checkAgentOpen, setCheckAgentOpen] = createSignal(false)
-    const [conflict, setConflict] = createSignal<GitConflict | null>(null)
 
     const applyBranch = (branch: CombinedBranchDetail) => {
         setCurrent(branch)
@@ -207,7 +208,7 @@ export function BranchPanel(props: {
             )
             yield
             if (result.conflict) {
-                setConflict(result.conflict)
+                props.conflicted(result.conflict)
                 return
             }
             setNotice(
@@ -336,22 +337,6 @@ export function BranchPanel(props: {
                 <p class="notice success m-0" role="status">
                     {notice()}
                 </p>
-            </Show>
-            <Show when={conflict()} keyed>
-                {(found) => (
-                    <ConflictAgentDialog
-                        conflict={found}
-                        subject={{ kind: "branch", ref: found.branch }}
-                        close={() => setConflict(null)}
-                        started={(run) =>
-                            setNotice(
-                                run.mode === "terminal"
-                                    ? `An agent is rebasing onto ${found.onto} in a terminal window.`
-                                    : `An agent is rebasing onto ${found.onto} (run #${run.id}).`,
-                            )
-                        }
-                    />
-                )}
             </Show>
 
             <BranchSection

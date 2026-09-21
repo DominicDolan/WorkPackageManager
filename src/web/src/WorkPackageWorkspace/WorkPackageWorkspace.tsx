@@ -2,6 +2,7 @@ import { useTabs } from "../hooks/useTabs"
 import { useDialog } from "../hooks/useDialog"
 import {
     workPackageRunActive,
+    type GitConflict,
     type Task,
     type WorkPackageBranchDetail,
     type WorkPackageDetail,
@@ -15,6 +16,7 @@ import {
     Show,
     createEffect,
     createMemo,
+    createSignal,
     refresh,
 } from "solid-js"
 import { AgentLauncher } from "../AgentLauncher/AgentLauncher"
@@ -23,6 +25,7 @@ import { InvestigationLauncher } from "../InvestigationLauncher/InvestigationLau
 import { api } from "../api"
 import { useError } from "../hooks/useError"
 import { Brand } from "../components/Brand"
+import { ConflictAgentDialog } from "../components/ConflictAgentDialog"
 import { PageSkeleton } from "../components/PageSkeleton"
 import {
     BackIcon,
@@ -170,6 +173,29 @@ export function WorkPackageWorkspace(props: {
             />
         ),
     )
+    // A branch's rebase conflict is offered from here for the same reason: the
+    // Branch tab is rebuilt on every refresh, and a rebase attempt causes one.
+    const [notice, setNotice] = createSignal("")
+    let conflict: GitConflict | undefined
+    const { openDialog: openConflictDialog } = useDialog(({ closeDialog }) => (
+        <ConflictAgentDialog
+            conflict={conflict!}
+            subject={{ kind: "branch", ref: conflict!.branch }}
+            close={closeDialog}
+            started={(run) =>
+                setNotice(
+                    run.mode === "terminal"
+                        ? `An agent is rebasing ${conflict!.branch} onto ${conflict!.onto} in a terminal window.`
+                        : `An agent is rebasing ${conflict!.branch} onto ${conflict!.onto} (run #${run.id}).`,
+                )
+            }
+        />
+    ))
+    const offerConflict = (found: GitConflict) => {
+        conflict = found
+        setNotice("")
+        openConflictDialog()
+    }
     const editSupervisor = (run: WorkRunDetail) => {
         supervisedRun = run
         openSupervisorDialog()
@@ -403,6 +429,13 @@ export function WorkPackageWorkspace(props: {
                             </header>
                             <div class="mx-auto max-w-[1600px] px-5 py-8 sm:px-8">
                                 <Banner />
+                                <Show when={notice()}>
+                                    <p
+                                        class="notice success m-[0_0_1rem]"
+                                        role="status">
+                                        {notice()}
+                                    </p>
+                                </Show>
                                 <section {...windowProps(TASKS_TAB)}>
                                     <Show when={matches(TASKS_TAB)}>
                                         <WorkPackageOverview
@@ -475,6 +508,9 @@ export function WorkPackageWorkspace(props: {
                                                         changed={props.changed}
                                                         workPackageChanged={
                                                             changed
+                                                        }
+                                                        conflicted={
+                                                            offerConflict
                                                         }
                                                     />
                                                 )}

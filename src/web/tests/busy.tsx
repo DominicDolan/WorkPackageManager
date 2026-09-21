@@ -81,6 +81,7 @@ function Fixture() {
                 }}
                 changed={() => {}}
                 workPackageChanged={() => {}}
+                conflicted={() => {}}
             />
         </div>
     )
