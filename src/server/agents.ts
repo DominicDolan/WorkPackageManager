@@ -598,6 +598,9 @@ export interface StartRunInput {
     /** Where the agent runs. The repository root unless a run belongs elsewhere,
      *  as one resolving a conflict in the notes folder does. */
     cwd?: string
+    /** What an earlier agent on the same subject left behind, for this one to
+     *  pick up from. Appended after the command's own instructions. */
+    handoff?: string
 }
 
 export function startRun(input: StartRunInput): AgentRun {
@@ -615,7 +618,10 @@ export function startRun(input: StartRunInput): AgentRun {
         )
     }
 
-    const prompt = buildPrompt(input.command, input.target, input.extra)
+    const handoff = input.handoff?.trim()
+    const prompt =
+        buildPrompt(input.command, input.target, input.extra) +
+        (handoff ? `\n\n${handoff}` : "")
     // Claude and pi accept a supplied id. Codex reports its generated id after a
     // headless launch; its terminal output belongs to the terminal, so there is
     // no race-free way for this server to discover that session.
@@ -730,6 +736,15 @@ function logPath(id: number): string {
 }
 
 /**
+ * A headless run's stdout alone, beside the combined log. Every harness keeps
+ * its working — tool calls, commands, reasoning — on stderr and prints only its
+ * final answer to stdout, so this file is the answer without the working.
+ */
+function resultPath(id: number): string {
+    return join(LOG_DIR, `${id}.out`)
+}
+
+/**
  * Headless runs are detached from any terminal, so their output has to go
  * somewhere durable — a file, streamed as it arrives rather than buffered until
  * exit, because a `/work-task` run takes minutes and watching it is the point.
@@ -738,6 +753,7 @@ function spawnHeadless(id: number, argv: string[], cwd: string): void {
     mkdirSync(LOG_DIR, { recursive: true })
     const path = logPath(id)
     const sink = Bun.file(path).writer()
+    const resultSink = Bun.file(resultPath(id)).writer()
 
     const child = Bun.spawn(argv, {
         cwd,
@@ -763,6 +779,7 @@ function spawnHeadless(id: number, argv: string[], cwd: string): void {
     const decoder = new TextDecoder()
     const pump = async (
         stream: ReadableStream<Uint8Array> | undefined | null,
+        copy?: typeof resultSink,
     ): Promise<void> => {
         if (!stream) return
         const reader = stream.getReader()
@@ -772,6 +789,10 @@ function spawnHeadless(id: number, argv: string[], cwd: string): void {
             if (value) {
                 sink.write(value)
                 sink.flush()
+                if (copy) {
+                    copy.write(value)
+                    copy.flush()
+                }
                 // Codex writes a startup header containing `session id: <uuid>`. Keep a
                 // small rolling window so the match also works across stream chunks.
                 if (needsSessionCapture) {
@@ -795,13 +816,14 @@ function spawnHeadless(id: number, argv: string[], cwd: string): void {
     }
 
     void Promise.all([
-        pump(child.stdout as ReadableStream<Uint8Array>),
+        pump(child.stdout as ReadableStream<Uint8Array>, resultSink),
         pump(child.stderr as ReadableStream<Uint8Array>),
     ])
         .catch(() => {})
         .then(async () => {
             const code = await child.exited
             await sink.end()
+            await resultSink.end()
             live.delete(id)
             // A run killed by `stopRun` has already been recorded as stopped; do not
             // overwrite that with the SIGTERM exit it produced.
@@ -1035,10 +1057,11 @@ export async function getRun(id: number): Promise<AgentRunDetail> {
     const row = withSession(readRow(id))
     const run = toRun(row)
 
-    if (!row.log_path) return { ...run, output: "", truncated: false }
+    const empty = { ...run, output: "", truncated: false, result: null }
+    if (!row.log_path) return empty
 
     const file = Bun.file(row.log_path)
-    if (!(await file.exists())) return { ...run, output: "", truncated: false }
+    if (!(await file.exists())) return empty
 
     const text = await file.text()
     const truncated = text.length > MAX_OUTPUT_CHARS
@@ -1046,5 +1069,95 @@ export async function getRun(id: number): Promise<AgentRunDetail> {
         ...run,
         output: truncated ? text.slice(-MAX_OUTPUT_CHARS) : text,
         truncated,
+        result: await readResult(row, text),
     }
+}
+
+/**
+ * The final answer a headless run printed, apart from its working. Null when
+ * there is none to show: the agent has not answered yet, was stopped before it
+ * could, or ran before stdout was kept on its own.
+ */
+async function readResult(row: RunRow, log: string): Promise<string | null> {
+    const file = Bun.file(resultPath(row.id))
+    if (await file.exists()) return (await file.text()).trim() || null
+    // Older Codex logs have both streams mixed, but Codex closes its working
+    // with a token count, and everything after that is the answer.
+    if (row.harness === "codex") {
+        const match = /\ntokens used\n[\d,]+\n([\s\S]*)$/.exec(log)
+        return match?.[1]?.trim() || null
+    }
+    return null
+}
+
+/** A finished headless run's final answer, for the server itself to act on.
+ *  Null when it printed none. */
+export function runResult(id: number): string | null {
+    const path = resultPath(id)
+    if (!existsSync(path)) return null
+    return readFileSync(path, "utf8").trim() || null
+}
+
+/**
+ * Where to read what a run did: its log (and the end of it), and the harness's
+ * own transcript of the conversation when one can be found. The log alone can
+ * be empty — Claude prints nothing headless until it answers — so the
+ * transcript is what an agent picking up a stopped run can dig through.
+ */
+export function runTrail(
+    id: number,
+    tailChars: number,
+): { logPath: string | null; tail: string; transcriptPath: string | null } {
+    const row = withSession(readRow(id))
+    let tail = ""
+    if (row.log_path && existsSync(row.log_path)) {
+        const text = readFileSync(row.log_path, "utf8")
+        // Codex echoes the whole prompt at the top of its log. The next agent
+        // has been given that prompt already, so start after it.
+        const prompt = row.prompt.trim()
+        const echoed = row.harness === "codex" ? text.indexOf(prompt) : -1
+        const working =
+            echoed === -1 ? text : text.slice(echoed + prompt.length)
+        tail = working.slice(-tailChars).trim()
+    }
+    return {
+        logPath: row.log_path,
+        tail,
+        transcriptPath: row.session_id ? transcriptPath(row) : null,
+    }
+}
+
+function transcriptPath(row: RunRow): string | null {
+    const session = row.session_id!
+    if (row.harness === "claude") {
+        // Claude files a conversation under its working directory, with every
+        // character that is not a letter or digit turned into a dash.
+        const folder = (row.cwd ?? ws.repoRoot).replace(/[^A-Za-z0-9]/g, "-")
+        const path = join(
+            homedir(),
+            ".claude",
+            "projects",
+            folder,
+            `${session}.jsonl`,
+        )
+        return existsSync(path) ? path : null
+    }
+    if (row.harness === "codex") {
+        const day = new Date(row.created_at)
+        for (const at of [day, new Date(day.getTime() + 86_400_000)]) {
+            const folder = join(
+                codexHome(),
+                "sessions",
+                String(at.getFullYear()),
+                String(at.getMonth() + 1).padStart(2, "0"),
+                String(at.getDate()).padStart(2, "0"),
+            )
+            if (!existsSync(folder)) continue
+            const name = readdirSync(folder).find((one) =>
+                one.endsWith(`-${session}.jsonl`),
+            )
+            if (name) return join(folder, name)
+        }
+    }
+    return null
 }

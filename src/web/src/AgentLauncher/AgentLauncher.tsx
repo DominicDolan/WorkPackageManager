@@ -10,7 +10,9 @@ import {
     refresh,
 } from "solid-js"
 import {
+    MAX_SUPERVISIONS_PER_TASK,
     nextWorkableTask,
+    type AgentHarnessId,
     type AgentPermissionMode,
     type AgentRunMode,
     type AgentRun,
@@ -20,6 +22,7 @@ import {
 import { api } from "../api"
 import { useError } from "../hooks/useError"
 import { AgentSettings } from "../components/AgentSettings"
+import { SupervisorFields } from "../components/SupervisorFields"
 import { RunHistory } from "../components/RunHistory"
 import { Modal } from "../components/Modal"
 
@@ -42,6 +45,13 @@ export function AgentLauncher(props: {
         createSignal<AgentPermissionMode>("manual")
     const [extra, setExtra] = createSignal("")
     const [label, setLabel] = createSignal("")
+    // The supervisor an unattended run calls in when a task stops short.
+    const [supervised, setSupervised] = createSignal(false)
+    const [supervisorHarness, setSupervisorHarness] = createSignal("")
+    const [supervisorModel, setSupervisorModel] = createSignal("")
+    const [supervisorPermission, setSupervisorPermission] =
+        createSignal<AgentPermissionMode>("bypassPermissions")
+    const [supervisorExtra, setSupervisorExtra] = createSignal("")
     const [busy, setBusy] = createOptimistic(false)
     const { capture, clear, Banner } = useError()
     // Task pages are the place a person returns after an agent has stopped. Keep
@@ -82,6 +92,9 @@ export function AgentLauncher(props: {
         },
     )
 
+    // Until one is picked, the supervisor is the same agent as the tasks'.
+    const chosenSupervisorHarness = () => supervisorHarness() || chosenHarness()
+
     const next = () => props.task ?? nextWorkableTask(props.workPackage)
     const run = action(async function* () {
         if (busy() || isPending(harness)) return
@@ -111,6 +124,16 @@ export function AgentLauncher(props: {
                     mode: launchMode,
                     permissionMode: permission(),
                     extra: extra(),
+                    supervisor:
+                        choice() === "unattended" && supervised()
+                            ? {
+                                  harness:
+                                      chosenSupervisorHarness() as AgentHarnessId,
+                                  model: supervisorModel(),
+                                  permissionMode: supervisorPermission(),
+                                  extra: supervisorExtra(),
+                              }
+                            : null,
                 })
                 yield
                 props.finished()
@@ -213,6 +236,46 @@ export function AgentLauncher(props: {
                     placeholder="Optional context for the agent…"
                 />
             </label>
+            <Show when={choice() === "unattended"}>
+                <section class="mt-5 border-t border-slate-200 pt-5">
+                    <label class="choice flex items-start gap-[0.75rem] p-[0.85rem]">
+                        <input
+                            type="checkbox"
+                            class="w-[1rem] h-[1rem] mt-[0.12rem]"
+                            checked={supervised()}
+                            onChange={(event) =>
+                                setSupervised(event.currentTarget.checked)
+                            }
+                        />
+                        <span class="grid gap-[0.22rem]">
+                            <strong>Add a supervisor</strong>
+                            <small>
+                                When a task stops short of Dev Complete, a
+                                supervisor agent steps in for you. It makes the
+                                call the task's agent stopped to ask about, or
+                                fixes what broke, and then the run carries on.
+                                It is called in at most{" "}
+                                {MAX_SUPERVISIONS_PER_TASK} times per task.
+                            </small>
+                        </span>
+                    </label>
+                    <Show when={supervised()}>
+                        <Loading fallback={null}>
+                            <SupervisorFields
+                                environment={environment()}
+                                harness={chosenSupervisorHarness()}
+                                setHarness={setSupervisorHarness}
+                                model={supervisorModel()}
+                                setModel={setSupervisorModel}
+                                permission={supervisorPermission()}
+                                setPermission={setSupervisorPermission}
+                                extra={supervisorExtra()}
+                                setExtra={setSupervisorExtra}
+                            />
+                        </Loading>
+                    </Show>
+                </section>
+            </Show>
             <Loading fallback={null}>
                 <Show when={props.task && history().length}>
                     <section class="mt-5 border-t border-slate-200 pt-5">

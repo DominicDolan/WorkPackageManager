@@ -36,6 +36,7 @@ import {
     type AgentHarnessId,
     type AgentPermissionMode,
     type WorkPackageRun,
+    type RunSupervisor,
     type WorkPackageRunStatus,
     type Task,
     type TaskDetail,
@@ -2324,6 +2325,9 @@ interface WorkPackageRunRow {
     current_ref: string | null
     worked_json: string
     excluded_json: string
+    run_ids_json: string
+    supervisor_json: string | null
+    resumed_at: string | null
     stop_reason: string
     created_at: string
     finished_at: string | null
@@ -2342,8 +2346,13 @@ function toWorkPackageRun(row: WorkPackageRunRow): WorkPackageRun {
         currentRef: row.current_ref,
         worked: JSON.parse(row.worked_json) as string[],
         excluded: JSON.parse(row.excluded_json) as string[],
+        runIds: JSON.parse(row.run_ids_json) as number[],
+        supervisor: row.supervisor_json
+            ? (JSON.parse(row.supervisor_json) as RunSupervisor)
+            : null,
         stopReason: row.stop_reason,
         createdAt: row.created_at,
+        resumedAt: row.resumed_at,
         finishedAt: row.finished_at,
     }
 }
@@ -2430,12 +2439,14 @@ export function createWorkPackageRun(input: {
     permissionMode: AgentPermissionMode
     extra: string
     excluded: string[]
+    supervisor?: RunSupervisor | null
 }): WorkPackageRun {
     const row = getDb()
-        .query<{ id: number }, Record<string, string>>(
+        .query<{ id: number }, Record<string, string | null>>(
             `INSERT INTO work_package_runs
-         (work_package_ref, harness, model, permission_mode, extra, status, worked_json, excluded_json, created_at)
-       VALUES ($ref, $harness, $model, $permission, $extra, 'running', '[]', $excluded, $at)
+         (work_package_ref, harness, model, permission_mode, extra, status, worked_json, excluded_json,
+          supervisor_json, created_at)
+       VALUES ($ref, $harness, $model, $permission, $extra, 'running', '[]', $excluded, $supervisor, $at)
        RETURNING id`,
         )
         .get({
@@ -2445,23 +2456,32 @@ export function createWorkPackageRun(input: {
             $permission: input.permissionMode,
             $extra: input.extra,
             $excluded: JSON.stringify(input.excluded),
+            $supervisor: input.supervisor
+                ? JSON.stringify(input.supervisor)
+                : null,
             $at: nowIso(),
         })!
 
     return requireWorkPackageRun(row.id)
 }
 
-/** Point the loop at the task it has just launched. */
+/** Point the loop at the task it has just launched, and remember the launch. */
 export function setWorkPackageRunCurrent(
     id: number,
     agentRunId: number,
     ref: string,
 ): WorkPackageRun {
+    const run = requireWorkPackageRun(id)
     getDb()
         .query(
-            "UPDATE work_package_runs SET current_run_id = $run, current_ref = $ref WHERE id = $id",
+            "UPDATE work_package_runs SET current_run_id = $run, current_ref = $ref, run_ids_json = $runs WHERE id = $id",
         )
-        .run({ $id: id, $run: agentRunId, $ref: ref })
+        .run({
+            $id: id,
+            $run: agentRunId,
+            $ref: ref,
+            $runs: JSON.stringify([...run.runIds, agentRunId]),
+        })
     return requireWorkPackageRun(id)
 }
 
@@ -2481,8 +2501,48 @@ export function recordWorkPackageRunWorked(
     return requireWorkPackageRun(id)
 }
 
+/** Give a loop a supervisor, swap it for another, or take it away. The loop
+ *  reads it afresh each time a task stops short, so this applies from the next
+ *  stop on, whether the loop is running or not. */
+export function setWorkPackageRunSupervisor(
+    id: number,
+    supervisor: RunSupervisor | null,
+): WorkPackageRun {
+    requireWorkPackageRun(id)
+    getDb()
+        .query(
+            "UPDATE work_package_runs SET supervisor_json = $supervisor WHERE id = $id",
+        )
+        .run({
+            $id: id,
+            $supervisor: supervisor ? JSON.stringify(supervisor) : null,
+        })
+    return requireWorkPackageRun(id)
+}
+
+/**
+ * Set a settled loop running again, keeping what it already worked. `runIds`
+ * replaces the recorded launches, for a loop from before they were recorded.
+ * Refused unless the loop has settled, so two resumes cannot both win.
+ */
+export function reopenWorkPackageRun(
+    id: number,
+    runIds: number[],
+): WorkPackageRun {
+    const reopened = getDb()
+        .query(
+            `UPDATE work_package_runs SET status = 'running', stop_reason = '', finished_at = NULL,
+                run_ids_json = $runs, resumed_at = $at
+        WHERE id = $id AND status != 'running'`,
+        )
+        .run({ $id: id, $runs: JSON.stringify(runIds), $at: nowIso() })
+    if (!reopened.changes)
+        throw new Error(`Work package run ${id} is already running.`)
+    return requireWorkPackageRun(id)
+}
+
 /** Settle a loop. `running` is the one status this cannot set — a loop that has
- *  stopped stays stopped, and restarting one means a new row. */
+ *  stopped stays stopped until `reopenWorkPackageRun` is asked for by name. */
 export function settleWorkPackageRun(
     id: number,
     status: WorkPackageRunStatus,

@@ -1002,6 +1002,7 @@ export const AGENT_COMMANDS = [
     "work-package",
     "resolve-checks",
     "resolve-conflicts",
+    "supervise-task",
 ] as const
 export type AgentCommand = (typeof AGENT_COMMANDS)[number]
 
@@ -1115,6 +1116,10 @@ export interface AgentRunDetail extends AgentRun {
     output: string
     /** True when `output` is the tail of a longer log. */
     truncated: boolean
+    /** The agent's final answer without its working, or null when it has not
+     *  given one — still going, stopped first, or logged before the two were
+     *  kept apart. */
+    result: string | null
 }
 
 /* ------------------------------------------------------------ work package runs */
@@ -1156,6 +1161,25 @@ export const WORK_PACKAGE_RUN_STATUS_LABELS: Record<
     failed: "Failed",
 }
 
+/**
+ * The agent an unattended run calls in when a task stops short of Dev
+ * Complete. It stands in for the user: it makes the decision the task's agent
+ * stopped to ask about, or fixes what broke, so the loop can carry on without
+ * anyone watching. Always headless, like the rest of the loop.
+ */
+export interface RunSupervisor {
+    harness: AgentHarnessId
+    model: string
+    permissionMode: AgentPermissionMode
+    /** Extra instructions for the supervisor alone, not the task agents. */
+    extra: string
+}
+
+/** How many times the supervisor is called in for any one task before the run
+ *  gives up on it and waits for a person. Counted afresh each time a person
+ *  resumes the run. */
+export const MAX_SUPERVISIONS_PER_TASK = 2
+
 export interface WorkPackageRun {
     id: number
     workPackageRef: string
@@ -1167,6 +1191,9 @@ export interface WorkPackageRun {
     permissionMode: AgentPermissionMode
     /** Extra prompt text appended to every task's `/work-task`. */
     extra: string
+    /** Who is called in when a task stops short, or null for nobody — the run
+     *  stops and waits for a person instead. */
+    supervisor: RunSupervisor | null
     status: WorkPackageRunStatus
     /** The `agent_runs` row working right now, or the last one that worked. */
     currentRunId: number | null
@@ -1176,9 +1203,14 @@ export interface WorkPackageRun {
     worked: string[]
     /** Tasks deliberately left out when this run was started. */
     excluded: string[]
+    /** Every `agent_runs` row this loop launched, oldest first. Empty for
+     *  loops from before this was recorded. */
+    runIds: number[]
     /** Why it is no longer running. Empty while it still is. */
     stopReason: string
     createdAt: string
+    /** When a person last resumed it, or null if nobody has. */
+    resumedAt: string | null
     finishedAt: string | null
 }
 
@@ -1236,7 +1268,16 @@ export interface WorkRunItem {
     /** Null when the task has since been deleted. */
     status: Status | null
     state: "done" | "working" | "waiting"
+    /** The headless agents this run launched for the task, oldest first —
+     *  more than one when a stopped loop's task was picked up again. Their
+     *  output is fetched separately, only when someone opens it. */
+    agents: WorkRunAgent[]
 }
+
+export type WorkRunAgent = Pick<
+    AgentRun,
+    "id" | "command" | "status" | "exitCode" | "createdAt" | "finishedAt"
+>
 
 export type WorkRunStatus =
     "launched" | "running" | "finished" | "stopped" | "blocked" | "failed"
@@ -1246,6 +1287,8 @@ export interface WorkRunDetail extends WorkRun {
     /** Why it stopped, when it did for a reason worth saying. */
     statusDetail: string
     items: WorkRunItem[]
+    /** An unattended run's supervisor, when it has one. */
+    supervisor: RunSupervisor | null
     /** The agent working right now, or the last one to have — what Stop and
      *  Resume act on. */
     agentRun: AgentRun | null

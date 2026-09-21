@@ -734,6 +734,39 @@ The tab says which kind it is, how it is going, and lists the tasks it set out
 to work, each marked worked, working or still to work. **Stop** ends a run in
 flight; **Resume in a terminal** reopens the agent's conversation.
 
+An unattended run that stopped, failed or needs attention has **Resume run**. It
+starts the loop again in the same tab. If the task it stopped on is left
+unfinished, that task goes to a fresh agent. The new agent gets the task's
+details, the reason the run stopped, the end of the last agent's output, and
+paths to that agent's full log and conversation transcript. It picks up where
+the last agent stopped instead of starting over.
+
+An unattended run can also have a **supervisor**. Add one when starting the run,
+or later with **Add a supervisor** on its tab, even while it is running. The
+agent already at work is left alone, and the supervisor handles every stop after
+that. The same button changes or removes it. This is a second agent config, with its own
+harness, model, permissions and instructions. When a task's agent stops short of
+Dev Complete, or reaches it without its work merged, the run calls in the
+supervisor instead of stopping. The supervisor stands in for you. It makes the
+decision the task's agent stopped to ask about, or fixes what broke, and it can
+finish the task itself if that is simplest. It ends its report with `RESOLVED`
+or `UNRESOLVED`:
+
+- The task is done: the run moves on to the next task.
+- `RESOLVED`: a fresh agent picks the task back up, given the supervisor's
+  report along with the earlier agent's output.
+- `UNRESOLVED` or no verdict: the run stops and waits for you, as it would
+  without a supervisor.
+
+A task gets at most two supervisor visits before the run stops for a person, so
+it cannot go round in circles. **Resume run** starts that count again. The
+supervisor's prompt is `prompts/supervise-task.md`. Like the other prompts, it
+can be overridden in `.tasks/prompts/`.
+
+Opening a task in the list shows the output of each agent that worked it. When
+an agent has finished, its final answer is shown on its own and the working
+behind it is folded away under **Show working**.
+
 A run stops and hands back rather than guessing when a merge conflicts, a
 dependency outside the work package is unmet, or a checkpoint fails. A stopped
 run leaves the work package partly delivered, which is a normal state: the

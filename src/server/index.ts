@@ -130,6 +130,7 @@ import {
 } from "./checks"
 import {
     AGENT_COMMANDS,
+    AGENT_HARNESSES,
     AGENT_PERMISSION_MODES,
     AGENT_RUN_MODES,
     INVESTIGATION_STATUSES,
@@ -138,9 +139,11 @@ import {
     PRIORITIES,
     STATUSES,
     type AgentCommand,
+    type AgentHarnessId,
     type AgentPermissionMode,
     type AgentRunMode,
     type GitConflict,
+    type RunSupervisor,
     type WorkRunKind,
     type CombinedBranchDetail,
     type WorkPackageAdvanceOutcome,
@@ -161,6 +164,8 @@ import {
     deleteWorkRun,
     renameWorkRun,
     requireWorkRun,
+    resumeWorkRun,
+    setWorkRunSupervisor,
     startWorkRun,
     stopWorkRun,
 } from "./workRuns"
@@ -196,6 +201,36 @@ async function body<T>(request: Request): Promise<T> {
         return (await request.json()) as T
     } catch {
         throw new Error("Request body must be valid JSON.")
+    }
+}
+
+interface SupervisorInput {
+    harness?: string
+    model?: string
+    permissionMode?: string
+    extra?: string
+}
+
+/** A run supervisor from a request body, null for none, or why it is not one. */
+function parseSupervisor(
+    input: SupervisorInput | null | undefined,
+): RunSupervisor | null | string {
+    if (!input) return null
+    if (!AGENT_HARNESSES.includes(input.harness as AgentHarnessId))
+        return `supervisor.harness must be one of: ${AGENT_HARNESSES.join(", ")}.`
+    if (
+        input.permissionMode !== undefined &&
+        !AGENT_PERMISSION_MODES.includes(
+            input.permissionMode as AgentPermissionMode,
+        )
+    )
+        return `supervisor.permissionMode must be one of: ${AGENT_PERMISSION_MODES.join(", ")}.`
+    return {
+        harness: input.harness as AgentHarnessId,
+        model: input.model ?? "",
+        permissionMode: (input.permissionMode ??
+            "bypassPermissions") as AgentPermissionMode,
+        extra: input.extra ?? "",
     }
 }
 
@@ -1485,7 +1520,7 @@ async function handleWorkPackages(
         )
     }
 
-    // /api/work-packages/:ref/work-runs[/:id[/stop]] — its Run tabs.
+    // /api/work-packages/:ref/work-runs[/:id[/stop|/resume|/supervisor]] — its Run tabs.
     if (action === "work-runs") {
         const workPackage = requireWorkPackage(ref)
         const id = rawNotePath
@@ -1500,8 +1535,11 @@ async function handleWorkPackages(
                 mode?: string
                 permissionMode?: string
                 extra?: string
+                supervisor?: SupervisorInput | null
             }>(request)
             if (!input.harness) return fail("A harness is required.")
+            const supervisor = parseSupervisor(input.supervisor)
+            if (typeof supervisor === "string") return fail(supervisor)
             if (
                 input.permissionMode !== undefined &&
                 !AGENT_PERMISSION_MODES.includes(
@@ -1522,6 +1560,7 @@ async function handleWorkPackages(
                 permissionMode: (input.permissionMode ??
                     "manual") as AgentPermissionMode,
                 extra: input.extra ?? "",
+                supervisor,
             })
             return json(
                 {
@@ -1540,6 +1579,19 @@ async function handleWorkPackages(
             if (request.method !== "POST")
                 return fail("Method not allowed.", 405)
             stopWorkRun(runId)
+        } else if (verb === "supervisor") {
+            if (request.method !== "PUT")
+                return fail("Method not allowed.", 405)
+            const input = await body<{ supervisor?: SupervisorInput | null }>(
+                request,
+            )
+            const supervisor = parseSupervisor(input.supervisor)
+            if (typeof supervisor === "string") return fail(supervisor)
+            setWorkRunSupervisor(runId, supervisor)
+        } else if (verb === "resume") {
+            if (request.method !== "POST")
+                return fail("Method not allowed.", 405)
+            resumeWorkRun(runId)
         } else if (request.method === "PATCH") {
             const input = await body<{ label?: string }>(request)
             renameWorkRun(runId, input.label ?? "")

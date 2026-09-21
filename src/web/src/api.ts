@@ -32,6 +32,7 @@ import type {
     BaselineReport,
     WorkPackageBranchDetail,
     WorkPackageDetail,
+    RunSupervisor,
     WorkRunDetail,
     WorkRunKind,
     WorkPackageSummary,
@@ -228,6 +229,7 @@ export const api = {
             mode: AgentRunMode
             permissionMode: AgentPermissionMode
             extra: string
+            supervisor?: RunSupervisor | null
         },
     ) =>
         request<{ workRun: WorkRunDetail; workPackage: WorkPackageDetail }>(
@@ -244,6 +246,24 @@ export const api = {
     stopWorkRun: (ref: string, id: number) =>
         request<{ workPackage: WorkPackageDetail }>(
             `/work-packages/${encodeURIComponent(ref)}/work-runs/${id}/stop`,
+            { method: "POST" },
+        ),
+
+    /** Attach, change or (with null) remove an unattended run's supervisor. */
+    setWorkRunSupervisor: (
+        ref: string,
+        id: number,
+        supervisor: RunSupervisor | null,
+    ) =>
+        request<{ workPackage: WorkPackageDetail }>(
+            `/work-packages/${encodeURIComponent(ref)}/work-runs/${id}/supervisor`,
+            { method: "PUT", body: JSON.stringify({ supervisor }) },
+        ),
+
+    /** Set a stopped unattended run going again from where it got to. */
+    resumeWorkRun: (ref: string, id: number) =>
+        request<{ workPackage: WorkPackageDetail }>(
+            `/work-packages/${encodeURIComponent(ref)}/work-runs/${id}/resume`,
             { method: "POST" },
         ),
 

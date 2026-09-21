@@ -2,7 +2,12 @@ import { getDb, nowIso } from "./db"
 import { findAgentRun, startRun, stopRun } from "./agents"
 import { findTask, findWorkPackageRun, requireWorkPackage } from "./repo"
 import { getWorkPackageDetail } from "./workPackageBranch"
-import { startWorkPackageRun, stopWorkPackageRun } from "./workPackageRuns"
+import {
+    resumeWorkPackageRun,
+    setSupervisor,
+    startWorkPackageRun,
+    stopWorkPackageRun,
+} from "./workPackageRuns"
 import {
     nextWorkableTask,
     satisfiesDependency,
@@ -11,7 +16,10 @@ import {
     type AgentPermissionMode,
     type AgentRun,
     type AgentRunMode,
+    type RunSupervisor,
+    type WorkPackageRun,
     type WorkRun,
+    type WorkRunAgent,
     type WorkRunDetail,
     type WorkRunItem,
     type WorkRunKind,
@@ -91,6 +99,8 @@ export interface StartWorkRunInput {
     mode: AgentRunMode
     permissionMode: AgentPermissionMode
     extra: string
+    /** Unattended runs only: who to call in when a task stops short. */
+    supervisor?: RunSupervisor | null
 }
 
 /** Launch the agent a run describes, and record the run as a tab. */
@@ -120,6 +130,7 @@ export function startWorkRun(input: StartWorkRunInput): WorkRunDetail {
             permissionMode,
             extra: input.extra,
             excluded: [],
+            supervisor: input.supervisor,
         })
         workPackageRunId = started.workPackageRun.id
         agentRunId = started.run.id
@@ -212,6 +223,55 @@ export function stopWorkRun(id: number): WorkRunDetail {
     return workRunDetail(requireWorkRun(id))
 }
 
+/**
+ * Set an unattended run going again from where it stopped. Tasks added to the
+ * work package since it started join the end of the tab's list, since the loop
+ * will work them too.
+ */
+export function resumeWorkRun(id: number): WorkRunDetail {
+    const run = requireWorkRun(id)
+    const loop =
+        run.workPackageRunId !== null
+            ? findWorkPackageRun(run.workPackageRunId)
+            : null
+    if (run.kind !== "unattended" || !loop)
+        throw new Error(
+            "Only an unattended run can be resumed from its tab. Reopen this one's conversation in a terminal instead.",
+        )
+
+    resumeWorkPackageRun(
+        loop.id,
+        loop.runIds.length ? loop.runIds : legacyLoopRunIds(run, loop),
+    )
+
+    const known = new Set(run.taskRefs.map((ref) => ref.toLowerCase()))
+    const added = getWorkPackageDetail(run.workPackageRef)
+        .queue.map((task) => task.ref)
+        .filter((ref) => !known.has(ref.toLowerCase()))
+    getDb()
+        .query(
+            "UPDATE work_runs SET task_refs_json = $tasks, updated_at = $at WHERE id = $id",
+        )
+        .run({
+            $id: run.id,
+            $tasks: JSON.stringify([...run.taskRefs, ...added]),
+            $at: nowIso(),
+        })
+    return workRunDetail(requireWorkRun(id))
+}
+
+/** Attach, change or remove an unattended run's supervisor. */
+export function setWorkRunSupervisor(
+    id: number,
+    supervisor: RunSupervisor | null,
+): WorkRunDetail {
+    const run = requireWorkRun(id)
+    if (run.kind !== "unattended" || run.workPackageRunId === null)
+        throw new Error("Only an unattended run can have a supervisor.")
+    setSupervisor(run.workPackageRunId, supervisor)
+    return workRunDetail(requireWorkRun(id))
+}
+
 const AGENT_STATUS: Record<AgentRun["status"], WorkRunStatus> = {
     launched: "launched",
     running: "running",
@@ -240,6 +300,7 @@ export function workRunDetail(run: WorkRun): WorkRunDetail {
           : "The agent's record is missing."
     const current =
         loop?.status === "running" ? loop.currentRef?.toLowerCase() : null
+    const agents = headlessAgentsByTask(run, loop)
 
     const items: WorkRunItem[] = run.taskRefs.map((ref) => {
         const task = findTask(ref)
@@ -255,8 +316,74 @@ export function workRunDetail(run: WorkRun): WorkRunDetail {
             title: task?.title ?? "(deleted)",
             status: task?.status ?? null,
             state,
+            agents: agents.get(ref.toLowerCase()) ?? [],
         }
     })
 
-    return { ...run, status, statusDetail, items, agentRun }
+    return {
+        ...run,
+        status,
+        statusDetail,
+        items,
+        supervisor: loop?.supervisor ?? null,
+        agentRun,
+    }
+}
+
+/**
+ * The headless agents a run launched, grouped by the task each was pointed at.
+ *
+ * Only headless ones, because only they leave a log behind — a terminal run's
+ * output belongs to its window. A guided run is one agent across every task,
+ * so it has nothing to file under any one of them.
+ */
+function headlessAgentsByTask(
+    run: WorkRun,
+    loop: WorkPackageRun | null,
+): Map<string, WorkRunAgent[]> {
+    const ids = loop
+        ? loop.runIds.length
+            ? loop.runIds
+            : legacyLoopRunIds(run, loop)
+        : run.kind === "next-task" && run.agentRunId !== null
+          ? [run.agentRunId]
+          : []
+
+    const byTask = new Map<string, WorkRunAgent[]>()
+    for (const id of ids) {
+        const agent = findAgentRun(id)
+        if (!agent || agent.mode !== "print" || agent.subjectKind !== "task")
+            continue
+        const key = agent.subjectRef.toLowerCase()
+        byTask.set(key, [
+            ...(byTask.get(key) ?? []),
+            {
+                id: agent.id,
+                command: agent.command,
+                status: agent.status,
+                exitCode: agent.exitCode,
+                createdAt: agent.createdAt,
+                finishedAt: agent.finishedAt,
+            },
+        ])
+    }
+    return byTask
+}
+
+/**
+ * A loop from before each launch was recorded remembers only its first agent
+ * (on the tab) and its last (on the loop). Only one loop runs at a time, so
+ * the `/work-task` runs between the two are its own, give or take one started
+ * by hand alongside it.
+ */
+function legacyLoopRunIds(run: WorkRun, loop: WorkPackageRun): number[] {
+    if (run.agentRunId === null || loop.currentRunId === null) return []
+    return getDb()
+        .query<{ id: number }, { $first: number; $last: number }>(
+            `SELECT id FROM agent_runs
+             WHERE id BETWEEN $first AND $last AND command = 'work-task' AND mode = 'print'
+             ORDER BY id`,
+        )
+        .all({ $first: run.agentRunId, $last: loop.currentRunId })
+        .map((row) => row.id)
 }

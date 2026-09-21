@@ -1,8 +1,16 @@
-import { onRunSettled, startRun, stopRun } from "./agents"
+import {
+    findAgentRun,
+    onRunSettled,
+    runResult,
+    runTrail,
+    startRun,
+    stopRun,
+} from "./agents"
 import { getWorkPackageDetail, missingTargets } from "./workPackageBranch"
 import {
     createWorkPackageRun,
     findTask,
+    reopenWorkPackageRun,
     workPackageRunForAgentRun,
     latestWorkPackageRun,
     recordWorkPackageRunWorked,
@@ -10,14 +18,17 @@ import {
     requireWorkPackageRun,
     runningWorkPackageRuns,
     setWorkPackageRunCurrent,
+    setWorkPackageRunSupervisor,
     settleWorkPackageRun,
 } from "./repo"
 import {
+    MAX_SUPERVISIONS_PER_TASK,
     workPackageRunActive,
     nextWorkableTask,
     type AgentPermissionMode,
     type AgentRun,
     type AgentRunStatus,
+    type RunSupervisor,
     type Task,
     type WorkPackageRun,
     type WorkPackageDetail,
@@ -85,6 +96,8 @@ export interface StartWorkPackageRunInput {
     extra: string
     /** Unfinished tasks the user chose to leave out of this run. */
     excluded: string[]
+    /** Who to call in when a task stops short, if anyone. */
+    supervisor?: RunSupervisor | null
 }
 
 function nextIncludedTask(
@@ -171,6 +184,10 @@ export function startWorkPackageRun(input: StartWorkPackageRunInput): {
         )
     }
 
+    const supervisor = input.supervisor
+        ? checkedSupervisor(input.supervisor)
+        : null
+
     const detail = getWorkPackageDetail(workPackage.ref)
     const queued = new Map(
         detail.queue.map((task) => [task.ref.toLowerCase(), task.ref]),
@@ -196,6 +213,7 @@ export function startWorkPackageRun(input: StartWorkPackageRunInput): {
         permissionMode: input.permissionMode,
         extra: input.extra,
         excluded,
+        supervisor,
     })
 
     let run: AgentRun
@@ -215,8 +233,48 @@ export function startWorkPackageRun(input: StartWorkPackageRunInput): {
     return { workPackageRun: requireWorkPackageRun(workPackageRun.id), run }
 }
 
+/**
+ * A supervisor's settings, made fit to run unattended. Like the task agents,
+ * it has nobody to ask, so "ask first" becomes "never ask"; and like them, it
+ * cannot clear anything in a mode that changes nothing.
+ */
+function checkedSupervisor(supervisor: RunSupervisor): RunSupervisor {
+    if (supervisor.permissionMode === "plan")
+        throw new Error(
+            "A supervisor cannot use Plan only: it changes nothing, so it could never clear a blocker.",
+        )
+    return {
+        harness: supervisor.harness,
+        model: supervisor.model,
+        permissionMode:
+            supervisor.permissionMode === "manual"
+                ? "bypassPermissions"
+                : supervisor.permissionMode,
+        extra: supervisor.extra,
+    }
+}
+
+/**
+ * Attach a supervisor to a loop already under way, or change or remove the one
+ * it has. An agent already at work is left alone; the change applies from the
+ * next time a task stops short.
+ */
+export function setSupervisor(
+    id: number,
+    supervisor: RunSupervisor | null,
+): WorkPackageRun {
+    return setWorkPackageRunSupervisor(
+        id,
+        supervisor ? checkedSupervisor(supervisor) : null,
+    )
+}
+
 /** Point a fresh headless `/work-task` at one ref and record it as in flight. */
-function launch(workPackageRun: WorkPackageRun, ref: string): AgentRun {
+function launch(
+    workPackageRun: WorkPackageRun,
+    ref: string,
+    handoff?: string,
+): AgentRun {
     const run = startRun({
         harness: workPackageRun.harness,
         model: workPackageRun.model,
@@ -227,10 +285,281 @@ function launch(workPackageRun: WorkPackageRun, ref: string): AgentRun {
         subjectKind: "task",
         subjectRef: ref,
         permissionMode: workPackageRun.permissionMode,
+        handoff,
     })
 
     setWorkPackageRunCurrent(workPackageRun.id, run.id, ref)
     return run
+}
+
+/* -------------------------------------------------------------- resuming */
+
+/** How much of a stopped agent's output is put in front of the next one. The
+ *  rest stays in its log, which the next agent is pointed at. */
+const HANDOFF_TAIL_CHARS = 12_000
+
+/**
+ * Set a stopped, blocked or failed loop going again from where it got to.
+ *
+ * The same row is reopened rather than a new one started, so the tab keeps one
+ * history: what was worked stays worked, and the task that was in flight gets
+ * its second agent listed under its first. That second agent starts fresh like
+ * any other, but is handed the task and whatever the first one left behind, so
+ * it carries the work on instead of starting it again.
+ *
+ * `knownRunIds` stands in for the recorded launches of a loop from before they
+ * were recorded, so resuming it does not lose them.
+ */
+export function resumeWorkPackageRun(
+    id: number,
+    knownRunIds: number[],
+): { workPackageRun: WorkPackageRun; run: AgentRun } {
+    const previous = requireWorkPackageRun(id)
+    if (previous.status === "running")
+        throw new Error(`Work package run ${id} is already running.`)
+    const last =
+        previous.currentRunId !== null
+            ? findAgentRun(previous.currentRunId)
+            : null
+    if (last?.status === "running")
+        throw new Error(
+            `${previous.currentRef}'s agent is still running. Stop it before resuming.`,
+        )
+
+    const elsewhere = runningWorkPackageRuns()
+    if (elsewhere.length) {
+        const other = elsewhere[0]!
+        throw new Error(
+            `${other.workPackageRef} is already being worked by work package run ${other.id}. Stop it first.`,
+        )
+    }
+
+    // The task in flight when it stopped comes first if it was left in
+    // progress: that is the one `/work-task` refuses to work around.
+    const detail = getWorkPackageDetail(previous.workPackageRef)
+    const stranded = previous.currentRef
+        ? detail.inProgress.find(
+              (task) =>
+                  task.ref.toLowerCase() === previous.currentRef!.toLowerCase(),
+          )
+        : undefined
+    const problem = whyNotWorkable(
+        detail,
+        stranded?.ref ?? null,
+        previous.excluded,
+    )
+    if (problem) throw new Error(problem)
+    const next = stranded ?? nextIncludedTask(detail, previous.excluded)!
+
+    const reopened = reopenWorkPackageRun(id, knownRunIds)
+    try {
+        const run = launch(reopened, next.ref, handoffFor(reopened, next))
+        return { workPackageRun: requireWorkPackageRun(id), run }
+    } catch (caught) {
+        settleWorkPackageRun(
+            id,
+            "failed",
+            caught instanceof Error ? caught.message : String(caught),
+        )
+        throw caught
+    }
+}
+
+/** The agents this loop has launched at `ref`, oldest first. */
+function agentsOn(workPackageRun: WorkPackageRun, ref: string): AgentRun[] {
+    return workPackageRun.runIds
+        .map((runId) => findAgentRun(runId))
+        .filter(
+            (agent): agent is AgentRun =>
+                agent?.subjectRef.toLowerCase() === ref.toLowerCase(),
+        )
+}
+
+const isSupervisor = (agent: AgentRun) => agent.command === "supervise-task"
+
+function describeEnd(agent: AgentRun): string {
+    return agent.status === "stopped"
+        ? "was stopped before it finished"
+        : agent.status === "failed"
+          ? `exited with an error${agent.exitCode !== null ? ` (code ${agent.exitCode})` : ""}`
+          : "exited without the task reaching Dev Complete with its work merged"
+}
+
+function taskSection(task: Task): string[] {
+    const lines = [
+        "### The task",
+        "",
+        `- Ref: ${task.ref}`,
+        `- Title: ${task.title}`,
+        `- Status: ${task.status}`,
+        `- Branch: ${task.branchName ?? "(none assigned)"}`,
+    ]
+    if (task.targetBranches.length)
+        lines.push(`- Merges into: ${task.targetBranches.join(", ")}`)
+    if (task.description.trim())
+        lines.push("", "Description:", "", task.description.trim())
+    return lines
+}
+
+/** Where an agent's output is, and the end of it. */
+function trailSection(agent: AgentRun, heading: string): string[] {
+    const trail = runTrail(agent.id, HANDOFF_TAIL_CHARS)
+    const lines = [heading, ""]
+    if (trail.logPath) lines.push(`- Its full output log: \`${trail.logPath}\``)
+    if (trail.transcriptPath)
+        lines.push(
+            `- Its conversation transcript (JSON lines): \`${trail.transcriptPath}\``,
+        )
+    lines.push("")
+    if (trail.tail) {
+        lines.push("The end of its output:", "", "````text", trail.tail, "````")
+    } else {
+        lines.push(
+            "It wrote no output before it ended, so its transcript (if listed above) and the",
+            "state of the repository are all there is to go on.",
+        )
+    }
+    return lines
+}
+
+/**
+ * What the agent picking a task back up needs to know: the task, why the loop
+ * stopped, what the last agent on it got through, and what a supervisor did
+ * about it since. Undefined when no agent in this run has touched the task,
+ * since there is nothing to hand over.
+ */
+function handoffFor(
+    workPackageRun: WorkPackageRun,
+    task: Task,
+): string | undefined {
+    const agents = agentsOn(workPackageRun, task.ref)
+    const worker = agents.findLast((agent) => !isSupervisor(agent))
+    if (!worker) return undefined
+    const supervisor = agents.findLast(
+        (agent) => isSupervisor(agent) && agent.id > worker.id,
+    )
+
+    const lines = [
+        "## Picking up a task another agent started",
+        "",
+        `An earlier agent was working ${task.ref} as part of this unattended run and ${describeEnd(worker)}.`,
+    ]
+    if (workPackageRun.stopReason)
+        lines.push(
+            `The run recorded why it stopped: ${workPackageRun.stopReason}`,
+        )
+    if (supervisor)
+        lines.push(
+            "A supervisor has since dealt with what stopped it. Its report is below, and the",
+            "decisions it made stand: follow them rather than asking again.",
+        )
+    lines.push(
+        "",
+        "Do not start the task over. Work out how far it got first — the task's status, its",
+        "branch and `git status`/`git log` there, any checkpoints already captured — and carry",
+        "on from that point. Anything it left half-done is yours to finish or undo.",
+        "",
+        ...taskSection(task),
+        "",
+        ...trailSection(worker, "### What the earlier agent left behind"),
+    )
+    if (supervisor) {
+        lines.push(
+            "",
+            "### The supervisor's report",
+            "",
+            runResult(supervisor.id) ?? "(It wrote no report.)",
+        )
+    }
+    return lines.join("\n")
+}
+
+/**
+ * The brief a supervisor is launched with: what went wrong on the task and
+ * everything the agent working it left behind, plus what any earlier
+ * supervisor on the same task tried.
+ */
+function supervisorBrief(
+    workPackageRun: WorkPackageRun,
+    task: Task,
+    worker: AgentRun,
+    shortfall: string,
+): string {
+    const lines = [
+        "## The brief",
+        "",
+        `The agent working ${task.ref} ${describeEnd(worker)}.`,
+        `The run could not carry on because: ${shortfall}`,
+        "",
+        ...taskSection(task),
+        "",
+        ...trailSection(worker, "### What the task's agent left behind"),
+    ]
+    const earlier = agentsOn(workPackageRun, task.ref).filter(isSupervisor)
+    for (const [index, supervisor] of earlier.entries()) {
+        lines.push(
+            "",
+            `### Supervisor ${index + 1}'s report on this task`,
+            "",
+            "The task stopped again after this, so whatever it did was not enough.",
+            "",
+            runResult(supervisor.id) ?? "(It wrote no report.)",
+        )
+    }
+    return lines.join("\n")
+}
+
+/** Call the run's supervisor in on a task that stopped short. */
+function launchSupervisor(
+    workPackageRun: WorkPackageRun,
+    supervisor: RunSupervisor,
+    task: Task,
+    worker: AgentRun,
+    shortfall: string,
+): AgentRun {
+    const run = startRun({
+        harness: supervisor.harness,
+        model: supervisor.model,
+        mode: "print",
+        command: "supervise-task",
+        target: task.ref,
+        extra: supervisor.extra,
+        subjectKind: "task",
+        subjectRef: task.ref,
+        permissionMode: supervisor.permissionMode,
+        handoff: supervisorBrief(workPackageRun, task, worker, shortfall),
+    })
+    setWorkPackageRunCurrent(workPackageRun.id, run.id, task.ref)
+    return run
+}
+
+/**
+ * What a supervisor concluded, from the verdict its instructions tell it to end
+ * on. Anything else — no answer, or no verdict — counts as unresolved: a
+ * supervisor that cannot say it cleared the blocker has not.
+ */
+function supervisorResolved(agentRunId: number): boolean {
+    const result = runResult(agentRunId)
+    const last = result?.split("\n").at(-1)?.trim().replace(/[`*.]/g, "")
+    return last === "RESOLVED"
+}
+
+/**
+ * Why a task the loop just worked is not done, or null when it is. Dev
+ * Complete is necessary but not sufficient: `tasks done` moves the status
+ * whatever became of the merge — a pushed branch is refused, a collision
+ * aborts — and it exits 0 either way, so a task can sit at Dev Complete with
+ * its work still only on its own branch. Waving that through would branch the
+ * next task from a tip that is missing it.
+ */
+function whyNotDone(task: Task): string | null {
+    if (task.status === "backlog" || task.status === "in_progress") {
+        return (
+            `${task.ref} (${task.title}) finished without reaching Dev Complete, so its agent stopped for ` +
+            "something it wants a person for. Read its log, or resume its session, before carrying on."
+        )
+    }
+    return whyNotOnTargetBranches(task)
 }
 
 /* ---------------------------------------------------------------- the loop */
@@ -241,6 +570,16 @@ function launch(workPackageRun: WorkPackageRun, ref: string): AgentRun {
  *
  * Called for every run that settles, including runs no loop started — those
  * find no work package run and return, which is why this can be a blanket listener.
+ *
+ * ## The supervisor
+ *
+ * When a task's agent stops short and the run has a supervisor, the loop calls
+ * it in instead of stopping. It stands in for the user, clears the blocker, and
+ * ends on a verdict. If the task is done by then, the loop simply carries on. If
+ * the supervisor says it cleared the way, a fresh agent picks the task back up
+ * with its report. Otherwise the run stops for a person, as it would have
+ * without one. A task gets `MAX_SUPERVISIONS_PER_TASK` of these at most, so a
+ * blocker nobody can clear stops the run instead of cycling.
  */
 function advance(agentRunId: number, status: AgentRunStatus): void {
     const workPackageRun = workPackageRunForAgentRun(agentRunId)
@@ -256,19 +595,23 @@ function advance(agentRunId: number, status: AgentRunStatus): void {
         return
     }
 
+    const agent = findAgentRun(agentRunId)
+    const supervising = !!agent && isSupervisor(agent)
+    const whose = supervising ? `The supervisor on ${ref}` : `${ref}'s agent`
+
     if (status === "stopped") {
         settleWorkPackageRun(
             workPackageRun.id,
             "stopped",
-            `${ref}'s agent was stopped, so the loop stopped with it.`,
+            `${whose} was stopped, so the loop stopped with it.`,
         )
         return
     }
-    if (status !== "succeeded") {
+    if (supervising && status !== "succeeded") {
         settleWorkPackageRun(
             workPackageRun.id,
             "failed",
-            `${ref}'s agent exited with an error. Its log has the detail.`,
+            `${whose} exited with an error. Its log has the detail.`,
         )
         return
     }
@@ -284,24 +627,65 @@ function advance(agentRunId: number, status: AgentRunStatus): void {
         )
         return
     }
-    if (task.status === "backlog" || task.status === "in_progress") {
-        settleWorkPackageRun(
-            workPackageRun.id,
-            "blocked",
-            `${ref} (${task.title}) finished without reaching Dev Complete, so its agent stopped for ` +
-                "something it wants a person for. Read its log, or resume its session, before carrying on.",
-        )
+    const failed = status !== "succeeded"
+    const shortfall = failed
+        ? `${ref}'s agent exited with an error. Its log has the detail.`
+        : whyNotDone(task)
+
+    if (shortfall && supervising) {
+        if (!supervisorResolved(agentRunId)) {
+            settleWorkPackageRun(
+                workPackageRun.id,
+                "blocked",
+                `${shortfall} The supervisor looked at it and could not clear it, so it needs a ` +
+                    `person — its report is under ${ref}.`,
+            )
+            return
+        }
+        try {
+            launch(workPackageRun, ref, handoffFor(workPackageRun, task))
+        } catch (caught) {
+            settleWorkPackageRun(
+                workPackageRun.id,
+                "failed",
+                caught instanceof Error ? caught.message : String(caught),
+            )
+        }
         return
     }
 
-    // Dev Complete is necessary but not sufficient. `tasks done` moves the status
-    // whatever became of the merge — a pushed branch is refused, a collision
-    // aborts — and it exits 0 either way, so a task can sit at Dev Complete with
-    // its work still only on its own branch. Waving that through would branch the
-    // next task from a tip that is missing it.
-    const unmerged = whyNotOnTargetBranches(task)
-    if (unmerged) {
-        settleWorkPackageRun(workPackageRun.id, "blocked", unmerged)
+    if (shortfall) {
+        const supervisor = workPackageRun.supervisor
+        const since = workPackageRun.resumedAt ?? ""
+        const called = agentsOn(workPackageRun, ref).filter(
+            (one) => isSupervisor(one) && one.createdAt >= since,
+        ).length
+        if (!supervisor || !agent) {
+            settleWorkPackageRun(
+                workPackageRun.id,
+                failed ? "failed" : "blocked",
+                shortfall,
+            )
+            return
+        }
+        if (called >= MAX_SUPERVISIONS_PER_TASK) {
+            settleWorkPackageRun(
+                workPackageRun.id,
+                "blocked",
+                `${shortfall} The supervisor has already been called in ${called} times on ${ref}, ` +
+                    "so it is left for a person.",
+            )
+            return
+        }
+        try {
+            launchSupervisor(workPackageRun, supervisor, task, agent, shortfall)
+        } catch (caught) {
+            settleWorkPackageRun(
+                workPackageRun.id,
+                "failed",
+                caught instanceof Error ? caught.message : String(caught),
+            )
+        }
         return
     }
 
@@ -405,9 +789,9 @@ export function stopWorkPackageRun(id: number): WorkPackageRun {
  * A `running` loop whose agents died with the server is a lie the next page load
  * would repeat forever.
  *
- * Not resumed, only settled. Restarting a work package is one click and it re-derives
- * the queue from scratch; quietly launching agents at boot because a row said
- * `running` is not something a restart should do on its own.
+ * Not resumed, only settled. Resuming is one click on the run's tab; quietly
+ * launching agents at boot because a row said `running` is not something a
+ * restart should do on its own.
  */
 export function reconcileWorkPackageRuns(): void {
     for (const workPackageRun of runningWorkPackageRuns()) {

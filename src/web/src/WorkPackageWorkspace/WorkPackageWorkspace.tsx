@@ -5,6 +5,7 @@ import {
     type Task,
     type WorkPackageBranchDetail,
     type WorkPackageDetail,
+    type WorkRunDetail,
 } from "@shared/types"
 import {
     action,
@@ -41,6 +42,7 @@ import { InvestigationPanel } from "./InvestigationPanel"
 import { LegacyWorkPackage } from "./LegacyWorkPackage"
 import { NotesPanel } from "./NotesPanel"
 import { RunPanel } from "./RunPanel"
+import { SupervisorDialog } from "./SupervisorDialog"
 import { WorkPackageOverview } from "./WorkPackageOverview"
 import {
     NOTES_TAB,
@@ -155,6 +157,23 @@ export function WorkPackageWorkspace(props: {
             )}
         </Show>
     ))
+    // Opened from a Run tab, which is rebuilt on every refresh of a running
+    // loop, so the dialog lives here and takes the run as it was when opened.
+    let supervisedRun: WorkRunDetail | undefined
+    const { openDialog: openSupervisorDialog } = useDialog(
+        ({ closeDialog }) => (
+            <SupervisorDialog
+                workPackageRef={supervisedRun!.workPackageRef}
+                run={supervisedRun!}
+                close={closeDialog}
+                changed={changed}
+            />
+        ),
+    )
+    const editSupervisor = (run: WorkRunDetail) => {
+        supervisedRun = run
+        openSupervisorDialog()
+    }
     const { openDialog: openCreateTask } = useDialog(({ closeDialog }) => (
         <Show when={workPackage()} keyed>
             {(detail) => (
@@ -484,6 +503,9 @@ export function WorkPackageWorkspace(props: {
                                                             props.openTask
                                                         }
                                                         changed={changed}
+                                                        editSupervisor={
+                                                            editSupervisor
+                                                        }
                                                     />
                                                 )}
                                             </Show>

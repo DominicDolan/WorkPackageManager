@@ -1,13 +1,24 @@
 import {
     WORK_RUN_KIND_LABELS,
+    type AgentRunDetail,
     type WorkPackageDetail,
+    type WorkRunAgent,
     type WorkRunDetail,
+    type WorkRunItem,
     type WorkRunStatus,
 } from "@shared/types"
-import { action, createOptimistic, For, Show } from "solid-js"
+import {
+    action,
+    createOptimistic,
+    createSignal,
+    For,
+    onSettled,
+    Show,
+} from "solid-js"
 import { api } from "../api"
 import { StatusBadge } from "../components/StatusBadge"
 import { useError } from "../hooks/useError"
+import { renderMarkdown } from "../markdown"
 import { TabHeading } from "./TabHeading"
 
 const STATUS_LABELS: Record<WorkRunStatus, string> = {
@@ -43,11 +54,20 @@ export function RunPanel(props: {
     run: WorkRunDetail
     openTask: (ref: string) => void
     changed: () => void
+    /** Open the dialog that attaches, changes or removes the supervisor. */
+    editSupervisor: (run: WorkRunDetail) => void
 }) {
     const [busy, setBusy] = createOptimistic("")
     const { capture, clear, Banner } = useError()
     const running = () => props.run.status === "running"
     const agent = () => props.run.agentRun
+    // An unattended loop that has settled any way but finishing can carry on
+    // from where it got to.
+    const resumable = () =>
+        props.run.kind === "unattended" &&
+        (props.run.status === "stopped" ||
+            props.run.status === "blocked" ||
+            props.run.status === "failed")
 
     const act = action(function* (
         label: string,
@@ -138,6 +158,40 @@ export function RunPanel(props: {
                         {props.run.extra}
                     </p>
                 </Show>
+                <Show when={props.run.kind === "unattended"}>
+                    <div class="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <p class="caption muted m-0 min-w-0 flex-1">
+                            <Show
+                                when={props.run.supervisor}
+                                fallback="No supervisor: a task that stops short stops the run.">
+                                {(supervisor) => (
+                                    <>
+                                        Supervisor:{" "}
+                                        <span class="font-mono">
+                                            {supervisor().harness}
+                                            {supervisor().model
+                                                ? ` · ${supervisor().model}`
+                                                : ""}
+                                        </span>
+                                        , called in when a task stops short.
+                                        <Show when={supervisor().extra}>
+                                            <span class="mt-1 block whitespace-pre-wrap">
+                                                {supervisor().extra}
+                                            </span>
+                                        </Show>
+                                    </>
+                                )}
+                            </Show>
+                        </p>
+                        <button
+                            class="outlined p-[0.2rem_0.6rem] caption"
+                            onClick={() => props.editSupervisor(props.run)}>
+                            {props.run.supervisor
+                                ? "Change supervisor"
+                                : "Add a supervisor"}
+                        </button>
+                    </div>
+                </Show>
                 <div class="mt-4 flex flex-wrap gap-2">
                     <Show when={running()}>
                         <button
@@ -155,12 +209,29 @@ export function RunPanel(props: {
                             Stop
                         </button>
                     </Show>
+                    <Show when={resumable()}>
+                        <button
+                            class="primary"
+                            aria-busy={busy() === "resume" ? "true" : "false"}
+                            disabled={!!busy()}
+                            title="Start the loop again. The task it stopped on goes to a fresh agent, handed the task and what the last agent left behind."
+                            onClick={() =>
+                                act("resume", () =>
+                                    api.resumeWorkRun(
+                                        props.workPackage.ref,
+                                        props.run.id,
+                                    ),
+                                )
+                            }>
+                            Resume run
+                        </button>
+                    </Show>
                     <Show when={agent()}>
                         {(current) => (
                             <button
                                 class="outlined"
                                 aria-busy={
-                                    busy() === "resume" ? "true" : "false"
+                                    busy() === "reopen" ? "true" : "false"
                                 }
                                 disabled={!!busy() || !current().sessionId}
                                 title={
@@ -169,7 +240,7 @@ export function RunPanel(props: {
                                         : "This run has no recorded conversation ID to reopen."
                                 }
                                 onClick={() =>
-                                    act("resume", () =>
+                                    act("reopen", () =>
                                         api.resumeAgentRun(current().id),
                                     )
                                 }>
@@ -196,51 +267,282 @@ export function RunPanel(props: {
                             <li class="hint">This run had no tasks to work.</li>
                         }>
                         {(item, index) => (
-                            <li>
-                                <button
-                                    class="card-item row compact flex w-full items-center gap-3 px-3 py-2 text-left"
-                                    aria-current={
-                                        item.state === "working"
-                                            ? "step"
-                                            : undefined
-                                    }
-                                    onClick={() => props.openTask(item.ref)}>
-                                    <span class="w-5 text-right font-mono caption muted">
-                                        {index() + 1}
-                                    </span>
-                                    <span class="font-mono caption muted w-12">
-                                        {item.ref}
-                                    </span>
-                                    <span class="min-w-0 flex-1 truncate text-sm">
-                                        {item.title}
-                                    </span>
-                                    <span
-                                        class={`badge ${
-                                            item.state === "done"
-                                                ? "success"
-                                                : item.state === "working"
-                                                  ? "accent"
-                                                  : ""
-                                        } p-[0.12rem_0.42rem]`}
-                                        aria-busy={
-                                            item.state === "working" &&
-                                            running()
-                                                ? "true"
-                                                : "false"
-                                        }>
-                                        {ITEM_LABELS[item.state]}
-                                    </span>
-                                    <Show when={item.status}>
-                                        {(status) => (
-                                            <StatusBadge status={status()} />
-                                        )}
-                                    </Show>
-                                </button>
-                            </li>
+                            <RunItem
+                                runId={props.run.id}
+                                item={item}
+                                index={index()}
+                                running={running()}
+                                openTask={props.openTask}
+                            />
                         )}
                     </For>
                 </ol>
             </article>
         </section>
+    )
+}
+
+/** A task in the run, with the output of the agents that worked it folded
+ *  away underneath. */
+/*
+ * Kept outside the components on purpose. Every refresh of the work package
+ * — and a running agent causes plenty — hands the page a new detail object,
+ * and the page is keyed on it, so this panel is rebuilt from scratch each
+ * time. Anything held inside it would be forgotten: an opened log would fold
+ * itself away, blink back through "Loading…", and lose its scroll position.
+ */
+const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set())
+
+interface SeenOutput {
+    detail: AgentRunDetail
+    /** Null while the reader is following the end of the log. */
+    scrollTop: number | null
+}
+const seenOutput = new Map<number, SeenOutput>()
+/** Agents whose working is unfolded under their final answer. */
+const [showingWorking, setShowingWorking] = createSignal<ReadonlySet<number>>(
+    new Set(),
+)
+
+function RunItem(props: {
+    runId: number
+    item: WorkRunItem
+    index: number
+    running: boolean
+    openTask: (ref: string) => void
+}) {
+    const key = () => `${props.runId}:${props.item.ref.toLowerCase()}`
+    const open = () => expanded().has(key())
+    const setOpen = (value: boolean) =>
+        setExpanded((current) => {
+            const next = new Set(current)
+            if (value) next.add(key())
+            else next.delete(key())
+            return next
+        })
+    const hasOutput = () => props.item.agents.length > 0
+    const unblocking = () => {
+        const last = props.item.agents.at(-1)
+        return (
+            props.running &&
+            last?.command === "supervise-task" &&
+            last.status === "running"
+        )
+    }
+    // Numbered among the task's own agents; a supervisor is named as one.
+    const labelFor = (agent: WorkRunAgent) => {
+        if (agent.command === "supervise-task") return "Supervisor"
+        const workers = props.item.agents.filter(
+            (one) => one.command !== "supervise-task",
+        )
+        return workers.length > 1
+            ? `Attempt ${workers.indexOf(agent) + 1}`
+            : null
+    }
+
+    return (
+        <li>
+            <div class="flex items-center gap-1">
+                <button
+                    class="w-7 shrink-0 self-stretch p-0 text-center caption muted"
+                    aria-expanded={open() ? "true" : "false"}
+                    aria-label={`${open() ? "Hide" : "Show"} agent output for ${props.item.ref}`}
+                    title={
+                        hasOutput()
+                            ? "Agent output"
+                            : "No agent has worked this task in this run yet."
+                    }
+                    disabled={!hasOutput()}
+                    onClick={() => setOpen(!open())}>
+                    {open() ? "\u25BE" : "\u25B8"}
+                </button>
+                <button
+                    class="card-item row compact flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
+                    aria-current={
+                        props.item.state === "working" ? "step" : undefined
+                    }
+                    onClick={() => props.openTask(props.item.ref)}>
+                    <span class="w-5 text-right font-mono caption muted">
+                        {props.index + 1}
+                    </span>
+                    <span class="font-mono caption muted w-12">
+                        {props.item.ref}
+                    </span>
+                    <span class="min-w-0 flex-1 truncate text-sm">
+                        {props.item.title}
+                    </span>
+                    <span
+                        class={`badge ${
+                            props.item.state === "done"
+                                ? "success"
+                                : unblocking()
+                                  ? "warning"
+                                  : props.item.state === "working"
+                                    ? "accent"
+                                    : ""
+                        } p-[0.12rem_0.42rem]`}
+                        aria-busy={
+                            props.item.state === "working" && props.running
+                                ? "true"
+                                : "false"
+                        }>
+                        {unblocking()
+                            ? "Unblocking"
+                            : ITEM_LABELS[props.item.state]}
+                    </span>
+                    <Show when={props.item.status}>
+                        {(status) => <StatusBadge status={status()} />}
+                    </Show>
+                </button>
+            </div>
+            <Show when={open() && hasOutput()}>
+                <div class="mt-1 mb-2 ml-8 grid gap-2">
+                    <For each={props.item.agents}>
+                        {(agent) => (
+                            <AgentOutput
+                                agent={agent}
+                                label={labelFor(agent)}
+                            />
+                        )}
+                    </For>
+                </div>
+            </Show>
+        </li>
+    )
+}
+
+const AGENT_STATUS_LABELS: Record<WorkRunAgent["status"], string> = {
+    launched: "Launched",
+    running: "Running",
+    succeeded: "Exited cleanly",
+    failed: "Failed",
+    stopped: "Stopped",
+}
+
+/**
+ * One headless agent's saved log. Fetched only once it is opened, and
+ * followed while the agent is still writing to it.
+ */
+function AgentOutput(props: { agent: WorkRunAgent; label: string | null }) {
+    const seen = seenOutput.get(props.agent.id)
+    const [detail, setDetail] = createSignal<AgentRunDetail | null>(
+        seen?.detail ?? null,
+    )
+    const { capture, Banner } = useError()
+    let log: HTMLPreElement | undefined
+
+    // Keep following the end of the log, unless someone has scrolled up to
+    // read something — in which case leave them where they are.
+    const restoreScroll = () =>
+        requestAnimationFrame(() => {
+            if (!log) return
+            const scrollTop = seenOutput.get(props.agent.id)?.scrollTop ?? null
+            log.scrollTop = scrollTop ?? log.scrollHeight
+        })
+    const rememberScroll = () => {
+        const remembered = seenOutput.get(props.agent.id)
+        if (!log || !remembered) return
+        remembered.scrollTop =
+            log.scrollHeight - log.scrollTop - log.clientHeight < 40
+                ? null
+                : log.scrollTop
+    }
+
+    const load = async () => {
+        try {
+            const next = await api.getAgentRun(props.agent.id)
+            seenOutput.set(props.agent.id, {
+                detail: next,
+                scrollTop: seenOutput.get(props.agent.id)?.scrollTop ?? null,
+            })
+            setDetail(next)
+            restoreScroll()
+        } catch (caught) {
+            capture(caught)
+        }
+    }
+
+    onSettled(() => {
+        if (seen) restoreScroll()
+        // A finished agent's log will not change, so once seen it is not
+        // fetched again.
+        if (!seen || seen.detail.status === "running") void load()
+        const poll = setInterval(() => {
+            const status = detail()?.status ?? props.agent.status
+            if (status === "running") void load()
+        }, 2000)
+        return () => clearInterval(poll)
+    })
+
+    const status = () => detail()?.status ?? props.agent.status
+    // With a final answer to show, the working behind it is folded away until
+    // asked for. Without one — still going, or stopped before answering — the
+    // working is all there is.
+    const result = () => detail()?.result ?? null
+    const working = () => !result() || showingWorking().has(props.agent.id)
+    const toggleWorking = () => {
+        setShowingWorking((current) => {
+            const next = new Set(current)
+            if (next.has(props.agent.id)) next.delete(props.agent.id)
+            else next.add(props.agent.id)
+            return next
+        })
+        restoreScroll()
+    }
+
+    return (
+        <div class="tonal p-3">
+            <header class="flex flex-wrap items-baseline gap-2 caption muted">
+                <Show when={props.label}>
+                    {(label) => <span class="font-medium">{label()}</span>}
+                </Show>
+                <span aria-busy={status() === "running" ? "true" : "false"}>
+                    {AGENT_STATUS_LABELS[status()]}
+                    {detail()?.exitCode !== null &&
+                    detail()?.exitCode !== undefined &&
+                    detail()?.exitCode !== 0
+                        ? ` (exit ${detail()!.exitCode})`
+                        : ""}
+                </span>
+                <time class="ml-auto">
+                    {new Date(props.agent.createdAt).toLocaleString()}
+                </time>
+            </header>
+            <Banner />
+            <Show when={result()}>
+                {(answer) => (
+                    <>
+                        <article
+                            class="prose mt-2 text-sm"
+                            innerHTML={renderMarkdown(answer())}
+                        />
+                        <button
+                            class="outlined mt-2 p-[0.2rem_0.6rem] caption"
+                            aria-expanded={working() ? "true" : "false"}
+                            onClick={toggleWorking}>
+                            {working() ? "Hide working" : "Show working"}
+                        </button>
+                    </>
+                )}
+            </Show>
+            <Show when={working() && detail()?.truncated}>
+                <p class="hint m-0 mt-2">
+                    The log is long, so only its end is shown.
+                </p>
+            </Show>
+            <Show when={working()}>
+                <pre
+                    ref={log}
+                    onScroll={rememberScroll}
+                    class="mt-2 mb-0 max-h-[28rem] overflow-auto whitespace-pre-wrap p-3 text-xs">
+                    {detail() === null
+                        ? "Loading…"
+                        : detail()!.output ||
+                          (status() === "running"
+                              ? "Nothing written yet."
+                              : "This agent wrote no output.")}
+                </pre>
+            </Show>
+        </div>
     )
 }

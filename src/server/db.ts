@@ -383,6 +383,27 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
         column: "excluded_json",
         definition: "TEXT NOT NULL DEFAULT '[]'",
     },
+    // Every agent the loop launched, so each task's output can be found again.
+    // Older runs only remembered the one in flight.
+    {
+        table: "work_package_runs",
+        column: "run_ids_json",
+        definition: "TEXT NOT NULL DEFAULT '[]'",
+    },
+    // The agent an unattended run calls in when a task stops short. Null for
+    // none, which is every run from before supervisors existed.
+    {
+        table: "work_package_runs",
+        column: "supervisor_json",
+        definition: "TEXT",
+    },
+    // When a person last resumed the loop. A resume gives the supervisor a
+    // fresh go at each task, since the person may have changed what it faces.
+    {
+        table: "work_package_runs",
+        column: "resumed_at",
+        definition: "TEXT",
+    },
 ]
 
 /** Indexes over columns that ADDED_COLUMNS may have only just created, so they
