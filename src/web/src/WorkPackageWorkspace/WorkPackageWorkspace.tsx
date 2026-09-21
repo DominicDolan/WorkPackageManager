@@ -27,6 +27,7 @@ import {
     BackIcon,
     BranchIcon,
     InvestigationIcon,
+    NotesIcon,
     PlusIcon,
     RunIcon,
     TasksIcon,
@@ -38,9 +39,11 @@ import { AddTabMenu, type NewTabKind } from "./AddTabMenu"
 import { BranchPanel } from "./BranchPanel"
 import { InvestigationPanel } from "./InvestigationPanel"
 import { LegacyWorkPackage } from "./LegacyWorkPackage"
+import { NotesPanel } from "./NotesPanel"
 import { RunPanel } from "./RunPanel"
 import { WorkPackageOverview } from "./WorkPackageOverview"
 import {
+    NOTES_TAB,
     TASKS_TAB,
     branchTab,
     investigationTab,
@@ -61,6 +64,7 @@ export function WorkPackageWorkspace(props: {
     back: () => void
     openTask: (ref: string) => void
     openNote: (path: string) => void
+    openIssue: (id: string) => void
     changed: () => void
     revision: number
 }) {
@@ -90,6 +94,7 @@ export function WorkPackageWorkspace(props: {
     createEffect(
         () =>
             activeTab() !== TASKS_TAB &&
+            activeTab() !== NOTES_TAB &&
             !tabs().some((tab) => tab.key === activeTab()),
         (missing) => {
             if (missing) setTab(TASKS_TAB)
@@ -346,6 +351,12 @@ export function WorkPackageWorkspace(props: {
                                                 <TasksIcon />
                                                 Tasks
                                             </button>
+                                            <button
+                                                ref={tabProps(NOTES_TAB)}
+                                                class="inline-flex items-center gap-[0.4rem]">
+                                                <NotesIcon />
+                                                Notes
+                                            </button>
                                             <For each={tabs()}>
                                                 {(tab) => {
                                                     const { label, Icon } =
@@ -380,8 +391,16 @@ export function WorkPackageWorkspace(props: {
                                             openTask={props.openTask}
                                             busy={busy()}
                                             mutate={mutate}
+                                        />
+                                    </Show>
+                                </section>
+                                <section {...windowProps(NOTES_TAB)}>
+                                    <Show when={matches(NOTES_TAB)}>
+                                        <NotesPanel
+                                            workPackage={detail}
                                             openNote={props.openNote}
-                                            notesChanged={changed}
+                                            openIssue={props.openIssue}
+                                            changed={changed}
                                         />
                                     </Show>
                                 </section>

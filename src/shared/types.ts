@@ -544,6 +544,27 @@ export interface NotesGitInfo {
     unpushed: number | null
 }
 
+/**
+ * A merge or rebase that stopped on conflicts.
+ *
+ * By the time this reaches the UI the operation has already been aborted, so the
+ * repository is exactly as it was. It is the brief handed to an agent asked to
+ * run the operation again and resolve the conflicts itself.
+ */
+export interface GitConflict {
+    operation: "merge" | "rebase"
+    /** Which repository: the tracked one, or the notes folder's own. */
+    scope: "repo" | "notes"
+    /** The branch being updated. */
+    branch: string
+    /** What it was merged with or rebased onto. */
+    onto: string
+    /** Paths Git reported as conflicted. */
+    files: string[]
+    /** Git's own output from the failed attempt. */
+    detail: string
+}
+
 /** Where the notes live and what state that folder is in. */
 export interface NotesWorkspaceInfo {
     /** Absolute path to the notes folder. */
@@ -831,6 +852,22 @@ export interface WorkPackageBranchDetail extends WorkPackageBranch {
     delivery: CombinedBranch | null
 }
 
+/** What every attached reference carries for its card, whatever it is. */
+interface WorkPackageReferenceBase {
+    attachedAt: string
+    /** The start of the content, capped: all a card can ever show. */
+    preview: string
+    previewFormat: "markdown" | "html"
+    /** Characters of readable text in the whole thing, markup aside. How much
+     *  there is, so a card can be sized to it. */
+    length: number
+}
+
+/** A note or an issue attached to a work package. */
+export type WorkPackageReference =
+    | (WorkPackageReferenceBase & { kind: "note"; note: NoteSummary })
+    | (WorkPackageReferenceBase & { kind: "issue"; issue: IssueSummary })
+
 /* ------------------------------------------------------------ work package detail */
 
 /**
@@ -849,6 +886,9 @@ export interface WorkPackageDetail extends WorkPackageSummary {
     branches: WorkPackageBranchDetail[]
     /** Investigation and reference notes attached to this work package. */
     notes: NoteSummary[]
+    /** Notes and issues attached to this work package, newest attachment first —
+     *  what its Notes tab draws, as one collection. */
+    references: WorkPackageReference[]
     /** The unfinished tasks, in dependency order — what an agent works through. */
     queue: Task[]
     /**
@@ -961,6 +1001,7 @@ export const AGENT_COMMANDS = [
     "work-task",
     "work-package",
     "resolve-checks",
+    "resolve-conflicts",
 ] as const
 export type AgentCommand = (typeof AGENT_COMMANDS)[number]
 

@@ -59,6 +59,20 @@ export function BranchIcon() {
     )
 }
 
+export function NotesIcon() {
+    return (
+        <svg
+            class="icon w-[1rem] h-[1rem]"
+            viewBox="0 0 20 20"
+            aria-hidden="true">
+            <path
+                d="M5.5 3.5h6l3 3v10h-9zM11.5 3.5v3h3M8 10.5h4.5M8 13.5h4.5"
+                stroke-linejoin="round"
+            />
+        </svg>
+    )
+}
+
 export function RunIcon() {
     return (
         <svg

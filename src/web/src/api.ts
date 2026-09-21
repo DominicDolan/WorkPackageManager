@@ -19,6 +19,7 @@ import type {
     Note,
     NoteAttachment,
     NoteSummary,
+    GitConflict,
     NotesGitInfo,
     NotesWorkspaceInfo,
     ModelTier,
@@ -254,6 +255,20 @@ export const api = {
         ),
 
     /** Forget a branch tab. The Git branch is left alone. */
+    /** Rebase the branch onto its base's tip. A conflict aborts and is returned,
+     *  not thrown, so the caller can offer it to an agent. */
+    rebaseWorkPackageBranch: (ref: string, id: number) =>
+        request<{
+            rebased: boolean
+            upToDate: boolean
+            pushed: boolean
+            conflict: GitConflict | null
+            branch: WorkPackageBranchDetail
+            workPackage: WorkPackageDetail
+        }>(`/work-packages/${encodeURIComponent(ref)}/branches/${id}/rebase`, {
+            method: "POST",
+        }),
+
     removeWorkPackageBranch: (ref: string, id: number) =>
         request<{ workPackage: WorkPackageDetail }>(
             `/work-packages/${encodeURIComponent(ref)}/branches/${id}`,
@@ -284,6 +299,18 @@ export const api = {
     detachWorkPackageNote: (ref: string, path: string) =>
         request<{ workPackage: WorkPackageDetail }>(
             `/work-packages/${encodeURIComponent(ref)}/note-links/${notePath(path)}`,
+            { method: "DELETE" },
+        ).then((r) => r.workPackage),
+
+    attachWorkPackageIssue: (ref: string, id: string) =>
+        request<{ workPackage: WorkPackageDetail }>(
+            `/work-packages/${encodeURIComponent(ref)}/issue-links`,
+            { method: "POST", body: JSON.stringify({ id }) },
+        ).then((r) => r.workPackage),
+
+    detachWorkPackageIssue: (ref: string, id: string) =>
+        request<{ workPackage: WorkPackageDetail }>(
+            `/work-packages/${encodeURIComponent(ref)}/issue-links/${encodeURIComponent(id)}`,
             { method: "DELETE" },
         ).then((r) => r.workPackage),
 
@@ -765,6 +792,8 @@ export const api = {
         subjectKind: string
         subjectRef: string
         permissionMode: AgentPermissionMode
+        /** Required by `resolve-conflicts`: what collided, and where. */
+        conflict?: GitConflict
     }) =>
         request<{ run: AgentRun }>("/agents/run", {
             method: "POST",
@@ -858,6 +887,9 @@ export const api = {
             received: number
             upstream: string | null
             unpushed: number
+            merged: boolean
+            /** Set when a merge was needed and collided. Already aborted. */
+            conflict: GitConflict | null
             git: NotesGitInfo
             workspace: NotesWorkspaceInfo
         }>("/notes/pull", { method: "POST" }),

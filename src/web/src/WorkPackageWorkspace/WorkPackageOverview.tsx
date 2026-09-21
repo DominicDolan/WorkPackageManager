@@ -5,7 +5,6 @@ import {
 } from "@shared/types"
 import { For, Show } from "solid-js"
 import { api } from "../api"
-import { AttachedNotes } from "../components/AttachedNotes"
 import { InfoCard } from "../components/InfoCard"
 import { TaskRow } from "./TaskRow"
 
@@ -14,8 +13,6 @@ export function WorkPackageOverview(props: {
     openTask: (ref: string) => void
     busy: string
     mutate: (label: string, action: () => Promise<unknown>) => Promise<void>
-    openNote: (path: string) => void
-    notesChanged: () => void
 }) {
     const ready = () =>
         props.workPackage.tasks.filter((task) => task.status === "dev_complete")
@@ -84,25 +81,6 @@ export function WorkPackageOverview(props: {
                             </button>
                         )}
                     </Show>
-                </InfoCard>
-                <InfoCard title="Reference notes">
-                    <AttachedNotes
-                        notes={props.workPackage.notes}
-                        attach={(path) =>
-                            api.attachWorkPackageNote(
-                                props.workPackage.ref,
-                                path,
-                            )
-                        }
-                        detach={(path) =>
-                            api.detachWorkPackageNote(
-                                props.workPackage.ref,
-                                path,
-                            )
-                        }
-                        changed={props.notesChanged}
-                        open={props.openNote}
-                    />
                 </InfoCard>
                 <Show when={props.workPackage.run}>
                     {(run) => (

@@ -1,7 +1,6 @@
 import {
     action,
     createOptimistic,
-    For,
     Loading,
     isPending,
     Show,
@@ -21,6 +20,7 @@ import {
 import { api } from "../api"
 import { useError } from "../hooks/useError"
 import { AgentSettings } from "../components/AgentSettings"
+import { RunHistory } from "../components/RunHistory"
 import { Modal } from "../components/Modal"
 
 export function AgentLauncher(props: {
@@ -43,7 +43,6 @@ export function AgentLauncher(props: {
     const [extra, setExtra] = createSignal("")
     const [label, setLabel] = createSignal("")
     const [busy, setBusy] = createOptimistic(false)
-    const [resuming, setResuming] = createOptimistic<number | null>(null)
     const { capture, clear, Banner } = useError()
     // Task pages are the place a person returns after an agent has stopped. Keep
     // the history scoped to this task, rather than mixing in unrelated work package runs.
@@ -84,18 +83,6 @@ export function AgentLauncher(props: {
     )
 
     const next = () => props.task ?? nextWorkableTask(props.workPackage)
-    const resume = action(function* (entry: AgentRun) {
-        if (resuming() !== null || busy()) return
-
-        if (!entry.sessionId) return
-        setResuming(entry.id)
-        clear()
-        try {
-            yield api.resumeAgentRun(entry.id)
-        } catch (caught) {
-            capture(caught)
-        }
-    })
     const run = action(async function* () {
         if (busy() || isPending(harness)) return
 
@@ -236,52 +223,9 @@ export function AgentLauncher(props: {
                             Reopen an agent conversation that previously worked
                             on this task.
                         </p>
-                        <ul class="mt-3 space-y-2">
-                            <For each={history()}>
-                                {(entry) => (
-                                    <li class="flex flex-wrap items-center gap-2 tonal px-3 py-2 text-xs">
-                                        <span class="font-medium capitalize text-slate-700">
-                                            {entry.status}
-                                        </span>
-                                        <span class="font-mono text-slate-500">
-                                            {entry.harness}
-                                            {entry.model
-                                                ? ` · ${entry.model}`
-                                                : ""}
-                                        </span>
-                                        <span class="text-slate-400">
-                                            {entry.mode === "print"
-                                                ? "Headless"
-                                                : "Terminal"}
-                                        </span>
-                                        <time class="ml-auto text-slate-400">
-                                            {new Date(
-                                                entry.createdAt,
-                                            ).toLocaleString()}
-                                        </time>
-                                        <button
-                                            aria-busy={
-                                                resuming() === entry.id
-                                                    ? "true"
-                                                    : "false"
-                                            }
-                                            class="outlined px-2 py-1 text-xs"
-                                            disabled={
-                                                !entry.sessionId ||
-                                                resuming() !== null
-                                            }
-                                            title={
-                                                entry.sessionId
-                                                    ? `Reopen this ${entry.harness} conversation in a terminal`
-                                                    : "This run has no recorded conversation ID. Interactive Codex runs cannot be reopened here."
-                                            }
-                                            onClick={() => resume(entry)}>
-                                            Resume
-                                        </button>
-                                    </li>
-                                )}
-                            </For>
-                        </ul>
+                        <div class="mt-3">
+                            <RunHistory runs={history()} />
+                        </div>
                     </section>
                 </Show>
             </Loading>

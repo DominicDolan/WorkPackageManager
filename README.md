@@ -633,6 +633,27 @@ uses Git's branch rename, so the new name keeps the old branch's commits.
 without changing the local branch. Leave it blank to use the local name
 remotely. **Remove** forgets the tab; the Git branch is left alone.
 
+**Rebase on master** (or whatever the base is), in the tab's Contents section, fetches the base and
+fast-forwards it from `origin`, then replays the branch onto its tip. It needs a
+clean working tree and puts you back on the branch you were on. A branch that
+was already pushed is rebased anyway, since you asked for it, and the notice
+warns that the next push has to force. A conflict aborts the rebase, so nothing
+moves, and the tab asks whether to **resolve it with an agent**: Codex on its
+`fast` tier by default, with the conflict report as its brief. The agent redoes
+the rebase and finishes it, but does not push.
+
+#### Notes and issues
+
+A work package page always has a **Notes** tab next to Tasks. It shows the notes
+and issues attached to the work package together, as one grid of cards that
+previews each one's content. A card's size follows how much there is to read: a
+one-line note is a small tile, a long design note or a detailed bug report
+spans two columns and several rows. Pick a note or an issue from the picker
+above the grid and **Attach** it. Clicking a card opens it in its own view.
+Attaching only records the reference: the Markdown file or issue JSON stays where
+it is, and **Detach** leaves it there. A reference whose file has since been
+removed drops out of the grid.
+
 #### Tasks without a Git workflow
 
 Some work belongs to ignored or machine-local files rather than product code.
@@ -887,8 +908,11 @@ in the run history — opens a new terminal window on that same conversation
 (`claude --resume <id>`, `codex resume <id>`, `pi --session-id <id>`). It does not start a new run;
 it is the same session, opened again, so the history does not claim the agent
 was launched twice. Claude Code and pi accept an id generated at launch. Codex
-generates its own; headless runs capture the id from its startup output, while
-interactive Codex runs cannot expose it to this server and show Resume disabled.
+generates its own, so the server finds it afterwards in `~/.codex/sessions`
+(or `$CODEX_HOME/sessions`). It takes the session that started in the run's
+directory within two minutes of the launch, containing the prompt this app sent,
+that no other run has claimed. Until that file appears, Resume stays disabled.
+An investigation's tab lists its runs with the same Resume button.
 
 The dialog takes an optional extra prompt, the harness (**Claude Code**,
 **Codex** or **pi**, whichever is on PATH) and the model. Claude Code cannot
@@ -1006,15 +1030,18 @@ nobody's. A failed commit never loses the edit: the file is written first, and
 the branch, the uncommitted count and the unpushed count, with **Sync**,
 **Commit** and **Push** buttons for a folder that has a remote.
 
-**Sync** fetches the notes repository and fast-forwards onto what came back —
-the "go and get what everyone else wrote" action. It is deliberately
-fast-forward only: a merge that stopped half-done would leave the notes folder
-conflicted with no way to resolve it from this UI, so a genuinely diverged
-repository is reported and left untouched for you to reconcile in a terminal.
-It does not commit first either — the Commit button beside it does that, and
+**Sync** fetches the notes repository and brings it up to date with what came
+back — the "go and get what everyone else wrote" action. Usually that is a
+fast-forward. When both sides have commits it merges, but only from a clean
+folder, and a merge that stops on conflicts is aborted, never left in the tree.
+Every save auto-commits, and committing conflict markers into a note would be
+worse than not merging. The view then asks whether to **resolve the conflicts
+with an agent**. By default that is Codex on its `fast` tier, or its Luna model
+when no tier is configured. The agent runs in the notes folder, repeats the
+merge, resolves it and commits, but does not push. Decline, and nothing changed.
+Sync does not commit first either — the Commit button beside it does that, and
 quietly committing a half-written note because you asked to pull would be a
-surprise. Uncommitted edits that the incoming commits would overwrite make Git
-refuse the fast-forward, and it says which files.
+surprise.
 
 The same **Sync** button appears in the Issues view, because it is the same
 folder and the same pull; see below.
@@ -1095,7 +1122,8 @@ The one network action is **Sync** in the sidebar: it fetches and fast-forwards
 the notes repository, which is where the issue files live, so issues somebody
 else committed appear without leaving the view. It is the same button, and the
 same pull, as the one in the Notes view — see [Git](#git) above for exactly what
-it will and will not do.
+it will and will not do. A merge conflict is only reported here; resolving it
+with an agent is offered from Notes.
 
 Both of these are understood, along with the bare provider response and a bulk
 export (an array, or Azure DevOps' `{ count, value: [...] }`):

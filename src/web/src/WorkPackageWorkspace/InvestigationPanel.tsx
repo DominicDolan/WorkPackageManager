@@ -4,10 +4,18 @@ import {
     type InvestigationDetail,
     type WorkPackageDetail,
 } from "@shared/types"
-import { Loading, Show, createMemo, createSignal, refresh } from "solid-js"
+import {
+    Loading,
+    Show,
+    createEffect,
+    createMemo,
+    createSignal,
+    refresh,
+} from "solid-js"
 import { InvestigationLauncher } from "../InvestigationLauncher/InvestigationLauncher"
 import { api } from "../api"
 import { PageSkeleton } from "../components/PageSkeleton"
+import { RunHistory } from "../components/RunHistory"
 import { InvestigationBrief } from "./InvestigationBrief"
 import { TabHeading } from "./TabHeading"
 
@@ -18,6 +26,20 @@ export function InvestigationPanel(props: {
 }) {
     const detail = createMemo(async (): Promise<InvestigationDetail> =>
         api.getInvestigation(props.investigation.ref),
+    )
+    const runs = createMemo(() =>
+        api.listAgentRuns({
+            kind: "investigation",
+            ref: props.investigation.ref,
+        }),
+    )
+    // A run moves the investigation along; its row changing is the cue that the
+    // run list, and any conversation id found since, may have too.
+    createEffect(
+        () => props.investigation.updatedAt,
+        () => {
+            refresh(runs)
+        },
     )
     const [launcherOpen, setLauncherOpen] = createSignal(false)
     return (
@@ -121,12 +143,28 @@ export function InvestigationPanel(props: {
                                     </div>
                                 </Show>
                             </article>
+                            <Loading fallback={null}>
+                                <Show when={runs().length}>
+                                    <section class="mt-6">
+                                        <h3 class="m-0 text-sm font-semibold">
+                                            Runs
+                                        </h3>
+                                        <p class="mt-1 mb-3 caption muted">
+                                            Reopen an investigation agent's
+                                            conversation to pick up where it
+                                            left off.
+                                        </p>
+                                        <RunHistory runs={runs()} />
+                                    </section>
+                                </Show>
+                            </Loading>
                             <Show when={launcherOpen()}>
                                 <InvestigationLauncher
                                     investigation={investigation}
                                     close={() => setLauncherOpen(false)}
                                     started={() => {
                                         refresh(detail)
+                                        refresh(runs)
                                         props.changed()
                                     }}
                                 />

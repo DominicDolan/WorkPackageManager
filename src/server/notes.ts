@@ -19,6 +19,7 @@ import {
 } from "node:path"
 import { workspace } from "../config/paths"
 import type {
+    GitConflict,
     Note,
     NoteAttachment,
     NoteSummary,
@@ -1092,6 +1093,10 @@ export interface NotesPull {
     upstream: string | null
     /** Local commits the remote does not have — a reminder to push, not a failure. */
     unpushed: number
+    /** True when the two had diverged and a merge commit brought them together. */
+    merged: boolean
+    /** Set when that merge collided. It has been aborted: nothing changed. */
+    conflict: GitConflict | null
     git: NotesGitInfo
 }
 
@@ -1102,12 +1107,13 @@ export interface NotesPull {
  * files live there too — so this is the single "go and get what everyone else
  * wrote" action behind both.
  *
- * Fast-forward only, deliberately. A merge that stops half-done would leave the
- * notes folder in a conflicted state that this UI has no way to resolve, so a
- * genuinely diverged repository is reported and left exactly as it was for the
- * user to reconcile in a terminal. Local changes are not committed first: the
- * Commit button next to this one does that, and quietly committing someone's
- * half-written note because they asked to pull would be a surprise.
+ * A fast-forward when that is all it takes. A genuinely diverged repository is
+ * merged, but a merge that stops on conflicts is aborted rather than left in the
+ * tree: every save auto-commits, and committing conflict markers into a note is
+ * worse than not merging at all. The conflict is returned instead, for the UI to
+ * offer to an agent. Local changes are not committed first: the Commit button
+ * next to this one does that, and quietly committing someone's half-written
+ * note because they asked to pull would be a surprise.
  */
 export function pullNotes(): NotesPull {
     if (!isNotesRepo())
@@ -1152,7 +1158,14 @@ export function pullNotes(): NotesPull {
     if (!remoteSha) {
         // Fetched fine, but this branch does not exist on the remote yet — a local
         // branch nobody has pushed. Nothing to merge, and nothing wrong.
-        return { received: 0, upstream: null, unpushed: 0, git: notesGitInfo() }
+        return {
+            received: 0,
+            upstream: null,
+            unpushed: 0,
+            merged: false,
+            conflict: null,
+            git: notesGitInfo(),
+        }
     }
 
     const localSha = git(["rev-parse", "HEAD"]).stdout.trim()
@@ -1164,6 +1177,8 @@ export function pullNotes(): NotesPull {
             received: 0,
             upstream: tracking,
             unpushed: 0,
+            merged: false,
+            conflict: null,
             git: notesGitInfo(),
         }
     }
@@ -1178,13 +1193,12 @@ export function pullNotes(): NotesPull {
                 received: 0,
                 upstream: tracking,
                 unpushed: countBetween(`${tracking}..HEAD`),
+                merged: false,
+                conflict: null,
                 git: notesGitInfo(),
             }
         }
-        throw new Error(
-            `The notes repository has diverged from ${tracking} — each has commits the other does not. ` +
-                "Reconcile it by hand (merge or rebase in a terminal); nothing was changed.",
-        )
+        return mergeDiverged(before.branch, tracking, countBetween)
     }
 
     const received = countBetween(`HEAD..${tracking}`)
@@ -1197,7 +1211,71 @@ export function pullNotes(): NotesPull {
         )
     }
 
-    return { received, upstream: tracking, unpushed: 0, git: notesGitInfo() }
+    return {
+        received,
+        upstream: tracking,
+        unpushed: 0,
+        merged: false,
+        conflict: null,
+        git: notesGitInfo(),
+    }
+}
+
+/** Both sides have commits the other lacks: merge, or report the collision. */
+function mergeDiverged(
+    branch: string,
+    tracking: string,
+    countBetween: (range: string) => number,
+): NotesPull {
+    // A merge touching a file with unsaved edits would refuse half-way through,
+    // or worse, succeed around them. Committing first is the user's call.
+    if (git(["status", "--porcelain"]).stdout.trim()) {
+        throw new Error(
+            `The notes repository has diverged from ${tracking} and has uncommitted changes. ` +
+                "Commit them first, then sync again to merge.",
+        )
+    }
+
+    const received = countBetween(`HEAD..${tracking}`)
+    const merged = git(["merge", "--no-edit", tracking])
+    if (merged.code === 0) {
+        return {
+            received,
+            upstream: tracking,
+            unpushed: countBetween(`${tracking}..HEAD`),
+            merged: true,
+            conflict: null,
+            git: notesGitInfo(),
+        }
+    }
+
+    const files = git(["diff", "--name-only", "--diff-filter=U"])
+        .stdout.split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+    const detail =
+        merged.stdout.trim() ||
+        merged.stderr.trim() ||
+        `Merging ${tracking} into ${branch} failed.`
+    if (git(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"]).code === 0)
+        git(["merge", "--abort"])
+    if (!files.length) throw new Error(detail)
+
+    return {
+        received: 0,
+        upstream: tracking,
+        unpushed: countBetween(`${tracking}..HEAD`),
+        merged: false,
+        conflict: {
+            operation: "merge",
+            scope: "notes",
+            branch,
+            onto: tracking,
+            files,
+            detail,
+        },
+        git: notesGitInfo(),
+    }
 }
 
 /**

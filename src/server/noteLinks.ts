@@ -28,6 +28,24 @@ export function linkedNotes(
     })
 }
 
+/** The raw links, newest first, for a caller that reads each note itself. */
+export function noteLinkRows(
+    subjectKind: NoteLinkSubject,
+    subjectRef: string,
+): { path: string; attachedAt: string }[] {
+    return getDb()
+        .query<
+            { note_path: string; attached_at: string },
+            { $kind: string; $ref: string }
+        >(
+            `SELECT note_path, attached_at FROM note_links
+        WHERE subject_kind = $kind AND subject_ref = $ref COLLATE NOCASE
+        ORDER BY attached_at DESC, note_path ASC`,
+        )
+        .all({ $kind: subjectKind, $ref: subjectRef })
+        .map((row) => ({ path: row.note_path, attachedAt: row.attached_at }))
+}
+
 export function attachNote(
     subjectKind: NoteLinkSubject,
     subjectRef: string,

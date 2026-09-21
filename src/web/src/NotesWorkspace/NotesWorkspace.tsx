@@ -1,4 +1,4 @@
-import type { Note } from "@shared/types"
+import type { GitConflict, Note } from "@shared/types"
 import {
     action,
     createOptimistic,
@@ -14,6 +14,7 @@ import {
 } from "solid-js"
 import { api } from "../api"
 import { useError } from "../hooks/useError"
+import { ConflictAgentDialog } from "../components/ConflictAgentDialog"
 import { PageSkeleton } from "../components/PageSkeleton"
 import { ProductRail } from "../components/ProductRail"
 import { PlusIcon } from "../components/icons"
@@ -37,6 +38,8 @@ export function NotesWorkspace(props: {
     const [newTitle, setNewTitle] = createSignal("")
     const [busy, setBusy] = createOptimistic("")
     const { capture, clear, Banner } = useError()
+    const [notice, setNotice] = createSignal("")
+    const [conflict, setConflict] = createSignal<GitConflict | null>(null)
     const listing = createMemo(() =>
         api.listNotes({
             q: query() || undefined,
@@ -94,17 +97,26 @@ export function NotesWorkspace(props: {
             capture(caught)
         }
     })
-    const sync = action(function* () {
+    const sync = action(async function* () {
         if (busy()) return
 
         setBusy("sync")
         clear()
+        setNotice("")
         try {
-            yield api.pullNotes()
-
-            yield refresh(listing)
-            yield refresh(selected)
+            const pulled = await api.pullNotes()
+            yield
+            if (pulled.conflict) {
+                setConflict(pulled.conflict)
+                return
+            }
+            if (pulled.merged)
+                setNotice(
+                    `Merged ${pulled.received} commit${pulled.received === 1 ? "" : "s"} from ${pulled.upstream}.`,
+                )
+            yield Promise.all([refresh(listing), refresh(selected)])
         } catch (caught) {
+            yield
             capture(caught)
         }
     })
@@ -189,6 +201,32 @@ export function NotesWorkspace(props: {
                                 </div>
                             </header>
                             <Banner />
+                            <Show when={notice()}>
+                                <p
+                                    class="notice success max-w-[1500px] m-[0_auto_1rem]"
+                                    role="status">
+                                    {notice()}
+                                </p>
+                            </Show>
+                            <Show when={conflict()} keyed>
+                                {(found) => (
+                                    <ConflictAgentDialog
+                                        conflict={found}
+                                        subject={{
+                                            kind: "notes",
+                                            ref: found.branch,
+                                        }}
+                                        close={() => setConflict(null)}
+                                        started={(run) =>
+                                            setNotice(
+                                                run.mode === "terminal"
+                                                    ? "An agent is resolving the notes merge in a terminal window. Sync again once it has finished."
+                                                    : `An agent is resolving the notes merge (run #${run.id}). Sync again once it has finished.`,
+                                            )
+                                        }
+                                    />
+                                )}
+                            </Show>
                             <section class="library grid grid-cols-[minmax(260px,_310px)_minmax(0,_1fr)] max-w-[1500px] min-h-[620px] m-[0_auto] max-[820px]:grid-cols-[1fr]">
                                 <aside class="library flex min-w-0 flex-col">
                                     <label class="search grid gap-[0.45rem] p-[1rem]">

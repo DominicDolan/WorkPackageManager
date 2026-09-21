@@ -1,7 +1,7 @@
 import type { WorkPackageDetail } from "@shared/types"
 
 /**
- * The tabs a work package page draws after its fixed Tasks tab: one per
+ * The tabs a work package page draws after its fixed Tasks and Notes tabs: one per
  * investigation, branch and run, in the order they were added.
  *
  * Keys are strings rather than objects so a tab keeps its identity across
@@ -18,6 +18,8 @@ export interface WorkPackageTab {
 }
 
 export const TASKS_TAB = "tasks"
+/** Fixed, like Tasks: the notes and issues attached to the work package. */
+export const NOTES_TAB = "notes"
 export const investigationTab = (ref: string) => `investigation:${ref}`
 export const branchTab = (id: number) => `branch:${id}`
 export const runTab = (id: number) => `run:${id}`

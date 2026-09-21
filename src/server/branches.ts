@@ -428,6 +428,16 @@ export function createBranchAt(branch: string, start: string): void {
 export interface RebaseOutcome {
     rebased: boolean
     conflict: string
+    /** The paths that collided, read before the rebase was aborted. */
+    files: string[]
+}
+
+/** Paths a stopped merge or rebase has left unmerged. */
+function conflictedFiles(): string[] {
+    return git(["diff", "--name-only", "--diff-filter=U"])
+        .stdout.split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
 }
 
 /**
@@ -454,14 +464,15 @@ export function rebaseOnto(branch: string, onto: string): RebaseOutcome {
     // Takes the branch as an argument rather than requiring it checked out: Git
     // checks it out itself, which is one less state for the caller to restore.
     const rebased = git(["rebase", onto, branch])
-    if (rebased.code === 0) return { rebased: true, conflict: "" }
+    if (rebased.code === 0) return { rebased: true, conflict: "", files: [] }
 
     const detail =
         rebased.stdout.trim() ||
         rebased.stderr.trim() ||
         `Rebasing '${branch}' onto '${onto}' failed.`
+    const files = conflictedFiles()
     git(["rebase", "--abort"])
-    return { rebased: false, conflict: detail }
+    return { rebased: false, conflict: detail, files }
 }
 
 /**
@@ -507,8 +518,9 @@ export function replayRange(
                 rebased.stdout.trim() ||
                 rebased.stderr.trim() ||
                 `Replaying '${branch}' onto '${onto}' failed.`
+            const files = conflictedFiles()
             git(["rebase", "--abort"])
-            return { rebased: false, conflict: detail }
+            return { rebased: false, conflict: detail, files }
         }
         switchBranch(onto)
         const merged = git(["merge", "--ff-only", scratch])
@@ -517,9 +529,10 @@ export function replayRange(
                 rebased: false,
                 conflict:
                     merged.stderr.trim() || `Fast-forwarding '${onto}' failed.`,
+                files: [],
             }
         }
-        return { rebased: true, conflict: "" }
+        return { rebased: true, conflict: "", files: [] }
     } finally {
         if (currentBranch() === scratch) switchBranch(onto)
         git(["branch", "-D", scratch])

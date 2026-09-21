@@ -222,6 +222,15 @@ const SCHEMA = [
 
     `CREATE INDEX IF NOT EXISTS idx_note_links_path ON note_links(note_path)`,
 
+    // Issues attached to a work package, by the id the Issues view uses: the JSON
+    // file's path in the notes folder, plus `#<index>` for a file holding several.
+    `CREATE TABLE IF NOT EXISTS issue_links (
+     work_package_ref TEXT NOT NULL,
+     issue_id         TEXT NOT NULL,
+     attached_at      TEXT NOT NULL,
+     PRIMARY KEY (work_package_ref, issue_id)
+   )`,
+
     // One row per delivery branch produced by combining task branches. Deliberately
     // NOT a foreign key to tasks: combining usually closes the tasks, and a task
     // may later be deleted, but the branch and its PR outlive both.
@@ -336,6 +345,9 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
     // Runs launched before sessions were tracked have none, and cannot be
     // resumed — the id was the harness's to pick and it was never recorded.
     { table: "agent_runs", column: "session_id", definition: "TEXT" },
+    // Null means the repository root, where every run started before a run could
+    // be pointed at the notes folder instead.
+    { table: "agent_runs", column: "cwd", definition: "TEXT" },
     {
         table: "combined_branches",
         column: "combine_state",

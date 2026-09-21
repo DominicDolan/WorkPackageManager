@@ -26,13 +26,14 @@ import { IssueDetailPane } from "./IssueDetailPane"
 
 export function IssuesWorkspace(props: {
     select: (view: MainView) => void
+    initialId?: string
     revision: number
 }) {
     const [query, setQuery] = createSignal("")
     const [state, setState] = createSignal<IssueState | "all">("all")
     const [source, setSource] = createSignal("")
     const [label, setLabel] = createSignal("")
-    const [selectedId, setSelectedId] = createSignal("")
+    const [selectedId, setSelectedId] = createSignal(props.initialId ?? "")
     const [busy, setBusy] = createOptimistic("")
     const { capture, clear, Banner } = useError()
     const listing = createMemo(() =>
@@ -57,17 +58,22 @@ export function IssuesWorkspace(props: {
         setSelectedId(id)
         refresh(selected)
     }
-    const sync = action(function* () {
+    const sync = action(async function* () {
         if (busy()) return
 
         setBusy("sync")
         clear()
         try {
-            yield api.pullNotes()
-
-            yield refresh(listing)
-            yield refresh(selected)
+            const pulled = await api.pullNotes()
+            yield
+            // Resolving it is offered from Notes, which owns the folder.
+            if (pulled.conflict)
+                throw new Error(
+                    `Merging ${pulled.conflict.onto} into the notes repository conflicted, so nothing changed. Sync from Notes to resolve it with an agent.`,
+                )
+            yield Promise.all([refresh(listing), refresh(selected)])
         } catch (caught) {
+            yield
             capture(caught)
         }
     })

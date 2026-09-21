@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs"
+import {
+    closeSync,
+    existsSync,
+    mkdirSync,
+    openSync,
+    readdirSync,
+    readFileSync,
+    readSync,
+} from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { workspace } from "../config/paths"
@@ -149,6 +157,10 @@ interface CodexModelCache {
  * tier ids are merged in so an explicit repository choice survives a missing or
  * temporarily stale cache.
  */
+function codexHome(): string {
+    return process.env.CODEX_HOME || join(homedir(), ".codex")
+}
+
 function codexModels(): AgentModel[] {
     const models: AgentModel[] = [
         { id: "", label: "Default (Codex’s configured model)", group: null },
@@ -156,9 +168,8 @@ function codexModels(): AgentModel[] {
     const seen = new Set<string>()
 
     try {
-        const codexHome = process.env.CODEX_HOME || join(homedir(), ".codex")
         const cache = JSON.parse(
-            readFileSync(join(codexHome, "models_cache.json"), "utf8"),
+            readFileSync(join(codexHome(), "models_cache.json"), "utf8"),
         ) as CodexModelCache
         const visible = (cache.models ?? [])
             .filter(
@@ -446,6 +457,7 @@ interface RunRow {
     argv_json: string
     pid: number | null
     session_id: string | null
+    cwd: string | null
     status: string
     exit_code: number | null
     log_path: string | null
@@ -583,6 +595,9 @@ export interface StartRunInput {
     subjectRef: string
     /** How much the agent may do without asking, when supported by the harness. */
     permissionMode: AgentPermissionMode
+    /** Where the agent runs. The repository root unless a run belongs elsewhere,
+     *  as one resolving a conflict in the notes folder does. */
+    cwd?: string
 }
 
 export function startRun(input: StartRunInput): AgentRun {
@@ -638,9 +653,9 @@ export function startRun(input: StartRunInput): AgentRun {
         .query<{ id: number }, Record<string, string | number | null>>(
             `INSERT INTO agent_runs
          (harness, model, mode, command, subject_kind, subject_ref, prompt, argv_json,
-          pid, session_id, status, log_path, created_at)
+          pid, session_id, cwd, status, log_path, created_at)
        VALUES ($harness, $model, $mode, $command, $kind, $ref, $prompt, $argv,
-               NULL, $session, $status, $log, $at)
+               NULL, $session, $cwd, $status, $log, $at)
        RETURNING id`,
         )
         .get({
@@ -653,16 +668,18 @@ export function startRun(input: StartRunInput): AgentRun {
             $prompt: prompt,
             $argv: JSON.stringify(argv),
             $session: sessionId,
+            $cwd: input.cwd ?? null,
             $status: input.mode === "terminal" ? "launched" : "running",
             $log: null,
             $at: createdAt,
         })!
 
     try {
+        const cwd = input.cwd ?? ws.repoRoot
         if (input.mode === "terminal") {
-            spawnTerminal(row.id, argv)
+            spawnTerminal(row.id, argv, cwd)
         } else {
-            spawnHeadless(row.id, argv)
+            spawnHeadless(row.id, argv, cwd)
         }
     } catch (error) {
         finish(row.id, "failed", null)
@@ -678,9 +695,9 @@ export function startRun(input: StartRunInput): AgentRun {
  * it would only tie the window's lifetime to this server's. Unref'd for the
  * same reason — the terminal outlives `tasks web`.
  */
-function spawnTerminal(id: number, argv: string[]): void {
+function spawnTerminal(id: number, argv: string[], cwd: string): void {
     const child = Bun.spawn(argv, {
-        cwd: ws.repoRoot,
+        cwd,
         stdin: "ignore",
         stdout: "ignore",
         stderr: "pipe",
@@ -717,13 +734,13 @@ function logPath(id: number): string {
  * somewhere durable — a file, streamed as it arrives rather than buffered until
  * exit, because a `/work-task` run takes minutes and watching it is the point.
  */
-function spawnHeadless(id: number, argv: string[]): void {
+function spawnHeadless(id: number, argv: string[], cwd: string): void {
     mkdirSync(LOG_DIR, { recursive: true })
     const path = logPath(id)
     const sink = Bun.file(path).writer()
 
     const child = Bun.spawn(argv, {
-        cwd: ws.repoRoot,
+        cwd,
         // Never inherit: there is no terminal here, and an agent that finds one
         // would be free to block on a prompt nobody can answer.
         stdin: "ignore",
@@ -825,13 +842,14 @@ export function stopRun(id: number): AgentRun {
  * claim the agent was launched twice.
  */
 export function resumeRun(id: number): AgentRun {
-    const row = readRow(id)
+    const row = withSession(readRow(id))
     const definition = harness(row.harness)
 
     if (!row.session_id) {
         throw new Error(
             `Run ${id} has no recorded conversation id, so it cannot be reopened. ` +
-                "Older runs and interactive Codex runs do not have one.",
+                "Runs from before sessions were tracked have none, and an interactive Codex run " +
+                "only gets one once its session file appears in ~/.codex/sessions.",
         )
     }
     if (!onPath(definition.bin)) {
@@ -853,7 +871,7 @@ export function resumeRun(id: number): AgentRun {
     const child = Bun.spawn(
         [...terminal, ...definition.resumeArgv(row.session_id)],
         {
-            cwd: ws.repoRoot,
+            cwd: row.cwd ?? ws.repoRoot,
             stdin: "ignore",
             stdout: "ignore",
             stderr: "ignore",
@@ -863,6 +881,126 @@ export function resumeRun(id: number): AgentRun {
     child.unref()
 
     return toRun(row)
+}
+
+/* -------------------------------------------------- codex session discovery */
+
+/** How long after a launch Codex may take to start its session. */
+const CODEX_SESSION_WINDOW_MS = 120_000
+/** Enough of a session file to reach the first user message, which follows
+ *  Codex's base instructions and its developer messages. */
+const CODEX_SESSION_HEAD_BYTES = 1 << 20
+
+/**
+ * The session a Codex run created, found after the fact.
+ *
+ * Codex picks its own conversation id and an interactive run's output belongs
+ * to its terminal, so the id cannot be read at launch the way a headless run's
+ * is. Codex does record every conversation under
+ * `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<local time>-<id>.jsonl`, and each
+ * one starts with its working directory and start time, then the prompt it was
+ * given. A session is this run's when it started in the run's directory within
+ * a couple of minutes of the launch, contains the start of the prompt this app
+ * sent, and is not already another run's.
+ */
+function discoverCodexSession(row: RunRow): string | null {
+    const launched = Date.parse(row.created_at)
+    if (Number.isNaN(launched)) return null
+    const cwd = row.cwd ?? ws.repoRoot
+    // Codex writes the prompt JSON-encoded, inside a message.
+    const needle = JSON.stringify(row.prompt.slice(0, 200)).slice(1, -1)
+    const claimed = new Set(
+        getDb()
+            .query<{ session_id: string }, []>(
+                "SELECT session_id FROM agent_runs WHERE session_id IS NOT NULL",
+            )
+            .all()
+            .map((one) => one.session_id),
+    )
+
+    // Folder names and file names are in local time.
+    const days = new Set(
+        [launched, launched + CODEX_SESSION_WINDOW_MS].map((at) => {
+            const day = new Date(at)
+            return join(
+                String(day.getFullYear()),
+                String(day.getMonth() + 1).padStart(2, "0"),
+                String(day.getDate()).padStart(2, "0"),
+            )
+        }),
+    )
+    const candidates: { at: number; id: string; path: string }[] = []
+    for (const day of days) {
+        const folder = join(codexHome(), "sessions", day)
+        if (!existsSync(folder)) continue
+        for (const name of readdirSync(folder)) {
+            const match =
+                /^rollout-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-([0-9a-f-]{36})\.jsonl$/.exec(
+                    name,
+                )
+            if (!match || claimed.has(match[7]!)) continue
+            const [year, month, date, hour, minute, second] = match
+                .slice(1, 7)
+                .map(Number) as [number, number, number, number, number, number]
+            const at = new Date(
+                year,
+                month - 1,
+                date,
+                hour,
+                minute,
+                second,
+            ).getTime()
+            // Whole seconds in the name, so allow the launch's own second.
+            if (at < launched - 1000 || at > launched + CODEX_SESSION_WINDOW_MS)
+                continue
+            candidates.push({ at, id: match[7]!, path: join(folder, name) })
+        }
+    }
+
+    for (const candidate of candidates.sort((a, b) => a.at - b.at)) {
+        const head = readHead(candidate.path)
+        const end = head.indexOf("\n")
+        const meta = end === -1 ? head : head.slice(0, end)
+        try {
+            const parsed = JSON.parse(meta) as {
+                payload?: { cwd?: unknown }
+            }
+            if (parsed.payload?.cwd !== cwd) continue
+        } catch {
+            continue
+        }
+        if (head.includes(needle)) return candidate.id
+    }
+    return null
+}
+
+function readHead(path: string): string {
+    const buffer = Buffer.alloc(CODEX_SESSION_HEAD_BYTES)
+    const fd = openSync(path, "r")
+    try {
+        const read = readSync(fd, buffer, 0, buffer.length, 0)
+        return buffer.subarray(0, read).toString("utf8")
+    } catch {
+        return ""
+    } finally {
+        closeSync(fd)
+    }
+}
+
+/**
+ * The row, with a Codex run's conversation id filled in once its session can be
+ * found. Interactive runs always need this; headless ones only when the id did
+ * not appear in their output. Tried whenever the run is read, since the session only
+ * appears after the terminal opens; nothing is written until it is found.
+ */
+function withSession(row: RunRow): RunRow {
+    if (row.session_id || row.harness !== "codex") return row
+    const found = discoverCodexSession(row)
+    if (!found) return row
+    getDb()
+        .query("UPDATE agent_runs SET session_id = $session WHERE id = $id")
+        .run({ $id: row.id, $session: found })
+    return { ...row, session_id: found }
 }
 
 export function listRuns(
@@ -888,13 +1026,13 @@ export function listRuns(
         ORDER BY id DESC LIMIT $limit`,
         )
         .all(params)
-        .map(toRun)
+        .map((row) => toRun(withSession(row)))
 }
 
 /** One run with the tail of its log. Read from disk on every request — the file
  *  is being appended to by a child process as this is called. */
 export async function getRun(id: number): Promise<AgentRunDetail> {
-    const row = readRow(id)
+    const row = withSession(readRow(id))
     const run = toRun(row)
 
     if (!row.log_path) return { ...run, output: "", truncated: false }

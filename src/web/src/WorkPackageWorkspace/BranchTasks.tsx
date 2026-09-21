@@ -84,8 +84,8 @@ export function BranchTasks(props: {
     })
 
     return (
-        <article class="tonal p-5">
-            <header class="flex flex-wrap items-start justify-between gap-3">
+        <article class="elevated overflow-hidden">
+            <header class="flex flex-wrap items-start justify-between gap-3 p-[1.15rem_1.25rem_0.35rem]">
                 <div>
                     <h3 class="m-0">Tasks on this branch</h3>
                     <p class="m-[0.28rem_0_0]">
@@ -109,59 +109,64 @@ export function BranchTasks(props: {
                     </button>
                 </div>
             </header>
-            <Banner />
-            <ul class="mt-4 grid gap-1 p-0" style={{ "list-style": "none" }}>
-                <For
-                    each={props.workPackage.tasks}
-                    fallback={
-                        <li class="hint">
-                            This work package has no tasks yet.
-                        </li>
-                    }>
-                    {(task) => (
-                        <li>
-                            <label class="choice flex items-center gap-3 py-1">
-                                <input
-                                    type="checkbox"
-                                    checked={has(task.ref)}
-                                    disabled={busy()}
-                                    onChange={() => toggle(task.ref)}
-                                />
-                                <span class="font-mono caption muted w-12">
-                                    {task.ref}
-                                </span>
-                                <span class="min-w-0 flex-1 truncate text-sm">
-                                    {task.title}
-                                </span>
-                                <Show when={!task.useGitWorkflow}>
-                                    <small class="badge p-[0.12rem_0.42rem]">
-                                        No Git
-                                    </small>
-                                </Show>
-                                <Show
-                                    when={
-                                        elsewhere(task.targetBranches).length
-                                    }>
-                                    {(count) => (
-                                        <small
-                                            class="caption muted"
-                                            title={elsewhere(
-                                                task.targetBranches,
-                                            ).join(", ")}>
-                                            {has(task.ref) ? "also on" : "on"}{" "}
-                                            {count()} other{" "}
-                                            {count() === 1
-                                                ? "branch"
-                                                : "branches"}
+            <div class="p-[1rem_1.25rem_1.25rem]">
+                <Banner />
+                <ul class="branch-tasks m-0 overflow-hidden p-0">
+                    <For
+                        each={props.workPackage.tasks}
+                        fallback={
+                            <li class="hint p-[0.65rem_0.8rem]">
+                                This work package has no tasks yet.
+                            </li>
+                        }>
+                        {(task) => (
+                            <li>
+                                <label class="flex cursor-pointer items-center gap-3 p-[0.55rem_0.8rem]">
+                                    <input
+                                        type="checkbox"
+                                        checked={has(task.ref)}
+                                        disabled={busy()}
+                                        onChange={() => toggle(task.ref)}
+                                    />
+                                    <span class="w-12 flex-[0_0_auto] font-mono text-xs text-slate-400">
+                                        {task.ref}
+                                    </span>
+                                    <span class="min-w-0 flex-1 truncate text-sm">
+                                        {task.title}
+                                    </span>
+                                    <Show when={!task.useGitWorkflow}>
+                                        <small class="badge p-[0.12rem_0.42rem]">
+                                            No Git
                                         </small>
-                                    )}
-                                </Show>
-                                <StatusBadge status={task.status} />
-                            </label>
-                        </li>
-                    )}
-                </For>
-            </ul>
+                                    </Show>
+                                    <Show
+                                        when={
+                                            elsewhere(task.targetBranches)
+                                                .length
+                                        }>
+                                        {(count) => (
+                                            <small
+                                                class="flex-[0_0_auto] text-xs text-slate-400"
+                                                title={elsewhere(
+                                                    task.targetBranches,
+                                                ).join(", ")}>
+                                                {has(task.ref)
+                                                    ? "also on"
+                                                    : "on"}{" "}
+                                                {count()} other{" "}
+                                                {count() === 1
+                                                    ? "branch"
+                                                    : "branches"}
+                                            </small>
+                                        )}
+                                    </Show>
+                                    <StatusBadge status={task.status} />
+                                </label>
+                            </li>
+                        )}
+                    </For>
+                </ul>
+            </div>
         </article>
     )
 }

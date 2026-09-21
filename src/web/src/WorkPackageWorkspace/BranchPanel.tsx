@@ -1,6 +1,7 @@
 import {
     type CheckRun,
     type CombinedBranchDetail,
+    type GitConflict,
     type WorkPackageBranchDetail,
     type WorkPackageDetail,
 } from "@shared/types"
@@ -16,6 +17,7 @@ import {
 } from "solid-js"
 import { api } from "../api"
 import { useError } from "../hooks/useError"
+import { ConflictAgentDialog } from "../components/ConflictAgentDialog"
 import { renderMarkdown } from "../markdown"
 import type { WorkspaceSnapshot } from "../types/workspace"
 import { BranchCheckLauncher } from "./BranchCheckLauncher"
@@ -46,6 +48,7 @@ export function BranchPanel(props: {
     const { capture, clear, Banner } = useError()
     const [notice, setNotice] = createSignal("")
     const [checkAgentOpen, setCheckAgentOpen] = createSignal(false)
+    const [conflict, setConflict] = createSignal<GitConflict | null>(null)
 
     const applyBranch = (branch: CombinedBranchDetail) => {
         setCurrent(branch)
@@ -190,6 +193,34 @@ export function BranchPanel(props: {
             capture(caught)
         }
     })
+    const rebase = action(async function* () {
+        if (busy()) return
+
+        const base = props.branch.base
+        setBusy("rebase")
+        clear()
+        setNotice("")
+        try {
+            const result = await api.rebaseWorkPackageBranch(
+                props.workPackage.ref,
+                props.branch.id,
+            )
+            yield
+            if (result.conflict) {
+                setConflict(result.conflict)
+                return
+            }
+            setNotice(
+                result.upToDate
+                    ? `Already up to date with ${base}.`
+                    : `Rebased onto ${base}.${result.pushed ? " It was pushed before, so the next push has to force." : ""}`,
+            )
+            props.workPackageChanged()
+        } catch (caught) {
+            yield
+            capture(caught)
+        }
+    })
     const saveRemoteBranch = () => {
         const branch = current()
         if (!branch || remoteBranch().trim() === (branch.remoteBranch ?? ""))
@@ -306,6 +337,22 @@ export function BranchPanel(props: {
                     {notice()}
                 </p>
             </Show>
+            <Show when={conflict()} keyed>
+                {(found) => (
+                    <ConflictAgentDialog
+                        conflict={found}
+                        subject={{ kind: "branch", ref: found.branch }}
+                        close={() => setConflict(null)}
+                        started={(run) =>
+                            setNotice(
+                                run.mode === "terminal"
+                                    ? `An agent is rebasing onto ${found.onto} in a terminal window.`
+                                    : `An agent is rebasing onto ${found.onto} (run #${run.id}).`,
+                            )
+                        }
+                    />
+                )}
+            </Show>
 
             <BranchSection
                 variant="tonal"
@@ -399,6 +446,21 @@ export function BranchPanel(props: {
                 variant="elevated"
                 title="Contents"
                 description="The commits currently unique to this branch.">
+                <div class="flex flex-wrap items-center gap-[0.75rem] mb-[1rem]">
+                    <button
+                        aria-busy={busy() === "rebase" ? "true" : "false"}
+                        class="outlined"
+                        disabled={!!busy() || !props.branch.git.exists}
+                        title={`Replay this branch onto the latest ${props.branch.base}`}
+                        onClick={rebase}>
+                        Rebase on {props.branch.base}
+                    </button>
+                    <Show when={busy() === "rebase"}>
+                        <span class="branch-working" role="status">
+                            Fetching {props.branch.base} and rebasing…
+                        </span>
+                    </Show>
+                </div>
                 <div class="branch-metrics grid grid-cols-[repeat(3,_minmax(0,_1fr))] gap-[0.75rem] max-[560px]:grid-cols-[1fr]">
                     <Metric
                         label="Commits"

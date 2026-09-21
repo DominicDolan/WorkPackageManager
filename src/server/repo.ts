@@ -9,6 +9,7 @@ import { workspace } from "../config/paths"
 import { branchExists, renameBranch } from "./branches"
 import { deleteTaskAttachments, listTaskAttachments } from "./attachments"
 import { detachAllNotes, linkedNotes } from "./noteLinks"
+import { detachAllIssues } from "./issueLinks"
 import {
     branchNameFor,
     workPackageBranchNameFor,
@@ -1171,6 +1172,7 @@ export function deleteWorkPackage(refOrName: string): {
 
     getDb().transaction(() => {
         detachAllNotes("work-package", workPackage.ref)
+        detachAllIssues(workPackage.ref)
         getDb()
             .query(
                 "UPDATE investigations SET work_package_ref = NULL, updated_at = $at WHERE work_package_ref = $ref COLLATE NOCASE",

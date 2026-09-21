@@ -12,6 +12,7 @@ import {
     rebaseOnto,
     readBranch,
     refExists,
+    refreshBaseBranch,
     replayRange,
     resolveCommit,
     switchBranch,
@@ -35,12 +36,14 @@ import {
 import {
     dependencyOrder,
     unmetDependencies,
+    type GitConflict,
     type Task,
     type WorkPackageBranch,
     type WorkPackageBranchDetail,
     type WorkPackageDetail,
 } from "../shared/types"
 import { linkedNotes } from "./noteLinks"
+import { workPackageReferences } from "./workPackageReferences"
 import { listWorkRuns, workRunDetail } from "./workRuns"
 
 /**
@@ -307,6 +310,82 @@ function mergeIntoSecondary(
     return { ...outcome, merged: true }
 }
 
+export interface BaseRebaseResult {
+    /** The branch now sits on its base's tip. False on a conflict. */
+    rebased: boolean
+    /** It already did, so nothing moved. */
+    upToDate: boolean
+    /** The branch has a remote counterpart, so the next push must force. */
+    pushed: boolean
+    /** Set when the rebase collided. It has been aborted: nothing moved. */
+    conflict: GitConflict | null
+}
+
+/**
+ * Replay a work package branch onto the current tip of its base.
+ *
+ * The base is brought up to date with `origin` first, the same way a delivery
+ * branch is before it is cut, so "rebase on master" means the master everyone
+ * else sees. A conflict aborts, like every other rebase here, and comes back as
+ * a `GitConflict` for the caller to hand to an agent or to a person.
+ *
+ * Unlike a task merge, a branch that has been pushed is not refused: this is a
+ * deliberate request to rewrite it. It is only reported, since the next push
+ * then has to force.
+ */
+export function rebaseBranchOnBase(
+    branch: WorkPackageBranch,
+): BaseRebaseResult {
+    const name = branch.branchName
+    const base = baseOf(branch)
+    if (!branchExists(name))
+        throw new Error(
+            `'${name}' does not exist locally, so there is nothing to rebase.`,
+        )
+    if (mergeInProgress()) {
+        throw new Error(
+            `A merge is already in progress on '${currentBranch() ?? "HEAD"}'. Resolve and commit it (or 'git merge --abort') first.`,
+        )
+    }
+    if (rebaseInProgress()) {
+        throw new Error(
+            `A rebase is already in progress on '${currentBranch() ?? "HEAD"}'. Finish it ('git rebase --continue') or cancel it ('git rebase --abort') first.`,
+        )
+    }
+    if (!workingTreeClean()) {
+        throw new Error(
+            `The working tree must be clean before rebasing '${name}' onto '${base}'. Commit or stash first.`,
+        )
+    }
+
+    refreshBaseBranch(base)
+    const pushed = isPushed(name)
+    if (isAncestor(base, name))
+        return { rebased: true, upToDate: true, pushed, conflict: null }
+
+    const from = currentBranch()
+    try {
+        const replayed = rebaseOnto(name, base)
+        if (replayed.rebased)
+            return { rebased: true, upToDate: false, pushed, conflict: null }
+        return {
+            rebased: false,
+            upToDate: false,
+            pushed,
+            conflict: {
+                operation: "rebase",
+                scope: "repo",
+                branch: name,
+                onto: base,
+                files: replayed.files,
+                detail: replayed.conflict,
+            },
+        }
+    } finally {
+        if (from && currentBranch() !== from) switchBranch(from)
+    }
+}
+
 /**
  * The target branches a finished task's work is missing from.
  *
@@ -400,6 +479,7 @@ export function getWorkPackageDetail(refOrName: string): WorkPackageDetail {
             workPackageBranchDetail,
         ),
         notes: linkedNotes("work-package", workPackage.ref),
+        references: workPackageReferences(workPackage.ref),
         queue,
         outsideBlockers: [...outside.values()],
         // Workspace-wide, not work package-scoped: a task in flight anywhere is what stops

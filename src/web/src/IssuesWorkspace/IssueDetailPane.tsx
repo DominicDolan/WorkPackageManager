@@ -1,6 +1,7 @@
 import { ISSUE_SOURCE_LABELS, type IssueDetail } from "@shared/types"
 import { Show, createSignal } from "solid-js"
 import { BackIcon } from "../components/icons"
+import { renderIssueBody } from "./issueBody"
 
 export function IssueDetailPane(props: {
     issue: IssueDetail
@@ -70,9 +71,16 @@ export function IssueDetailPane(props: {
             </dl>
             <section class="content m-[1.5rem_0]">
                 <h3>Description</h3>
-                <pre class="overflow-auto p-[1rem]">
-                    {props.issue.body || "No description."}
-                </pre>
+                <Show
+                    when={renderIssueBody(props.issue)}
+                    fallback={<p>No description.</p>}>
+                    {(html) => (
+                        <div
+                            class="prose overflow-x-auto [&_img]:max-w-full"
+                            innerHTML={html()}
+                        />
+                    )}
+                </Show>
             </section>
             <button class="outlined" onClick={() => setRaw(!raw())}>
                 {raw() ? "Hide raw JSON" : "Show raw JSON"}

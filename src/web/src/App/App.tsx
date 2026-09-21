@@ -39,6 +39,9 @@ export function App() {
     const [notePath, setNotePath] = createSignal(
         new URLSearchParams(location.search).get("note") ?? "",
     )
+    const [issueId, setIssueId] = createSignal(
+        new URLSearchParams(location.search).get("issue") ?? "",
+    )
     const [creating, setCreating] = createSignal(false)
     const [workspaceRevision, setWorkspaceRevision] = createSignal(0)
 
@@ -53,6 +56,7 @@ export function App() {
             setWorkPackageRef(match?.[1] ? decodeURIComponent(match[1]) : null)
             setTaskRef(match?.[2] ? decodeURIComponent(match[2]) : null)
             setNotePath(new URLSearchParams(location.search).get("note") ?? "")
+            setIssueId(new URLSearchParams(location.search).get("issue") ?? "")
             setView(
                 location.pathname === "/notes"
                     ? "notes"
@@ -97,6 +101,13 @@ export function App() {
         setNotePath(path)
         history.pushState(null, "", `/notes?note=${encodeURIComponent(path)}`)
     }
+    const openIssue = (id: string) => {
+        setView("issues")
+        setWorkPackageRef(null)
+        setTaskRef(null)
+        setIssueId(id)
+        history.pushState(null, "", `/issues?issue=${encodeURIComponent(id)}`)
+    }
     const home = () => {
         setView("work-packages")
         setWorkPackageRef(null)
@@ -116,6 +127,7 @@ export function App() {
         setWorkPackageRef(null)
         setTaskRef(null)
         setNotePath("")
+        setIssueId("")
         history.pushState(null, "", next === "work-packages" ? "/" : `/${next}`)
     }
     const reload = () => refresh(snapshot)
@@ -148,6 +160,7 @@ export function App() {
                 <Show when={view() === "issues"}>
                     <IssuesWorkspace
                         select={selectView}
+                        initialId={issueId()}
                         revision={workspaceRevision()}
                     />
                 </Show>
@@ -172,6 +185,7 @@ export function App() {
                                         back={home}
                                         openTask={openTask}
                                         openNote={openNote}
+                                        openIssue={openIssue}
                                         changed={reload}
                                         revision={workspaceRevision()}
                                     />
