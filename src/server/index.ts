@@ -149,6 +149,7 @@ import {
     type WorkPackageAdvanceOutcome,
     type InvestigationStatus,
     type Status,
+    type BranchTaskSync,
     type Task,
 } from "../shared/types"
 import { validateBranchName } from "./repo"
@@ -157,6 +158,7 @@ import {
     mergeTaskIntoTargetBranches,
     primaryTargetOf,
     rebaseBranchOnBase,
+    syncBranchTasks,
     workPackageBranchDetail,
 } from "./workPackageBranch"
 import { approveBaseline, readBaselines, runBaselines } from "./baselines"
@@ -728,6 +730,15 @@ async function handleBranches(
         return fail("Method not allowed.", 405)
     }
 
+    // Progress reads do not need to recompute Git history or load task details.
+    if (action === "checks" && request.method === "GET") {
+        const branch = requireCombinedBranch(name)
+        return json({
+            checks: branch.checks,
+            checksRunning: checksProgress(name),
+        })
+    }
+
     if (request.method !== "POST") return fail("Method not allowed.", 405)
 
     // /api/branches/:name/describe — hands the commit history to `pi`.
@@ -753,9 +764,9 @@ async function handleBranches(
                 'No checks are configured — add "checks" to .tasks/tasks.config.json.',
             )
         }
-        const input = await body<{ check?: unknown }>(request).catch(
-            () => ({}) as { check?: unknown },
-        )
+        const input = await body<{ check?: unknown; resume?: unknown }>(
+            request,
+        ).catch(() => ({}) as { check?: unknown; resume?: unknown })
         if (
             input.check !== undefined &&
             (typeof input.check !== "string" ||
@@ -763,6 +774,10 @@ async function handleBranches(
         ) {
             return fail("Unknown check.", 400)
         }
+        if (input.resume !== undefined && typeof input.resume !== "boolean")
+            return fail("Resume must be a boolean.", 400)
+        if (input.check !== undefined && input.resume)
+            return fail("Choose either a single check or resume.", 400)
         const base = branch.baseBranch ?? defaultBaseBranch()
         // Started, not awaited: a suite outlives any request worth holding open, so
         // this returns immediately and the page follows `checksRunning`.
@@ -770,6 +785,7 @@ async function handleBranches(
             branch: branch.branchName,
             base,
             check: input.check as string | undefined,
+            resume: input.resume === true,
             previous: branch.checks,
         })
         return json({ branch: branchDetail(name) })
@@ -1615,10 +1631,33 @@ async function handleWorkPackages(
                 ...branchInput(input),
                 workPackageRef: workPackage.ref,
             })
+            // Finished tasks it starts with are merged in straight away, so the
+            // branch shows their commits from the moment it is added.
+            const git = syncBranchTasks(branch, [])
+            // A branch tab is a statement about what has actually landed on its
+            // Git branch. A replay conflict used to leave the selected task in
+            // this list even though none of its commits made it across, which
+            // made a partial create look like a complete one. Keep the branch
+            // and its successful replays, but leave failed tasks unassigned so
+            // they can be resolved and explicitly added again.
+            const saved = git.failed.length
+                ? setBranchTasks(
+                      branch.id,
+                      branch.taskRefs.filter(
+                          (taskRef) =>
+                              !git.failed.some(
+                                  (failed) =>
+                                      failed.toLowerCase() ===
+                                      taskRef.toLowerCase(),
+                              ),
+                      ),
+                  )
+                : branch
             return json(
                 {
-                    branch: workPackageBranchDetail(branch),
+                    branch: workPackageBranchDetail(saved),
                     workPackage: getWorkPackageDetail(workPackage.ref),
+                    git,
                 },
                 201,
             )
@@ -1658,13 +1697,29 @@ async function handleWorkPackages(
                 branchName: input.branchName,
                 baseBranch: input.baseBranch,
             })
-            if (input.taskRefs !== undefined)
-                setBranchTasks(branch.id, input.taskRefs as string[])
+            let git: BranchTaskSync | undefined
+            let saved = requireWorkPackageBranch(branch.id)
+            if (input.taskRefs !== undefined) {
+                const before = requireWorkPackageBranch(branch.id).taskRefs
+                saved = setBranchTasks(branch.id, input.taskRefs as string[])
+                git = syncBranchTasks(saved, before)
+                if (git.failed.length)
+                    saved = setBranchTasks(
+                        branch.id,
+                        saved.taskRefs.filter(
+                            (taskRef) =>
+                                !git!.failed.some(
+                                    (failed) =>
+                                        failed.toLowerCase() ===
+                                        taskRef.toLowerCase(),
+                                ),
+                        ),
+                    )
+            }
             return json({
-                branch: workPackageBranchDetail(
-                    requireWorkPackageBranch(branch.id),
-                ),
+                branch: workPackageBranchDetail(saved),
                 workPackage: getWorkPackageDetail(workPackage.ref),
+                git,
             })
         }
         if (request.method === "DELETE") {

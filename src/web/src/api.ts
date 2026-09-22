@@ -31,6 +31,7 @@ import type {
     WorkPackage,
     BaselineReport,
     WorkPackageBranchDetail,
+    BranchTaskSync,
     WorkPackageDetail,
     RunSupervisor,
     WorkRunDetail,
@@ -194,6 +195,7 @@ export const api = {
         request<{
             branch: WorkPackageBranchDetail
             workPackage: WorkPackageDetail
+            git?: BranchTaskSync
         }>(`/work-packages/${encodeURIComponent(ref)}/branches`, {
             method: "POST",
             body: JSON.stringify(input),
@@ -213,6 +215,7 @@ export const api = {
         request<{
             branch: WorkPackageBranchDetail
             workPackage: WorkPackageDetail
+            git?: BranchTaskSync
         }>(`/work-packages/${encodeURIComponent(ref)}/branches/${id}`, {
             method: "PATCH",
             body: JSON.stringify(input),
@@ -660,13 +663,18 @@ export const api = {
             },
         ).then((r) => r.branch),
 
-    /** Starts all configured checks, or one named check, in the background. */
-    runChecks: (name: string, check?: string) =>
+    getChecks: (name: string) =>
+        request<Pick<CombinedBranchDetail, "checks" | "checksRunning">>(
+            `/branches/${branchPath(name)}/checks`,
+        ),
+
+    /** Starts all checks, a single check, or resumes an incomplete suite. */
+    runChecks: (name: string, check?: string, resume = false) =>
         request<{ branch: CombinedBranchDetail }>(
             `/branches/${branchPath(name)}/checks`,
             {
                 method: "POST",
-                body: JSON.stringify(check ? { check } : {}),
+                body: JSON.stringify(check ? { check } : { resume }),
             },
         ).then((r) => r.branch),
 

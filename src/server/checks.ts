@@ -3,6 +3,7 @@ import { existsSync } from "node:fs"
 import { workspace } from "../config/paths"
 import type { CheckDefinition } from "../config/config"
 import type { CheckRun, ChecksProgress, ChecksReport } from "../shared/types"
+import { planChecks } from "../shared/checks"
 import { findCombinedBranch, updateCombinedBranch } from "./repo"
 import { announceChange } from "./watch"
 
@@ -190,25 +191,47 @@ export async function runChecks(input: {
     base: string
     /** Run only this named check. Omit to run the complete suite. */
     check?: string
+    /** Retry failed checks and run missing checks, retaining current passes. */
+    resume?: boolean
     /** Results to retain when rerunning one check against the same commit. */
     previous?: ChecksReport | null
     /** Called as each check starts, so a caller can say what is happening. */
     onProgress?: (current: string, done: number, total: number) => void
     /** Called after every completed check, including skipped or invalid checks. */
     onCheckComplete?: (run: CheckRun, done: number, total: number) => void
+    onPlan?: (names: string[], retained: CheckRun[]) => void
 }): Promise<ChecksReport> {
-    const { branch, base, check, previous, onProgress, onCheckComplete } = input
+    const {
+        branch,
+        base,
+        check,
+        resume,
+        previous,
+        onProgress,
+        onCheckComplete,
+    } = input
     const definitions = configuredChecks()
-    const selected = check
-        ? definitions.filter((definition) => definition.name === check)
-        : definitions
-    if (check && !selected.length) throw new Error(`Unknown check '${check}'.`)
+    if (check && !definitions.some((definition) => definition.name === check))
+        throw new Error(`Unknown check '${check}'.`)
 
     const onBranch = git(["branch", "--show-current"]).stdout.trim()
     const touched = changedFiles(branch, base)
     // Capture this before running. If the branch moves during a long check, the
     // finished report is stale instead of accidentally describing the new head.
     const checkedHead = headSha(branch)
+    const plan = planChecks({
+        names: definitions.map((item) => item.name),
+        branch,
+        base,
+        headSha: checkedHead,
+        check,
+        resume,
+        previous,
+    })
+    const selected = definitions.filter((item) =>
+        plan.selected.includes(item.name),
+    )
+    input.onPlan?.(plan.selected, plan.retained)
 
     const freshRuns: CheckRun[] = []
 
@@ -234,18 +257,9 @@ export async function runChecks(input: {
             break
     }
 
-    // A single-check rerun updates the suite rather than erasing its other
-    // results. Results from another branch commit are never carried forward.
-    const retained =
-        check &&
-        previous?.branch === branch &&
-        previous.base === base &&
-        checkedHead !== null &&
-        previous.headSha === checkedHead
-            ? previous.checks.filter((run) => run.name !== check)
-            : []
+    // Reruns and resumes retain eligible results for this same branch commit.
     const byName = new Map(
-        [...retained, ...freshRuns].map((run) => [run.name, run]),
+        [...plan.retained, ...freshRuns].map((run) => [run.name, run]),
     )
     const runs = definitions.flatMap((definition) => {
         const run = byName.get(definition.name)
@@ -429,9 +443,10 @@ export function startChecks(input: {
     branch: string
     base: string
     check?: string
+    resume?: boolean
     previous?: ChecksReport | null
 }): ChecksProgress {
-    const { branch, base, check, previous } = input
+    const { branch, base, check, resume, previous } = input
     if (check && !configuredChecks().some((item) => item.name === check))
         throw new Error(`Unknown check '${check}'.`)
 
@@ -443,6 +458,8 @@ export function startChecks(input: {
         base,
         startedAt: new Date().toISOString(),
         current: null,
+        currentStartedAt: null,
+        names: [],
         done: 0,
         total: check ? 1 : configuredChecks().length,
         checks: [],
@@ -453,13 +470,22 @@ export function startChecks(input: {
         branch,
         base,
         check,
+        resume,
         previous,
+        onPlan: (names, retained) => {
+            progress.names = names
+            progress.total = names.length
+            progress.checks = [...retained]
+        },
         onProgress: (current, done, total) => {
             progress.current = current
+            progress.currentStartedAt = new Date().toISOString()
             progress.done = done
             progress.total = total
         },
         onCheckComplete: (run, done, total) => {
+            progress.current = null
+            progress.currentStartedAt = null
             progress.checks.push(run)
             progress.done = done
             progress.total = total

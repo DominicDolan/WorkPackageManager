@@ -11,9 +11,9 @@ export function NoteEditor(props: {
     saved: () => Promise<unknown>
     close: () => void
 }) {
-    const [title, setTitle] = createSignal(props.note.title)
-    const [tags, setTags] = createSignal(props.note.tags.join(", "))
-    const [body, setBody] = createSignal(props.note.body)
+    const [title, setTitle] = createSignal(() => props.note.title)
+    const [tags, setTags] = createSignal(() => props.note.tags.join(", "))
+    const [body, setBody] = createSignal(() => props.note.body)
     const [busy, setBusy] = createOptimistic("")
     const { capture, clear, Banner } = useError()
     let editor: HTMLTextAreaElement | undefined

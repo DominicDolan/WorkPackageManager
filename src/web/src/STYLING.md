@@ -34,7 +34,7 @@ in `components`; Tailwind layout utilities remain free to override defaults.
 | Action / navigation link     | `<button class="primary">`, `<button class="outlined">`, or `<a class="primary">` |
 | Back action                  | `<button class="back">`                                                           |
 | Input group                  | `<label class="field">` with a span and native control                            |
-| Checkbox option              | `<label class="choice">`                                                          |
+| Checkbox / radio option      | `<label class="choice">` (`compact` for an inline radio option)                   |
 | Code input                   | `<input class="code">` or `<textarea class="code">`                               |
 | Picker menu                  | `<div class="menu">` / `[role="listbox"]`, with `<button class="option">`         |
 | Tabs                         | `<nav role="tablist" class="underlined">` (use `useTabs`)                         |

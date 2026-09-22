@@ -67,18 +67,23 @@ export function BranchTasks(props: {
                 name.toLowerCase() !== props.branch.branchName.toLowerCase(),
         )
 
-    const save = action(function* () {
+    const save = action(async function* () {
         if (busy()) return
         setBusy(true)
         clear()
         try {
-            yield api.updateWorkPackageBranch(
+            const result = await api.updateWorkPackageBranch(
                 props.workPackage.ref,
                 props.branch.id,
                 { taskRefs: chosen() },
             )
+            yield
             props.changed()
+            // The list is saved either way; these say which commits did not follow.
+            if (result.git?.problems.length)
+                capture(result.git.problems.join("\n\n"))
         } catch (caught) {
+            yield
             capture(caught)
         }
     })
@@ -90,7 +95,9 @@ export function BranchTasks(props: {
                     <h3 class="m-0">Tasks on this branch</h3>
                     <p class="m-[0.28rem_0_0]">
                         Each task is merged into every branch it is on, and cut
-                        from the first of them.
+                        from the first of them. Saving adds finished tasks'
+                        commits to this branch and drops those of tasks taken
+                        off it.
                     </p>
                 </div>
                 <div class="flex gap-2">

@@ -37,6 +37,9 @@ export const MODEL_TIER_LABELS: Record<ModelTier, string> = {
     frontier: "Frontier",
 }
 
+/** A stored unattended-run choice that resolves each task's own tier at launch. */
+export const RECOMMENDED_MODEL = "__task_recommended__"
+
 /** Which checkpoint phase a capture belongs to. */
 export type Phase = "before" | "after"
 
@@ -735,9 +738,13 @@ export interface ChecksProgress {
     startedAt: string
     /** The check being run right now, or null before the first one starts. */
     current: string | null
+    /** Wall-clock start of the current command, for live elapsed timers. */
+    currentStartedAt: string | null
+    /** Checks selected for this run, in execution order. */
+    names: string[]
     done: number
     total: number
-    /** Results that have finished during this run, in configured order. */
+    /** Retained results plus checks that have finished during this run. */
     checks: CheckRun[]
 }
 
@@ -843,6 +850,18 @@ export interface WorkPackageBranch {
 }
 
 /** A work package branch plus its live Git state and delivery record. */
+/** What saving a branch's tasks did to the Git branch. */
+export interface BranchTaskSync {
+    /** Finished tasks whose commits were put on the branch. */
+    merged: string[]
+    /** Tasks whose commits were taken off it. */
+    removed: string[]
+    /** Why a task could not be added or removed. */
+    problems: string[]
+    /** Finished Git-workflow tasks that could not be added to the branch. */
+    failed: string[]
+}
+
 export interface WorkPackageBranchDetail extends WorkPackageBranch {
     /** `baseBranch`, resolved. */
     base: string
@@ -1183,9 +1202,8 @@ export const MAX_SUPERVISIONS_PER_TASK = 2
 export interface WorkPackageRun {
     id: number
     workPackageRef: string
-    /** The launch settings every task in the loop is worked with. Chosen once, at
-     *  the start, because changing harness halfway through a work package would make the
-     *  run mean two different things. */
+    /** The selected harness stays fixed. `model` is either one concrete model
+     *  for every task, or `RECOMMENDED_MODEL`, resolved per task at launch. */
     harness: AgentHarnessId
     model: string
     permissionMode: AgentPermissionMode

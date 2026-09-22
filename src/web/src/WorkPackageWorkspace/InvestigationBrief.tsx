@@ -7,7 +7,7 @@ export function InvestigationBrief(props: {
     investigation: InvestigationDetail
     saved: () => void
 }) {
-    const [brief, setBrief] = createSignal(props.investigation.brief)
+    const [brief, setBrief] = createSignal(() => props.investigation.brief)
     const [busy, setBusy] = createOptimistic(false)
     const [saved, setSaved] = createSignal(false)
     const { handle, hasError, Banner } = useError()

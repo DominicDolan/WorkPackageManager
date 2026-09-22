@@ -7,7 +7,7 @@ import type {
     WorkPackageDetail,
 } from "@shared/types"
 import { api } from "../src/api"
-import { BranchPanel } from "../src/WorkPackageWorkspace/BranchPanel"
+import { WorkPackageWorkspace } from "../src/WorkPackageWorkspace/WorkPackageWorkspace"
 import styles from "../src/WorkPackageWorkspace/WorkPackageWorkspace.module.css"
 import "../src/styles.css"
 
@@ -23,6 +23,33 @@ let latest = initial
 let update: (value: CombinedBranchDetail) => void
 let startChecks: () => void
 api.getBranch = async () => latest
+api.getChecks = async () => ({
+    checks: latest.checks,
+    checksRunning: latest.checksRunning,
+})
+api.getWorkPackage = async () =>
+    ({
+        ref: "WP-1",
+        name: "Check progress fixture",
+        tasks: [],
+        investigations: [],
+        workRuns: [],
+        queue: [],
+        outsideBlockers: [],
+        inProgress: [],
+        run: null,
+        branches: [
+            {
+                id: 1,
+                branchName: initial.branchName,
+                label: "Branch",
+                base: "main",
+                git,
+                taskRefs: [],
+                createdAt: "2026-09-21T12:00:00Z",
+            } as unknown as WorkPackageBranchDetail,
+        ],
+    }) as unknown as WorkPackageDetail
 api.runChecks = async () => {
     await new Promise<void>((resolve) => (startChecks = resolve))
     return (latest = {
@@ -33,6 +60,8 @@ api.runChecks = async () => {
             base: "main",
             startedAt: new Date().toISOString(),
             current: "Typecheck",
+            currentStartedAt: new Date().toISOString(),
+            names: ["Typecheck", "Tests"],
             done: 0,
             total: 2,
             checks: [],
@@ -41,7 +70,11 @@ api.runChecks = async () => {
 }
 function Fixture() {
     const [branch, setBranch] = createSignal(initial)
-    update = setBranch
+    const [revision, setRevision] = createSignal(0)
+    update = (value) => {
+        setBranch(value)
+        setRevision((value) => value + 1)
+    }
     return (
         <div class={styles.scope}>
             <div id="samples" class="grid gap-3 p-4">
@@ -60,28 +93,31 @@ function Fixture() {
                     <li aria-busy="true">Loading item</li>
                 </ul>
             </div>
-            <BranchPanel
-                workPackage={{ ref: "WP-1" } as unknown as WorkPackageDetail}
-                branch={
-                    {
-                        id: 1,
-                        branchName: initial.branchName,
-                        base: "main",
-                        git,
-                    } as unknown as WorkPackageBranchDetail
-                }
-                delivery={branch()}
-                tools={{
-                    checkCount: 2,
-                    checkNames: ["Typecheck", "Tests"],
-                    prAgentAvailable: false,
-                    prAgent: null,
-                    gh: false,
-                    ghAuthed: false,
+            <WorkPackageWorkspace
+                workPackageRef="WP-1"
+                snapshot={{
+                    workPackages: [],
+                    tasks: [],
+                    investigations: [],
+                    branches: [branch()],
+                    currentBranch: initial.branchName,
+                    localBranches: [],
+                    aioVrReady: false,
+                    tools: {
+                        checkCount: 2,
+                        checkNames: ["Typecheck", "Tests"],
+                        prAgentAvailable: false,
+                        prAgent: null,
+                        gh: false,
+                        ghAuthed: false,
+                    },
                 }}
                 changed={() => {}}
-                workPackageChanged={() => {}}
-                conflicted={() => {}}
+                revision={revision()}
+                back={() => {}}
+                openTask={() => {}}
+                openNote={() => {}}
+                openIssue={() => {}}
             />
         </div>
     )
@@ -130,6 +166,14 @@ async function run() {
         "idle clears indicator without layout shift",
     )
     check(rows().length === 2, "unrun checks are listed")
+    const editor = document.querySelector<HTMLTextAreaElement>("textarea")!
+    editor.value = "Unsaved description\n".repeat(40)
+    editor.dispatchEvent(new Event("input", { bubbles: true }))
+    await tick()
+    editor.scrollTop = 100
+    const editorScroll = editor.scrollTop
+    const firstRow = rows()[0]
+    const rowTop = firstRow.getBoundingClientRect().top
     const runAll = [
         ...document.querySelectorAll<HTMLButtonElement>("button"),
     ].find((b) => b.textContent?.trim() === "Run all checks")!
@@ -142,6 +186,23 @@ async function run() {
     )
     startChecks()
     await tick()
+    check(
+        editor === document.querySelector("textarea") &&
+            editor.scrollTop === editorScroll,
+        "starting checks preserves the editor and its scroll position",
+    )
+    check(
+        firstRow === rows()[0] &&
+            rows()[0].getBoundingClientRect().top === rowTop,
+        "starting checks preserves rows without shifting the card",
+    )
+    const timer = rows()[0].querySelector('[role="timer"]')!
+    const elapsed = timer.textContent
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    check(
+        timer.textContent !== elapsed,
+        "running check timer advances before completion",
+    )
     check(rows().length === 2, "first run retains all checks")
     check(
         busyRows().length === 1 &&
@@ -182,8 +243,7 @@ async function run() {
             ],
         },
     }
-    update(latest)
-    await tick()
+    await new Promise((resolve) => setTimeout(resolve, 1200))
     check(
         busyRows().length === 1 && busyRows()[0].textContent?.includes("Tests"),
         "indicator follows progress",
@@ -193,6 +253,20 @@ async function run() {
             .find((row) => row.textContent?.includes("Typecheck"))
             ?.textContent?.includes("Passed"),
         "completed checks show their result while the suite continues",
+    )
+    const completedTime = rows()[0].querySelector(
+        '[aria-label="Typecheck elapsed time"]',
+    )!.textContent
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    check(
+        rows()[0].querySelector('[aria-label="Typecheck elapsed time"]')!
+            .textContent === completedTime,
+        "completed timer stops while the next check runs",
+    )
+    check(
+        editor === document.querySelector("textarea") &&
+            editor.scrollTop === editorScroll,
+        "progress polling preserves editor scroll",
     )
     latest = {
         ...latest,
@@ -222,6 +296,11 @@ async function run() {
         rows().length === 2 && busyRows().length === 0,
         "completion clears busy rows and keeps results",
     )
+    check(
+        editor === document.querySelector("textarea") &&
+            editor.value.startsWith("Unsaved description"),
+        "delivery refresh preserves the editor and unsaved draft",
+    )
     latest = {
         ...latest,
         updatedAt: "rerun",
@@ -231,6 +310,8 @@ async function run() {
             startedAt: new Date().toISOString(),
             current: "Tests",
             done: 0,
+            currentStartedAt: new Date().toISOString(),
+            names: ["Tests"],
             total: 1,
             checks: [],
         },
@@ -269,6 +350,90 @@ async function run() {
         busyRows().length === 0 &&
             document.body.textContent?.includes("Unable to start checks"),
         "failed check request clears the optimistic row and reports the error",
+    )
+    latest = {
+        ...latest,
+        updatedAt: "paused",
+        checks: {
+            ...latest.checks!,
+            passed: false,
+            checks: latest.checks!.checks.map((run) =>
+                run.name === "Tests"
+                    ? { ...run, status: "failed", output: "Fix this check" }
+                    : run,
+            ),
+        },
+    }
+    update(latest)
+    await tick()
+    const failedRow = rows()[1]
+    failedRow.querySelector("details")!.open = true
+    let resumed = false
+    api.runChecks = async (_name, check, resume) => {
+        resumed = !check && resume === true
+        return (latest = {
+            ...latest,
+            checksRunning: {
+                branch: initial.branchName,
+                base: "main",
+                startedAt: new Date().toISOString(),
+                currentStartedAt: new Date().toISOString(),
+                current: "Tests",
+                names: ["Tests"],
+                done: 0,
+                total: 1,
+                checks: [latest.checks!.checks[0]],
+            },
+        })
+    }
+    const resume = [
+        ...document.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent?.trim() === "Resume checks")!
+    check(!!resume && !resume.disabled, "paused suite offers Resume checks")
+    resume.click()
+    await tick()
+    check(
+        resumed && busyRows()[0] === failedRow,
+        "Resume retries the failed check in place",
+    )
+    check(
+        rows()[0].textContent?.includes("Passed"),
+        "Resume retains successful rows",
+    )
+    check(
+        failedRow.querySelector("details")!.open,
+        "expanded output survives starting a new check",
+    )
+    check(
+        editor === document.querySelector("textarea") &&
+            editor.scrollTop === editorScroll,
+        "Resume preserves the PR editor and scrollbar",
+    )
+    latest = {
+        ...latest,
+        checksRunning: {
+            ...latest.checksRunning!,
+            names: ["Typecheck", "Tests"],
+            total: 2,
+            done: 1,
+            checks: [
+                {
+                    ...latest.checks!.checks[0],
+                    durationMs: 2345,
+                    output: "Fresh result",
+                },
+            ],
+        },
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    check(
+        rows()[0].textContent?.includes("2.3s") &&
+            rows()[0].textContent?.includes("Fresh result"),
+        "partial rerun results replace old results before the suite finishes",
+    )
+    check(
+        rows()[1] === failedRow && failedRow.querySelector("details")!.open,
+        "polling retains expanded output and row identity",
     )
     document.getElementById("results")!.textContent =
         results.join("\n") + "\nALL CHECKS PASSED"

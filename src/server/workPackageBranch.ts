@@ -1,16 +1,22 @@
 import {
     branchExists,
+    commitsIn,
     createBranch,
     currentBranch,
     defaultBaseBranch,
     fastForward,
+    hasMerges,
     isAncestor,
     isPushed,
+    mergeBase,
     mergeInProgress,
+    moveBranch,
     patchesApplied,
+    patchIds,
     rebaseInProgress,
     rebaseOnto,
     readBranch,
+    rebuildBranch,
     refExists,
     refreshBaseBranch,
     replayRange,
@@ -32,9 +38,11 @@ import {
     registerTaskOnBranch,
     requireWorkPackage,
     requireTask,
+    unregisterTaskFromBranch,
 } from "./repo"
 import {
     dependencyOrder,
+    type BranchTaskSync,
     unmetDependencies,
     type GitConflict,
     type Task,
@@ -285,7 +293,16 @@ function mergeIntoSecondary(
 ): TargetMergeOutcome {
     const { branch, created } = ensureWorkPackageBranch(target)
     const outcome = outcomeFor(target, created)
-    const start = ownCommitsFrom(ref)
+    const start =
+        ownCommitsFrom(ref) ??
+        (targetBranchesOf(requireTask(ref)).some(
+            (one) =>
+                one.id !== target.id &&
+                branchExists(one.branchName) &&
+                isAncestor(taskBranch, one.branchName),
+        )
+            ? null
+            : forkPointOf(taskBranch, target))
 
     if (
         isAncestor(taskBranch, branch) ||
@@ -308,6 +325,201 @@ function mergeIntoSecondary(
     if (!replayed.rebased) return { ...outcome, conflict: replayed.conflict }
     registerTaskOnBranch(branch, ref, baseOf(target))
     return { ...outcome, merged: true }
+}
+
+/**
+ * Where a task branch that has not been merged anywhere was cut from, as far
+ * as its commits go: the newest of its fork points from the base and from the
+ * work package's other branches. A task cut from a branch that already carried
+ * other tasks starts after them, so their commits are not counted as its own.
+ */
+function forkPointOf(
+    taskBranch: string,
+    target: WorkPackageBranch,
+): string | null {
+    const points = [
+        baseOf(target),
+        ...listWorkPackageBranches(target.workPackageRef)
+            .filter(
+                (one) =>
+                    one.id !== target.id &&
+                    branchExists(one.branchName) &&
+                    !isAncestor(taskBranch, one.branchName),
+            )
+            .map((one) => one.branchName),
+    ]
+        .filter((point) => refExists(point))
+        .map((point) => mergeBase(point, taskBranch))
+        .filter((sha): sha is string => sha !== null)
+    return (
+        points.find((sha) => points.every((other) => isAncestor(other, sha))) ??
+        points[0] ??
+        null
+    )
+}
+
+const FINISHED = new Set(["dev_complete", "verified", "closed"])
+
+/**
+ * Make the Git branch carry what its task list says, after that list changed
+ * from `before`.
+ *
+ * A task that is still being worked needs nothing: it is merged in when it is
+ * done. A finished one added to the list is merged now, the same way `tasks
+ * done` would have. A task taken off the list has its commits dropped and the
+ * branch rebuilt from the rest, which rewrites it — so the next push of a
+ * branch that has been pushed already has to force.
+ */
+export function syncBranchTasks(
+    branch: WorkPackageBranch,
+    before: string[],
+): BranchTaskSync {
+    const result: BranchTaskSync = {
+        merged: [],
+        removed: [],
+        problems: [],
+        failed: [],
+    }
+    const had = new Set(before.map((ref) => ref.toLowerCase()))
+    const has = new Set(branch.taskRefs.map((ref) => ref.toLowerCase()))
+    const usable = (ref: string) => {
+        const task = requireTask(ref)
+        return task.useGitWorkflow &&
+            task.branchName &&
+            branchExists(task.branchName)
+            ? task
+            : null
+    }
+
+    const adding: Task[] = []
+    for (const ref of branch.taskRefs) {
+        if (had.has(ref.toLowerCase())) continue
+        const task = usable(ref)
+        if (!task || !FINISHED.has(task.status)) continue
+        // Already on it — an adopted branch, or a merge done by hand.
+        if (
+            branchExists(branch.branchName) &&
+            isAncestor(task.branchName!, branch.branchName)
+        ) {
+            registerTaskOnBranch(branch.branchName, task.ref, baseOf(branch))
+            continue
+        }
+        adding.push(task)
+    }
+
+    // Which commits each removed task has on the branch, found by patch id so
+    // a copy made by a secondary merge is recognised as well as the original.
+    const name = branch.branchName
+    const fork = branchExists(name) ? mergeBase(baseOf(branch), name) : null
+    const range = fork ? `${fork}..${name}` : null
+    const onBranch = range ? patchIds(range) : new Map<string, string>()
+    const removing: { ref: string; commits: string[] }[] = []
+    for (const ref of before.filter((one) => !has.has(one.toLowerCase()))) {
+        const task = usable(ref)
+        if (!task || !onBranch.size) continue
+        const start =
+            ownCommitsFrom(task.ref) ?? forkPointOf(task.branchName!, branch)
+        if (!start) continue
+        if (!ownCommitsFrom(task.ref) && isAncestor(task.branchName!, name)) {
+            result.problems.push(
+                `${task.ref} was put on '${name}' by hand, so which of its commits are its own is not recorded. Drop them from the branch by hand.`,
+            )
+            continue
+        }
+        const commits = [...patchIds(`${start}..${task.branchName}`).keys()]
+            .map((id) => onBranch.get(id))
+            .filter((sha): sha is string => !!sha)
+        if (commits.length) removing.push({ ref: task.ref, commits })
+    }
+
+    if (!adding.length && !removing.length) return result
+
+    const blocked = mergeInProgress()
+        ? `A merge is in progress on '${currentBranch() ?? "HEAD"}'.`
+        : rebaseInProgress()
+          ? `A rebase is in progress on '${currentBranch() ?? "HEAD"}'.`
+          : !workingTreeClean()
+            ? "The working tree has uncommitted changes."
+            : null
+    if (blocked) {
+        result.problems.push(
+            `${blocked} The task list is saved, but '${name}' was not changed — save it again once that is sorted out.`,
+        )
+        result.failed.push(...adding.map((task) => task.ref))
+        return result
+    }
+
+    const from = currentBranch()
+    try {
+        if (removing.length && range && fork) {
+            if (hasMerges(range)) {
+                result.problems.push(
+                    `'${name}' has merge commits, so ${removing.map((one) => one.ref).join(", ")} cannot be taken off it here. Drop their commits by hand.`,
+                )
+            } else {
+                const commits = commitsIn(range)
+                const drop = new Set(removing.flatMap((one) => one.commits))
+                const rebuilt = rebuildBranch(name, fork, commits, drop)
+                if (!rebuilt.rebuilt) {
+                    result.problems.push(
+                        `Taking ${removing.map((one) => one.ref).join(", ")} off '${name}' collides with the commits left on it. Nothing was changed.\n${rebuilt.conflict}`,
+                    )
+                } else {
+                    for (const one of removing) {
+                        unregisterTaskFromBranch(name, one.ref)
+                        result.removed.push(one.ref)
+                    }
+                    followRebuild(branch, rebuilt.mapping)
+                }
+            }
+        }
+
+        for (const task of adding) {
+            const outcome =
+                primaryTargetOf(task)?.id === branch.id &&
+                !isPushed(task.branchName!)
+                    ? mergeIntoPrimary(task.ref, task.branchName!, branch)
+                    : mergeIntoSecondary(task.ref, task.branchName!, branch)
+            if (outcome.merged) result.merged.push(task.ref)
+            else {
+                result.failed.push(task.ref)
+                result.problems.push(
+                    `${task.ref}'s commits could not be put on '${name}'. Nothing was changed for it.\n${outcome.conflict}`,
+                )
+            }
+        }
+    } finally {
+        if (from && currentBranch() !== from) switchBranch(from)
+    }
+    return result
+}
+
+/**
+ * After a rebuild, point the tasks whose first branch this is at the copies of
+ * their commits, so they still read as merged into it, and keep the recorded
+ * start of their own commits on the branch they now sit on.
+ */
+function followRebuild(
+    branch: WorkPackageBranch,
+    mapping: Map<string, string>,
+): void {
+    for (const ref of branch.taskRefs) {
+        const task = requireTask(ref)
+        if (primaryTargetOf(task)?.id !== branch.id) continue
+        const start = ownCommitsFrom(task.ref)
+        if (start && mapping.has(start))
+            recordOwnCommitsFrom(task.ref, mapping.get(start)!)
+        if (!task.branchName || isPushed(task.branchName)) continue
+        const tip = resolveCommit(task.branchName)
+        const moved = tip ? mapping.get(tip) : undefined
+        if (!moved || moved === tip) continue
+        try {
+            moveBranch(task.branchName, moved)
+        } catch {
+            // Checked out in another worktree. The branch is still right; the
+            // task only reads as missing from it until it is merged again.
+        }
+    }
 }
 
 export interface BaseRebaseResult {

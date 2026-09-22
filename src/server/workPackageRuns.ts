@@ -23,6 +23,7 @@ import {
 } from "./repo"
 import {
     MAX_SUPERVISIONS_PER_TASK,
+    RECOMMENDED_MODEL,
     workPackageRunActive,
     nextWorkableTask,
     type AgentPermissionMode,
@@ -33,6 +34,7 @@ import {
     type WorkPackageRun,
     type WorkPackageDetail,
 } from "../shared/types"
+import { workspace } from "../config/paths"
 
 /**
  * Working a whole work package unattended, one fresh agent per task.
@@ -275,9 +277,19 @@ function launch(
     ref: string,
     handoff?: string,
 ): AgentRun {
+    const task = findTask(ref)
+    if (!task) throw new Error(`No task with ref '${ref}'.`)
+    const model =
+        workPackageRun.model === RECOMMENDED_MODEL
+            ? ((task.recommendedTier
+                  ? workspace().config.modelTiers[workPackageRun.harness]?.[
+                        task.recommendedTier
+                    ]
+                  : "") ?? "")
+            : workPackageRun.model
     const run = startRun({
         harness: workPackageRun.harness,
-        model: workPackageRun.model,
+        model,
         mode: "print",
         command: "work-task",
         target: ref,

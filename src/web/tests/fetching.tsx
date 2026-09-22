@@ -46,6 +46,9 @@ function change(el: HTMLInputElement | HTMLSelectElement, value: string) {
         }),
     )
 }
+function click(el: HTMLElement) {
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+}
 const workspace = {
     dir: "/fixture",
     exists: true,
@@ -336,24 +339,33 @@ async function run() {
     }, root)
     await tick()
     check(
-        root.querySelector<HTMLInputElement>('[role="combobox"]')?.disabled,
+        root.querySelector("fieldset[aria-busy='true']") !== null,
         "initial model catalogue has a disabled loading control",
     )
     requests.alpha.resolve([
         { id: "alpha-model", label: "Alpha model" } as AgentModel,
     ])
     await tick()
-    change(root.querySelector<HTMLInputElement>('[role="combobox"]')!, "")
+    click(
+        [...root.querySelectorAll<HTMLButtonElement>("button")].find((item) =>
+            item.textContent?.includes("Add model"),
+        )!,
+    )
     await tick()
     check(
         root.textContent?.includes("Alpha model"),
         "resolved catalogue offers models",
     )
-    change(root.querySelector("select")!, "beta")
+    click(
+        root.querySelector<HTMLInputElement>(
+            'input[type="radio"][value="beta"]',
+        )!,
+    )
     await tick()
     check(
-        root.querySelector("select")!.value === "beta" &&
-            root.querySelector<HTMLInputElement>('[role="combobox"]')!.disabled,
+        root.querySelector<HTMLInputElement>(
+            'input[type="radio"][value="beta"]',
+        )!.checked && root.querySelector("fieldset[aria-busy='true']") !== null,
         "harness selection updates immediately while models load",
     )
     check(
@@ -362,12 +374,14 @@ async function run() {
     )
     check(
         !root.textContent?.includes("Alpha model") &&
-            root
-                .querySelector<HTMLInputElement>('[role="combobox"]')!
-                .value.includes("beta"),
+            root.textContent?.includes("beta"),
         "stale catalogue hidden and default label follows requested harness",
     )
-    change(root.querySelector("select")!, "gamma")
+    click(
+        root.querySelector<HTMLInputElement>(
+            'input[type="radio"][value="gamma"]',
+        )!,
+    )
     await tick()
     requests.gamma.resolve([
         { id: "gamma-model", label: "Gamma model" } as AgentModel,
@@ -377,7 +391,11 @@ async function run() {
         { id: "beta-model", label: "Beta model" } as AgentModel,
     ])
     await tick()
-    change(root.querySelector<HTMLInputElement>('[role="combobox"]')!, "")
+    click(
+        [...root.querySelectorAll<HTMLButtonElement>("button")].find((item) =>
+            item.textContent?.includes("Add model"),
+        )!,
+    )
     await tick()
     check(
         root.textContent?.includes("Gamma model") &&
@@ -386,15 +404,17 @@ async function run() {
     )
     // A failed catalogue preserves the deliberate harness-default fallback.
     requests.beta = deferred()
-    change(root.querySelector("select")!, "beta")
+    click(
+        root.querySelector<HTMLInputElement>(
+            'input[type="radio"][value="beta"]',
+        )!,
+    )
     await tick()
     requests.beta.reject(new Error("Catalogue unavailable"))
     await tick()
     check(
-        !root.querySelector<HTMLInputElement>('[role="combobox"]')!.disabled &&
-            root
-                .querySelector<HTMLInputElement>('[role="combobox"]')!
-                .value.includes("beta"),
+        root.querySelector("fieldset[aria-busy='false']") !== null &&
+            root.textContent?.includes("beta"),
         "catalogue failure restores an enabled harness-default picker",
     )
     dispose()

@@ -1,5 +1,4 @@
 import {
-    type CheckRun,
     type CombinedBranchDetail,
     type GitConflict,
     type WorkPackageBranchDetail,
@@ -12,7 +11,7 @@ import {
     Show,
     createEffect,
     createSignal,
-    onSettled,
+    deep,
     type Element,
 } from "solid-js"
 import { api } from "../api"
@@ -20,6 +19,7 @@ import { useError } from "../hooks/useError"
 import { renderMarkdown } from "../markdown"
 import type { WorkspaceSnapshot } from "../types/workspace"
 import { BranchCheckLauncher } from "./BranchCheckLauncher"
+import { BranchChecks } from "./BranchChecks"
 import { BranchTasks } from "./BranchTasks"
 import { TabHeading } from "./TabHeading"
 
@@ -31,8 +31,7 @@ export function BranchPanel(props: {
     tools: WorkspaceSnapshot["tools"]
     changed: () => void
     workPackageChanged: () => void
-    /** A rebase stopped on conflicts. The panel remounts on the refresh a
-     * rebase attempt causes, so the offer is shown by the workspace. */
+    /** A rebase stopped on conflicts; the workspace owns the resolution dialog. */
     conflicted: (conflict: GitConflict) => void
 }) {
     const [current, setCurrent] = createSignal<
@@ -44,23 +43,23 @@ export function BranchPanel(props: {
     const [body, setBody] = createSignal("")
     const [mode, setMode] = createSignal<"write" | "preview">("write")
     const [busy, setBusy] = createOptimistic("")
-    const [requestedCheck, setRequestedCheck] = createOptimistic<string | null>(
-        null,
-    )
     const { capture, clear, Banner } = useError()
     const [notice, setNotice] = createSignal("")
     const [checkAgentOpen, setCheckAgentOpen] = createSignal(false)
 
-    const applyBranch = (branch: CombinedBranchDetail) => {
+    const applyBranch = (branch: CombinedBranchDetail, overwrite = true) => {
+        const previous = current()
+        if (overwrite || title() === (previous?.prTitle ?? ""))
+            setTitle(branch.prTitle ?? "")
+        if (overwrite || body() === (previous?.prBody ?? ""))
+            setBody(branch.prBody ?? "")
         setCurrent(branch)
-        setTitle(branch.prTitle ?? "")
-        setBody(branch.prBody ?? "")
     }
     createEffect(
-        () => props.delivery,
+        () => props.delivery && deep(props.delivery),
         (branch) => {
             if (branch && branch.updatedAt !== current()?.updatedAt)
-                applyBranch(branch)
+                applyBranch(branch, false)
             if (!branch) setCurrent(undefined)
         },
     )
@@ -81,13 +80,10 @@ export function BranchPanel(props: {
         label: string,
         request: () => Promise<CombinedBranchDetail>,
         message: string,
-        check?: string,
     ) {
         if (busy()) return
 
         setBusy(label)
-        if (label === "checks")
-            setRequestedCheck(check ?? props.tools.checkNames[0] ?? null)
         clear()
         setNotice("")
         try {
@@ -121,18 +117,6 @@ export function BranchPanel(props: {
                         prBody: body(),
                     }),
                 "Pull request description saved.",
-            )
-    }
-    const runChecks = (check?: string) => {
-        const branch = current()
-        if (branch)
-            return run(
-                "checks",
-                () => api.runChecks(branch.branchName, check),
-                check
-                    ? `${check} started. Progress and results will appear below.`
-                    : "Checks started. Progress and results will appear below.",
-                check,
             )
     }
     const openPr = action(async function* (draft: boolean) {
@@ -238,27 +222,10 @@ export function BranchPanel(props: {
         )
     }
 
-    // A check run can continue beyond the initiating request. Keep its progress
-    // and eventual report visible without requiring a manual page refresh.
-    onSettled(() => {
-        const poll = setInterval(() => {
-            const branch = current()
-            if (!branch?.checksRunning) return
-            api.getBranch(branch.branchName)
-                .then(setCurrent)
-                .catch(() => undefined)
-        }, 2000)
-        return () => clearInterval(poll)
-    })
-
     const descriptionDirty = () =>
         title() !== (current()?.prTitle ?? "") ||
         body() !== (current()?.prBody ?? "")
     const report = () => current()?.checks
-    const checkRunning = (name: string) =>
-        (current()?.checksRunning?.current ?? requestedCheck()) === name
-    const completedCheck = (name: string) =>
-        current()?.checksRunning?.checks?.find((check) => check.name === name)
     const missingChecks = () => {
         const completed = new Set(
             report()?.checks.map((check) => check.name) ?? [],
@@ -280,16 +247,6 @@ export function BranchPanel(props: {
         if (checksStale())
             return "The checks are stale because the branch has newer commits. Run them again."
         return ""
-    }
-    const formatDate = (value: string) => new Date(value).toLocaleString()
-    const seconds = (ms: number) =>
-        `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
-    const checkLabel: Record<CheckRun["status"], string> = {
-        passed: "Passed",
-        failed: "Failed",
-        skipped: "Skipped",
-        timed_out: "Timed out",
-        error: "Error",
     }
 
     return (
@@ -374,7 +331,7 @@ export function BranchPanel(props: {
                         Rename local branch
                     </button>
                 </div>
-                <Show when={current()} keyed>
+                <Show when={current()}>
                     {(branch) => (
                         <>
                             <div class="grid grid-cols-1 gap-x-3 gap-y-1 mt-4 sm:grid-cols-[minmax(0,_1fr)_250px]">
@@ -398,7 +355,7 @@ export function BranchPanel(props: {
                                         if (event.key === "Enter")
                                             void saveRemoteBranch()
                                     }}
-                                    placeholder={branch.branchName}
+                                    placeholder={branch().branchName}
                                 />
                                 <button
                                     aria-busy={
@@ -410,7 +367,7 @@ export function BranchPanel(props: {
                                     disabled={
                                         !!busy() ||
                                         remoteBranch().trim() ===
-                                            (branch.remoteBranch ?? "")
+                                            (branch().remoteBranch ?? "")
                                     }
                                     onClick={() => void saveRemoteBranch()}>
                                     Save remote branch
@@ -430,7 +387,7 @@ export function BranchPanel(props: {
             <BranchSection
                 variant="elevated"
                 title="Contents"
-                description="The commits currently unique to this branch.">
+                description="The commits currently unique to this branch().">
                 <div class="flex flex-wrap items-center gap-[0.75rem] mb-[1rem]">
                     <button
                         aria-busy={busy() === "rebase" ? "true" : "false"}
@@ -489,11 +446,10 @@ export function BranchPanel(props: {
                         <h3 class="m-0">Pull request description and checks</h3>
                         <p class="m-[0.28rem_0_0]">
                             These controls become available once the branch has
-                            commits that are not on its base branch.
+                            commits that are not on its base branch().
                         </p>
                     </article>
-                }
-                keyed>
+                }>
                 {(branch) => (
                     <>
                         <BranchSection
@@ -508,18 +464,18 @@ export function BranchPanel(props: {
                                     class="outlined"
                                     disabled={
                                         !!busy() ||
-                                        !branch.git.commits.length ||
+                                        !branch().git.commits.length ||
                                         !props.tools.prAgentAvailable
                                     }
                                     onClick={generate}>
-                                    {branch.prTitle
+                                    {branch().prTitle
                                         ? "Regenerate description"
                                         : "Generate description"}
                                 </button>
                                 <Show when={busy() === "describe"}>
                                     <span class="branch-working" role="status">
                                         The agent is reading{" "}
-                                        {branch.git.commits.length} commit(s).
+                                        {branch().git.commits.length} commit(s).
                                         This can take a minute or two.
                                     </span>
                                 </Show>
@@ -614,291 +570,18 @@ export function BranchPanel(props: {
                             variant="tonal"
                             title="Checks"
                             description={`${props.tools.checkCount} configured command(s) · typecheck, lint and tests.`}>
-                            <div class="branch-section-actions flex flex-wrap items-center gap-[0.75rem]">
-                                <button
-                                    aria-busy={
-                                        busy() === "checks" ||
-                                        branch.checksRunning
-                                            ? "true"
-                                            : "false"
-                                    }
-                                    class="outlined"
-                                    disabled={
-                                        !!busy() ||
-                                        !!branch.checksRunning ||
-                                        !branch.git.exists ||
-                                        props.tools.checkCount === 0
-                                    }
-                                    onClick={() => runChecks()}>
-                                    {report()
-                                        ? "Run all again"
-                                        : "Run all checks"}
-                                </button>
-                            </div>
-                            <Show when={branch.checksRunning}>
-                                {(progress) => (
-                                    <p
-                                        class="notice success m-0 mt-[1rem]"
-                                        role="status">
-                                        Running{" "}
-                                        <strong>
-                                            {progress().current ??
-                                                "the first check"}
-                                        </strong>
-                                        {progress().total
-                                            ? ` · ${progress().done + 1} of ${progress().total}`
-                                            : ""}
-                                        . This continues if you leave the page.
-                                    </p>
-                                )}
-                            </Show>
-                            <Show when={props.tools.checkCount === 0}>
-                                <p class="hint m-[1rem_0_0]">
-                                    No pre-PR checks are configured for this
-                                    repository.
-                                </p>
-                            </Show>
-                            <Show
-                                when={props.tools.checkCount > 0 && !report()}>
-                                <div>
-                                    <p class="hint m-[1rem_0_0]">
-                                        Checks have not been run on this branch
-                                        yet.
-                                    </p>
-                                    <ul class="branch-checks overflow-hidden m-[1rem_0_0] p-0">
-                                        <For each={props.tools.checkNames}>
-                                            {(check) => {
-                                                const completed = () =>
-                                                    completedCheck(check)
-                                                return (
-                                                    <li
-                                                        class="check-row check-not-run-row flex items-center gap-[0.7rem] pl-[0.8rem]"
-                                                        aria-busy={
-                                                            checkRunning(check)
-                                                                ? "true"
-                                                                : "false"
-                                                        }>
-                                                        <span
-                                                            data-status={
-                                                                checkRunning(
-                                                                    check,
-                                                                )
-                                                                    ? "running"
-                                                                    : (completed()
-                                                                          ?.status ??
-                                                                      "not-run")
-                                                            }
-                                                            class="badge inline-flex items-center p-[0.18rem_0.5rem]">
-                                                            {checkRunning(check)
-                                                                ? "Running"
-                                                                : completed()
-                                                                  ? checkLabel[
-                                                                        completed()!
-                                                                            .status
-                                                                    ]
-                                                                  : "Not run"}
-                                                        </span>
-                                                        <strong class="min-w-[7rem] flex-1">
-                                                            {check}
-                                                        </strong>
-                                                        <button
-                                                            class="outlined check-run-button flex-[0_0_auto] m-[0.45rem_0.7rem_0.45rem_0]"
-                                                            disabled={
-                                                                !!busy() ||
-                                                                !!branch.checksRunning ||
-                                                                !branch.git
-                                                                    .exists
-                                                            }
-                                                            onClick={() =>
-                                                                runChecks(check)
-                                                            }>
-                                                            Run
-                                                        </button>
-                                                    </li>
-                                                )
-                                            }}
-                                        </For>
-                                    </ul>
-                                </div>
-                            </Show>
-                            <Show when={report()}>
-                                {(checks) => (
-                                    <div class="check-report mt-[1rem]">
-                                        <div class="hint flex flex-wrap items-center gap-[0.75rem]">
-                                            <span
-                                                class="badge inline-flex items-center p-[0.18rem_0.5rem]"
-                                                data-status={
-                                                    checks().passed
-                                                        ? "passed"
-                                                        : "failed"
-                                                }>
-                                                {checks().passed
-                                                    ? "Passed"
-                                                    : missingChecks().length
-                                                      ? "Incomplete"
-                                                      : "Failed"}
-                                            </span>
-                                            <span>
-                                                Last updated{" "}
-                                                {formatDate(checks().ranAt)}{" "}
-                                                against{" "}
-                                                <code>{checks().base}</code>
-                                            </span>
-                                            <Show when={!checks().passed}>
-                                                <button
-                                                    class="outlined check-agent-button ml-auto max-[560px]:w-full max-[560px]:ml-0"
-                                                    disabled={!!busy()}
-                                                    onClick={() =>
-                                                        setCheckAgentOpen(true)
-                                                    }>
-                                                    Investigate with agent
-                                                </button>
-                                            </Show>
-                                        </div>
-                                        <Show when={checksStale()}>
-                                            <p class="notice warning m-[1rem_0_0] p-[0.65rem_0.8rem]">
-                                                The branch has new commits since
-                                                this report was produced, so
-                                                these results are stale.
-                                            </p>
-                                        </Show>
-                                        <ul class="branch-checks overflow-hidden m-[1rem_0_0] p-0">
-                                            <For each={checks().checks}>
-                                                {(check) => (
-                                                    <li
-                                                        class="check-row flex items-start"
-                                                        aria-busy={
-                                                            checkRunning(
-                                                                check.name,
-                                                            )
-                                                                ? "true"
-                                                                : "false"
-                                                        }>
-                                                        <details
-                                                            class="min-w-0 flex-1"
-                                                            open={
-                                                                check.status !==
-                                                                    "passed" &&
-                                                                check.status !==
-                                                                    "skipped"
-                                                            }>
-                                                            <summary class="grid min-h-[3.4rem] grid-cols-[auto_minmax(7rem,_1fr)_minmax(10rem,_2fr)_auto] items-center gap-[0.7rem] p-[0.7rem_0.8rem] max-[560px]:grid-cols-[auto_1fr_auto]">
-                                                                <span
-                                                                    class="badge inline-flex items-center p-[0.18rem_0.5rem]"
-                                                                    data-status={
-                                                                        checkRunning(
-                                                                            check.name,
-                                                                        )
-                                                                            ? "running"
-                                                                            : check.status
-                                                                    }>
-                                                                    {checkRunning(
-                                                                        check.name,
-                                                                    )
-                                                                        ? "Running"
-                                                                        : checkLabel[
-                                                                              check
-                                                                                  .status
-                                                                          ]}
-                                                                </span>
-                                                                <strong>
-                                                                    {check.name}
-                                                                </strong>
-                                                                <code class="overflow-hidden max-[560px]:col-[2_/_-1] max-[560px]:row-[2]">
-                                                                    {check.command.join(
-                                                                        " ",
-                                                                    )}
-                                                                </code>
-                                                                <span>
-                                                                    {seconds(
-                                                                        check.durationMs,
-                                                                    )}
-                                                                </span>
-                                                            </summary>
-                                                            <Show
-                                                                when={
-                                                                    check.reason
-                                                                }>
-                                                                <p class="m-0 p-[0_0.8rem_0.7rem]">
-                                                                    {
-                                                                        check.reason
-                                                                    }
-                                                                </p>
-                                                            </Show>
-                                                            <Show
-                                                                when={
-                                                                    check.output
-                                                                }>
-                                                                <pre class="max-h-[26rem] m-0 overflow-auto p-[0.9rem]">
-                                                                    {
-                                                                        check.output
-                                                                    }
-                                                                </pre>
-                                                            </Show>
-                                                        </details>
-                                                        <button
-                                                            class="outlined check-run-button flex-[0_0_auto] m-[0.45rem_0.7rem_0.45rem_0]"
-                                                            disabled={
-                                                                !!busy() ||
-                                                                !!branch.checksRunning ||
-                                                                !branch.git
-                                                                    .exists
-                                                            }
-                                                            onClick={() =>
-                                                                runChecks(
-                                                                    check.name,
-                                                                )
-                                                            }>
-                                                            Run
-                                                        </button>
-                                                    </li>
-                                                )}
-                                            </For>
-                                            <For each={missingChecks()}>
-                                                {(check) => (
-                                                    <li
-                                                        class="check-row check-not-run-row flex items-center gap-[0.7rem] pl-[0.8rem]"
-                                                        aria-busy={
-                                                            checkRunning(check)
-                                                                ? "true"
-                                                                : "false"
-                                                        }>
-                                                        <span
-                                                            data-status={
-                                                                checkRunning(
-                                                                    check,
-                                                                )
-                                                                    ? "running"
-                                                                    : "not-run"
-                                                            }
-                                                            class="badge inline-flex items-center p-[0.18rem_0.5rem]">
-                                                            {checkRunning(check)
-                                                                ? "Running"
-                                                                : "Not run"}
-                                                        </span>
-                                                        <strong class="min-w-[7rem] flex-1">
-                                                            {check}
-                                                        </strong>
-                                                        <button
-                                                            class="outlined check-run-button flex-[0_0_auto] m-[0.45rem_0.7rem_0.45rem_0]"
-                                                            disabled={
-                                                                !!busy() ||
-                                                                !!branch.checksRunning ||
-                                                                !branch.git
-                                                                    .exists
-                                                            }
-                                                            onClick={() =>
-                                                                runChecks(check)
-                                                            }>
-                                                            Run
-                                                        </button>
-                                                    </li>
-                                                )}
-                                            </For>
-                                        </ul>
-                                    </div>
-                                )}
-                            </Show>
+                            <BranchChecks
+                                branch={branch()}
+                                names={props.tools.checkNames}
+                                disabled={!!busy()}
+                                stale={checksStale()}
+                                updated={(checks) =>
+                                    setCurrent((value) =>
+                                        value ? { ...value, ...checks } : value,
+                                    )
+                                }
+                                investigate={() => setCheckAgentOpen(true)}
+                            />
                         </BranchSection>
 
                         <BranchSection
@@ -906,7 +589,7 @@ export function BranchPanel(props: {
                             title="Pull request"
                             description="Available after the description is ready and the latest checks pass.">
                             <Show
-                                when={branch.prUrl}
+                                when={branch().prUrl}
                                 fallback={
                                     <div class="pull-request-step grid gap-[0.8rem]">
                                         <Show when={checksBlocking()}>
@@ -933,7 +616,7 @@ export function BranchPanel(props: {
                                                 disabled={
                                                     !!busy() ||
                                                     !title().trim() ||
-                                                    !branch.git.exists ||
+                                                    !branch().git.exists ||
                                                     !!checksBlocking()
                                                 }
                                                 onClick={() => openPr(true)}>
@@ -949,7 +632,7 @@ export function BranchPanel(props: {
                                                 disabled={
                                                     !!busy() ||
                                                     !title().trim() ||
-                                                    !branch.git.exists ||
+                                                    !branch().git.exists ||
                                                     !!checksBlocking()
                                                 }
                                                 onClick={() => openPr(false)}>
@@ -962,7 +645,7 @@ export function BranchPanel(props: {
                                     <span>Pull request opened</span>
                                     <a
                                         class="primary"
-                                        href={branch.prUrl!}
+                                        href={branch().prUrl!}
                                         target="_blank"
                                         rel="noreferrer">
                                         View pull request
@@ -975,7 +658,7 @@ export function BranchPanel(props: {
                             <Show when={report()} keyed>
                                 {(checks) => (
                                     <BranchCheckLauncher
-                                        branch={branch}
+                                        branch={branch()}
                                         report={checks}
                                         close={() => setCheckAgentOpen(false)}
                                         started={() =>

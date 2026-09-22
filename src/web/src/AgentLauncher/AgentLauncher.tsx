@@ -11,6 +11,7 @@ import {
 } from "solid-js"
 import {
     MAX_SUPERVISIONS_PER_TASK,
+    RECOMMENDED_MODEL,
     nextWorkableTask,
     type AgentHarnessId,
     type AgentPermissionMode,
@@ -109,6 +110,14 @@ export function AgentLauncher(props: {
                 mode() === "terminal" && !environment().terminalAvailable
                     ? "print"
                     : mode()
+            // The special per-task choice belongs only to the unattended
+            // loop. A person can switch run types after choosing it.
+            const selectedModel =
+                choice() === "unattended"
+                    ? model()
+                    : model() === RECOMMENDED_MODEL
+                      ? ""
+                      : model()
             if (!props.task) {
                 // From the work package: every run becomes a Run tab.
                 const result = await api.startWorkRun(props.workPackage.ref, {
@@ -120,7 +129,7 @@ export function AgentLauncher(props: {
                               : "next-task",
                     label: label().trim() || undefined,
                     harness: selectedHarness,
-                    model: model(),
+                    model: selectedModel,
                     mode: launchMode,
                     permissionMode: permission(),
                     extra: extra(),
@@ -145,7 +154,7 @@ export function AgentLauncher(props: {
             if (!task) throw new Error("There is no task ready to work.")
             await api.startAgentRun({
                 harness: selectedHarness,
-                model: model(),
+                model: selectedModel,
                 mode: launchMode,
                 command: "work-task",
                 target: task.ref,
@@ -212,7 +221,13 @@ export function AgentLauncher(props: {
                     permission={permission()}
                     setPermission={setPermission}
                     unattended={choice() === "unattended"}
-                    recommendedTier={next()?.recommendedTier}
+                    // An unattended run has an explicit per-task recommended
+                    // option, rather than silently taking its first task's model.
+                    recommendedTier={
+                        choice() === "unattended"
+                            ? null
+                            : next()?.recommendedTier
+                    }
                 />
             </Loading>
 

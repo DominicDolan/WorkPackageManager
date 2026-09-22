@@ -1477,7 +1477,7 @@ export interface CreateWorkPackageBranchInput {
     /** What a new branch is cut from and its PR targets. Left out, the base branch. */
     baseBranch?: string | null
     /** Tasks to put on it. Left out, every task in the work package that is not
-     *  yet Dev Complete. */
+     *  yet Dev Complete, plus finished ones that are on no other branch. */
     taskRefs?: string[]
 }
 
@@ -1532,13 +1532,21 @@ export function createWorkPackageBranch(
         workPackageRef: workPackage.ref,
         includeClosed: true,
     })
+    // Finished work that no other branch delivers belongs on this one too, or a
+    // branch added after the work is done would start out with nothing on it.
+    const onSibling = new Set(
+        siblings.flatMap((one) => one.taskRefs.map((ref) => ref.toLowerCase())),
+    )
     const taskRefs =
         input.taskRefs === undefined
             ? members
                   .filter(
                       (task) =>
                           task.status === "backlog" ||
-                          task.status === "in_progress",
+                          task.status === "in_progress" ||
+                          ((task.status === "dev_complete" ||
+                              task.status === "verified") &&
+                              !onSibling.has(task.ref.toLowerCase())),
                   )
                   .map((task) => task.ref)
             : input.taskRefs.map((ref) => memberRef(members, ref, workPackage))
@@ -2123,6 +2131,28 @@ export function registerTaskOnBranch(
         combineState: existing?.combineState,
         combinePendingCommits: existing?.combinePendingCommits,
         combineCloseTasks: existing?.combineCloseTasks,
+    })
+}
+
+/** Take one task off a delivery branch's roster — the reverse of
+ *  `registerTaskOnBranch`, once its commits have been taken off the branch. */
+export function unregisterTaskFromBranch(
+    branchName: string,
+    taskRef: string,
+): void {
+    const existing = findCombinedBranch(branchName)
+    if (!existing) return
+    const refs = existing.taskRefs.filter(
+        (one) => one.toLowerCase() !== taskRef.toLowerCase(),
+    )
+    if (refs.length === existing.taskRefs.length) return
+    recordCombine({
+        branchName,
+        baseBranch: existing.baseBranch,
+        taskRefs: refs,
+        combineState: existing.combineState,
+        combinePendingCommits: existing.combinePendingCommits,
+        combineCloseTasks: existing.combineCloseTasks,
     })
 }
 

@@ -1,8 +1,8 @@
+import { createQuery } from "../hooks/createQuery"
 import {
     Errored,
     Loading,
     Show,
-    createMemo,
     createSignal,
     onSettled,
     refresh,
@@ -18,7 +18,7 @@ import type { MainView } from "../types/navigation"
 import { loadWorkspace } from "./loadWorkspace"
 
 export function App() {
-    const snapshot = createMemo(loadWorkspace)
+    const snapshot = createQuery(loadWorkspace)
     const initial =
         /^\/(?:work-packages|groups)\/([^/]+)(?:\/tasks\/([^/]+))?/.exec(
             location.pathname,
@@ -165,50 +165,52 @@ export function App() {
                     />
                 </Show>
                 <Show when={view() === "work-packages"}>
-                    <Show
-                        when={workPackageRef()}
-                        fallback={
-                            <WorkPackageHome
-                                snapshot={snapshot()}
-                                open={openWorkPackage}
-                                create={() => setCreating(true)}
-                                select={selectView}
-                            />
-                        }>
-                        {(workPackage) => (
-                            <Show
-                                when={taskRef()}
-                                fallback={
-                                    <WorkPackageWorkspace
-                                        workPackageRef={workPackage()}
-                                        snapshot={snapshot()}
-                                        back={home}
-                                        openTask={openTask}
-                                        openNote={openNote}
-                                        openIssue={openIssue}
-                                        changed={reload}
-                                        revision={workspaceRevision()}
-                                    />
-                                }>
-                                {(task) => (
-                                    <TaskWorkspace
-                                        workPackageRef={workPackage()}
-                                        taskRef={task()}
-                                        snapshot={snapshot()}
-                                        back={backToWorkPackage}
-                                        openTask={openTask}
-                                        openNote={openNote}
-                                        changed={reload}
-                                        revision={workspaceRevision()}
-                                    />
-                                )}
-                            </Show>
-                        )}
+                    <Show when={snapshot.value}>
+                        <Show
+                            when={workPackageRef()}
+                            fallback={
+                                <WorkPackageHome
+                                    snapshot={snapshot.value}
+                                    open={openWorkPackage}
+                                    create={() => setCreating(true)}
+                                    select={selectView}
+                                />
+                            }>
+                            {(workPackage) => (
+                                <Show
+                                    when={taskRef()}
+                                    fallback={
+                                        <WorkPackageWorkspace
+                                            workPackageRef={workPackage()}
+                                            snapshot={snapshot.value}
+                                            back={home}
+                                            openTask={openTask}
+                                            openNote={openNote}
+                                            openIssue={openIssue}
+                                            changed={reload}
+                                            revision={workspaceRevision()}
+                                        />
+                                    }>
+                                    {(task) => (
+                                        <TaskWorkspace
+                                            workPackageRef={workPackage()}
+                                            taskRef={task()}
+                                            snapshot={snapshot.value}
+                                            back={backToWorkPackage}
+                                            openTask={openTask}
+                                            openNote={openNote}
+                                            changed={reload}
+                                            revision={workspaceRevision()}
+                                        />
+                                    )}
+                                </Show>
+                            )}
+                        </Show>
                     </Show>
                 </Show>
                 <Show when={creating()}>
                     <CreateWorkPackage
-                        snapshot={snapshot()}
+                        snapshot={snapshot.value}
                         close={() => setCreating(false)}
                         created={(ref) => {
                             setCreating(false)

@@ -1,17 +1,11 @@
+import { createQuery } from "../hooks/createQuery"
 import {
     INVESTIGATION_STATUS_LABELS,
     type Investigation,
     type InvestigationDetail,
     type WorkPackageDetail,
 } from "@shared/types"
-import {
-    Loading,
-    Show,
-    createEffect,
-    createMemo,
-    createSignal,
-    refresh,
-} from "solid-js"
+import { Loading, Show, createEffect, createSignal, refresh } from "solid-js"
 import { InvestigationLauncher } from "../InvestigationLauncher/InvestigationLauncher"
 import { api } from "../api"
 import { PageSkeleton } from "../components/PageSkeleton"
@@ -24,10 +18,10 @@ export function InvestigationPanel(props: {
     workPackage: WorkPackageDetail
     changed: () => void
 }) {
-    const detail = createMemo(async (): Promise<InvestigationDetail> =>
+    const detail = createQuery(async (): Promise<InvestigationDetail> =>
         api.getInvestigation(props.investigation.ref),
     )
-    const runs = createMemo(() =>
+    const runs = createQuery(() =>
         api.listAgentRuns({
             kind: "investigation",
             ref: props.investigation.ref,
@@ -38,6 +32,7 @@ export function InvestigationPanel(props: {
     createEffect(
         () => props.investigation.updatedAt,
         () => {
+            refresh(detail)
             refresh(runs)
         },
     )
@@ -62,7 +57,7 @@ export function InvestigationPanel(props: {
                 </span>
             </TabHeading>
             <Loading fallback={<PageSkeleton compact />}>
-                <Show when={detail()} keyed>
+                <Show when={detail.value} keyed>
                     {(investigation) => (
                         <>
                             <ol class="stepper investigation-flow grid grid-cols-3 mb-4 max-[560px]:grid-cols-[1fr]">
@@ -144,7 +139,7 @@ export function InvestigationPanel(props: {
                                 </Show>
                             </article>
                             <Loading fallback={null}>
-                                <Show when={runs().length}>
+                                <Show when={runs.value.length}>
                                     <section class="mt-6">
                                         <h3 class="m-0 text-sm font-semibold">
                                             Runs
@@ -154,7 +149,7 @@ export function InvestigationPanel(props: {
                                             conversation to pick up where it
                                             left off.
                                         </p>
-                                        <RunHistory runs={runs()} />
+                                        <RunHistory runs={runs.value} />
                                     </section>
                                 </Show>
                             </Loading>

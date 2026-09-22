@@ -1,4 +1,5 @@
 import {
+    RECOMMENDED_MODEL,
     WORK_RUN_KIND_LABELS,
     type AgentRunDetail,
     type WorkPackageDetail,
@@ -135,7 +136,11 @@ export function RunPanel(props: {
                         <dt>Agent</dt>
                         <dd class="font-mono">
                             {props.run.harness}
-                            {props.run.model ? ` · ${props.run.model}` : ""}
+                            {props.run.model === RECOMMENDED_MODEL
+                                ? " · recommended per task"
+                                : props.run.model
+                                  ? ` · ${props.run.model}`
+                                  : ""}
                         </dd>
                     </div>
                     <div>
@@ -285,11 +290,8 @@ export function RunPanel(props: {
 /** A task in the run, with the output of the agents that worked it folded
  *  away underneath. */
 /*
- * Kept outside the components on purpose. Every refresh of the work package
- * — and a running agent causes plenty — hands the page a new detail object,
- * and the page is keyed on it, so this panel is rebuilt from scratch each
- * time. Anything held inside it would be forgotten: an opened log would fold
- * itself away, blink back through "Loading…", and lose its scroll position.
+ * Keep expansion and cached output across tab switches and page navigation.
+ * Background refreshes reconcile the run in place and retain its mounted UI.
  */
 const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set())
 

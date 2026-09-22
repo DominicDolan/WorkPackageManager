@@ -556,6 +556,35 @@ label.choice small {
     font-size: 0.72rem;
     line-height: 1.4;
 }
+/* Radio choices retain native semantics while drawing selection on their
+   complete label, rather than on an agent-settings-specific component. */
+label.choice:has(input[type="radio"]) {
+    position: relative;
+    color: var(--graphite);
+}
+label.choice:has(input[type="radio"]:checked) {
+    border-color: var(--cobalt);
+    background: #202b3a;
+    box-shadow: inset 3px 0 var(--signal);
+}
+label.choice > input[type="radio"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+label.choice:has(input[type="radio"]:focus-visible) {
+    outline: 3px solid color-mix(in srgb, var(--cobalt) 38%, transparent);
+    outline-offset: 2px;
+}
+label.choice.compact {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.42rem;
+    min-height: 2.25rem;
+    padding: 0.45rem 0.6rem;
+    font-size: 0.78rem;
+}
 button.swatch {
     border-radius: 50%;
 }

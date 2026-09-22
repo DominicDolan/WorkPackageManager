@@ -575,6 +575,103 @@ export function fastForward(branch: string): MergeOutcome {
     }
 }
 
+/** Point `branch` at `commit`. The branch must not be checked out. */
+export function moveBranch(branch: string, commit: string): void {
+    const moved = git(["branch", "-f", branch, commit])
+    if (moved.code !== 0) {
+        throw new Error(
+            moved.stderr.trim() || `Could not move '${branch}' to '${commit}'.`,
+        )
+    }
+}
+
+/** The commits in `range`, oldest first. */
+export function commitsIn(range: string): string[] {
+    return git(["rev-list", "--reverse", range])
+        .stdout.split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+}
+
+/** Whether `range` has a merge commit in it. */
+export function hasMerges(range: string): boolean {
+    return !!git(["rev-list", "--merges", range]).stdout.trim()
+}
+
+/**
+ * The patch id of every non-merge commit in `range`, keyed by patch id. Two
+ * commits with the same patch id make the same change, whatever their hashes —
+ * how a task's commits are recognised on a branch they were copied onto.
+ */
+export function patchIds(range: string): Map<string, string> {
+    const log = git(["log", "-p", "--no-merges", range])
+    const ids = new Map<string, string>()
+    if (log.code !== 0 || !log.stdout.trim()) return ids
+    const result = Bun.spawnSync(["git", "patch-id", "--stable"], {
+        cwd: ws.repoRoot,
+        stdin: new TextEncoder().encode(log.stdout),
+        stdout: "pipe",
+        stderr: "pipe",
+    })
+    for (const line of result.stdout.toString().split("\n")) {
+        const [id, sha] = line.trim().split(/\s+/)
+        if (id && sha) ids.set(id, sha)
+    }
+    return ids
+}
+
+export interface RebuildOutcome {
+    rebuilt: boolean
+    conflict: string
+    files: string[]
+    /** Every original commit to the commit that now stands in its place: its
+     *  copy, or for a dropped commit, the copy of the one before it. */
+    mapping: Map<string, string>
+}
+
+/**
+ * Rewrite `branch` as `forkPoint` plus `commits` minus `drop`, in order.
+ *
+ * How a task's commits come off a branch it is no longer on. The kept commits
+ * are cherry-picked onto a scratch branch and `branch` is moved there only once
+ * every one of them applied, so a conflict aborts and changes nothing.
+ */
+export function rebuildBranch(
+    branch: string,
+    forkPoint: string,
+    commits: string[],
+    drop: Set<string>,
+): RebuildOutcome {
+    const scratch = `tasks-rebuild/${Date.now()}`
+    const mapping = new Map<string, string>()
+    createBranchAt(scratch, forkPoint)
+    try {
+        let tip = forkPoint
+        for (const sha of commits) {
+            if (!drop.has(sha)) {
+                const picked = git(["cherry-pick", "--allow-empty", sha])
+                if (picked.code !== 0) {
+                    const detail =
+                        picked.stdout.trim() ||
+                        picked.stderr.trim() ||
+                        `Replaying ${sha.slice(0, 7)} onto '${branch}' failed.`
+                    const files = conflictedFiles()
+                    git(["cherry-pick", "--abort"])
+                    return { rebuilt: false, conflict: detail, files, mapping }
+                }
+                tip = headCommit() ?? tip
+            }
+            mapping.set(sha, tip)
+        }
+        moveBranch(branch, scratch)
+        return { rebuilt: true, conflict: "", files: [], mapping }
+    } finally {
+        if (currentBranch() === scratch || !currentBranch())
+            switchBranch(branch)
+        git(["branch", "-D", scratch])
+    }
+}
+
 /**
  * The commits unique to `branch` relative to `base`, oldest first — the same
  * range the combine cherry-picked in, and the same range a PR would show.

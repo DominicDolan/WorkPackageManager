@@ -1,3 +1,4 @@
+import { createQuery } from "../hooks/createQuery"
 import {
     ISSUE_SOURCE_LABELS,
     type IssueDetail,
@@ -10,7 +11,6 @@ import {
     Loading,
     Show,
     createEffect,
-    createMemo,
     createSignal,
     refresh,
     isPending,
@@ -36,7 +36,7 @@ export function IssuesWorkspace(props: {
     const [selectedId, setSelectedId] = createSignal(props.initialId ?? "")
     const [busy, setBusy] = createOptimistic("")
     const { capture, clear, Banner } = useError()
-    const listing = createMemo(() =>
+    const listing = createQuery(() =>
         api.listIssues({
             q: query() || undefined,
             state: state(),
@@ -44,7 +44,7 @@ export function IssuesWorkspace(props: {
             label: label() || undefined,
         }),
     )
-    const selected = createMemo(async (): Promise<IssueDetail | null> =>
+    const selected = createQuery(async (): Promise<IssueDetail | null> =>
         selectedId() ? api.getIssue(selectedId()) : null,
     )
     createEffect(
@@ -95,7 +95,7 @@ export function IssuesWorkspace(props: {
         <main class="app-shell min-h-screen text-slate-950 grid grid-cols-[220px_minmax(0,_1fr)] max-[820px]:block">
             <ProductRail active="issues" select={props.select} />
             <Loading fallback={<PageSkeleton />}>
-                <Show when={listing()} keyed>
+                <Show when={listing.value} keyed>
                     {(data) => (
                         <section class="library-surface min-w-0 p-[2.2rem_clamp(1.3rem,_3.5vw,_4.5rem)_4rem] max-[820px]:p-[1.25rem] max-[820px]:overflow-hidden">
                             <header class="library flex max-w-[1500px] items-start justify-between gap-[2rem] m-[0_auto_1.5rem] p-[1.5rem_clamp(1.25rem,_3vw,_3rem)_1.7rem] max-[560px]:block max-[560px]:p-[1.25rem]">
@@ -244,13 +244,15 @@ export function IssuesWorkspace(props: {
                                         fallback={<PageSkeleton compact />}>
                                         <div
                                             aria-busy={
-                                                isPending(listing) ||
-                                                isPending(selected)
+                                                isPending(
+                                                    () => listing.value,
+                                                ) ||
+                                                isPending(() => selected.value)
                                                     ? "true"
                                                     : "false"
                                             }>
                                             <Show
-                                                when={selected()}
+                                                when={selected.value}
                                                 keyed
                                                 fallback={
                                                     <For
@@ -281,7 +283,8 @@ export function IssuesWorkspace(props: {
                                                                     ) ===
                                                                         issue.id &&
                                                                     isPending(
-                                                                        selected,
+                                                                        () =>
+                                                                            selected.value,
                                                                     )
                                                                 }
                                                                 open={() =>
@@ -296,7 +299,8 @@ export function IssuesWorkspace(props: {
                                                 {(issue) => (
                                                     <div
                                                         inert={isPending(
-                                                            selected,
+                                                            () =>
+                                                                selected.value,
                                                         )}>
                                                         <IssueDetailPane
                                                             issue={issue}

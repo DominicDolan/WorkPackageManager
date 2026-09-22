@@ -728,7 +728,11 @@ and every run gets a **Run** tab. There are three kinds:
   `tasks work-package queue` rather than by the agent.
 - **Unattended work package** — a fresh headless agent per task, with this
   server driving the queue between them. Always headless, and "Never ask"
-  unless you pick otherwise.
+  unless you pick otherwise. Its model picker can use **Recommended for each
+  task**: the harness stays fixed, while each task's `fast`/`standard`/
+  `frontier` tier is resolved through that harness's `modelTiers` mapping when
+  its fresh agent starts. A task without a tier or mapping uses the harness
+  default.
 
 The tab says which kind it is, how it is going, and lists the tasks it set out
 to work, each marked worked, working or still to work. **Stop** ends a run in

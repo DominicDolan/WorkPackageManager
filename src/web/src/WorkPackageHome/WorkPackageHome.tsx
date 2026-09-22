@@ -1,5 +1,5 @@
 import type { WorkPackageSummary } from "@shared/types"
-import { For, Show } from "solid-js"
+import { For, Show, createMemo } from "solid-js"
 import { ProductRail } from "../components/ProductRail"
 import { PlusIcon } from "../components/icons"
 import type { MainView } from "../types/navigation"
@@ -35,7 +35,7 @@ export function WorkPackageHome(props: {
     // These timestamps are retained when a task subsequently moves on, which is
     // exactly the activity signal the portfolio needs: the most recently started
     // or completed work package should remain at the top.
-    const workPackagesByRecentWork = () => {
+    const workPackagesByRecentWork = createMemo(() => {
         const recentWork = new Map<string, string>()
         for (const task of props.snapshot.tasks) {
             if (!task.workPackageRef) continue
@@ -65,7 +65,7 @@ export function WorkPackageHome(props: {
             if (rightAt) return 1
             return 0
         })
-    }
+    })
     return (
         <main
             class={`${styles.scope} app-shell min-h-screen text-slate-950 grid grid-cols-[220px_minmax(0,_1fr)] max-[820px]:block`}>

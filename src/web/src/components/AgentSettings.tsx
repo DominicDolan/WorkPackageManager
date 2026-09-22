@@ -15,6 +15,9 @@ import {
     latest,
 } from "solid-js"
 import { api } from "../api"
+import claudeIcon from "../assets/claude-code-icon.png"
+import codexIcon from "../assets/codex-icon.svg"
+import piIcon from "../assets/pi-agent-icon.svg"
 import { ModelPicker } from "./ModelPicker"
 
 export function AgentSettings(props: {
@@ -30,6 +33,9 @@ export function AgentSettings(props: {
     unattended: boolean
     recommendedTier?: ModelTier | null
 }) {
+    // A dialog can render a second settings group for an unattended run's
+    // supervisor. Keep the native radio groups independent in that case.
+    const radioGroup = `agent-settings-${Math.random().toString(36).slice(2)}`
     const available = () =>
         props.environment.harnesses.filter((item) => item.available)
     const selectedHarness = () =>
@@ -68,79 +74,127 @@ export function AgentSettings(props: {
         },
     )
     return (
-        <div class="mt-5 grid gap-4 sm:grid-cols-2">
-            <label class="field">
-                <span>Agent</span>
-                <select
-                    value={latest(() => props.harness)}
-                    onChange={(event) => {
-                        props.setHarness(event.currentTarget.value)
-                        props.setModel("")
-                    }}>
+        <div class="mt-5 grid gap-4">
+            <fieldset class="grid min-w-0 gap-2">
+                <legend class="label">Agent</legend>
+                <div class="grid grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-3">
                     <For each={available()}>
                         {(item) => (
-                            <option value={item.id}>{item.label}</option>
+                            <label class="choice grid min-h-17 grid-cols-[1.5rem_1fr] items-center gap-2 p-3">
+                                <input
+                                    type="radio"
+                                    name={`${radioGroup}-harness`}
+                                    value={item.id}
+                                    checked={
+                                        latest(() => props.harness) === item.id
+                                    }
+                                    onChange={() => {
+                                        props.setHarness(item.id)
+                                        props.setModel("")
+                                    }}
+                                />
+                                <img
+                                    class={`h-6 w-6 object-contain ${
+                                        item.id === "codex" ? "invert" : ""
+                                    }`}
+                                    src={
+                                        item.id === "claude"
+                                            ? claudeIcon
+                                            : item.id === "pi"
+                                              ? piIcon
+                                              : codexIcon
+                                    }
+                                    alt=""
+                                />
+                                <strong>{item.label}</strong>
+                            </label>
                         )}
                     </For>
-                </select>
-            </label>
+                </div>
+            </fieldset>
             <Loading
                 fallback={
                     <ModelPicker
+                        harness={props.harness}
                         models={[]}
                         value=""
                         setValue={props.setModel}
                         defaultLabel={defaultLabel()}
+                        recommended={props.unattended}
                         busy
                     />
                 }>
                 <ModelPicker
+                    harness={props.harness}
                     models={isPending(models) ? [] : models().entries}
                     busy={isPending(models)}
                     value={props.model}
                     setValue={props.setModel}
                     defaultLabel={defaultLabel()}
+                    recommended={props.unattended}
                 />
             </Loading>
-            <Show when={!props.unattended}>
-                <label class="field">
-                    <span>Run mode</span>
-                    <select
-                        value={props.mode}
-                        onChange={(event) =>
-                            props.setMode(
-                                event.currentTarget.value as AgentRunMode,
-                            )
-                        }>
-                        <option
-                            value="terminal"
-                            disabled={!props.environment.terminalAvailable}>
-                            Interactive terminal
-                        </option>
-                        <option value="print">Headless log</option>
-                    </select>
-                </label>
-            </Show>
-            <label class="field">
-                <span>Permissions</span>
-                <select
-                    value={
-                        props.unattended && props.permission === "manual"
-                            ? "bypassPermissions"
-                            : props.permission
-                    }
-                    onChange={(event) =>
-                        props.setPermission(
-                            event.currentTarget.value as AgentPermissionMode,
-                        )
-                    }>
-                    <For each={Object.entries(AGENT_PERMISSION_MODE_LABELS)}>
-                        {([value, label]) => (
-                            <option value={value}>{label}</option>
-                        )}
-                    </For>
-                </select>
-            </label>
+            <div class="grid items-start gap-4 sm:grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]">
+                <Show when={!props.unattended}>
+                    <fieldset class="grid min-w-0 gap-2">
+                        <legend class="label">Run mode</legend>
+                        <div class="flex flex-wrap gap-2">
+                            <label class="choice compact">
+                                <input
+                                    type="radio"
+                                    name={`${radioGroup}-mode`}
+                                    value="terminal"
+                                    checked={props.mode === "terminal"}
+                                    disabled={
+                                        !props.environment.terminalAvailable
+                                    }
+                                    onChange={() => props.setMode("terminal")}
+                                />
+                                <span>Interactive terminal</span>
+                            </label>
+                            <label class="choice compact">
+                                <input
+                                    type="radio"
+                                    name={`${radioGroup}-mode`}
+                                    value="print"
+                                    checked={props.mode === "print"}
+                                    onChange={() => props.setMode("print")}
+                                />
+                                <span>Headless log</span>
+                            </label>
+                        </div>
+                    </fieldset>
+                </Show>
+                <fieldset class="grid min-w-0 gap-2">
+                    <legend class="label">Permissions</legend>
+                    <div class="flex flex-wrap gap-2">
+                        <For
+                            each={Object.entries(AGENT_PERMISSION_MODE_LABELS)}>
+                            {([value, label]) => (
+                                <label class="choice compact">
+                                    <input
+                                        type="radio"
+                                        name={`${radioGroup}-permission`}
+                                        value={value}
+                                        checked={
+                                            (props.unattended &&
+                                            props.permission === "manual"
+                                                ? "bypassPermissions"
+                                                : props.permission) === value
+                                        }
+                                        onChange={() =>
+                                            props.setPermission(
+                                                value as AgentPermissionMode,
+                                            )
+                                        }
+                                    />
+                                    <span>{label}</span>
+                                </label>
+                            )}
+                        </For>
+                    </div>
+                </fieldset>
+            </div>
         </div>
     )
 }

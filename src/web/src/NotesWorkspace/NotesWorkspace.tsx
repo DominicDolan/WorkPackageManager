@@ -1,3 +1,4 @@
+import { createQuery } from "../hooks/createQuery"
 import type { GitConflict, Note } from "@shared/types"
 import {
     action,
@@ -6,7 +7,6 @@ import {
     Loading,
     Show,
     createEffect,
-    createMemo,
     createSignal,
     refresh,
     isPending,
@@ -40,14 +40,14 @@ export function NotesWorkspace(props: {
     const { capture, clear, Banner } = useError()
     const [notice, setNotice] = createSignal("")
     const [conflict, setConflict] = createSignal<GitConflict | null>(null)
-    const listing = createMemo(() =>
+    const listing = createQuery(() =>
         api.listNotes({
             q: query() || undefined,
             folder: folder() || undefined,
             tag: tag() || undefined,
         }),
     )
-    const selected = createMemo(async (): Promise<Note | null> =>
+    const selected = createQuery(async (): Promise<Note | null> =>
         selectedPath() ? api.getNote(selectedPath()) : null,
     )
     createEffect(
@@ -139,7 +139,7 @@ export function NotesWorkspace(props: {
         <main class="app-shell min-h-screen text-slate-950 grid grid-cols-[220px_minmax(0,_1fr)] max-[820px]:block">
             <ProductRail active="notes" select={props.select} />
             <Loading fallback={<PageSkeleton />}>
-                <Show when={listing()} keyed>
+                <Show when={listing.value} keyed>
                     {(data) => (
                         <section class="library-surface min-w-0 p-[2.2rem_clamp(1.3rem,_3.5vw,_4.5rem)_4rem] max-[820px]:p-[1.25rem] max-[820px]:overflow-hidden">
                             <header class="library flex max-w-[1500px] items-start justify-between gap-[2rem] m-[0_auto_1.5rem] p-[1.5rem_clamp(1.25rem,_3vw,_3rem)_1.7rem] max-[560px]:block max-[560px]:p-[1.25rem]">
@@ -300,7 +300,7 @@ export function NotesWorkspace(props: {
                                     </Show>
                                     <div
                                         aria-busy={
-                                            isPending(listing)
+                                            isPending(() => listing.value)
                                                 ? "true"
                                                 : "false"
                                         }
@@ -326,7 +326,10 @@ export function NotesWorkspace(props: {
                                                     aria-busy={
                                                         latest(selectedPath) ===
                                                             item.path &&
-                                                        isPending(selected)
+                                                        isPending(
+                                                            () =>
+                                                                selected.value,
+                                                        )
                                                             ? "true"
                                                             : "false"
                                                     }
@@ -374,13 +377,18 @@ export function NotesWorkspace(props: {
                                                 }>
                                                 <div
                                                     aria-busy={
-                                                        isPending(selected)
+                                                        isPending(
+                                                            () =>
+                                                                selected.value,
+                                                        )
                                                             ? "true"
                                                             : "false"
                                                     }
-                                                    inert={isPending(selected)}>
+                                                    inert={isPending(
+                                                        () => selected.value,
+                                                    )}>
                                                     <Show
-                                                        when={selected()}
+                                                        when={selected.value}
                                                         keyed
                                                         fallback={
                                                             <section class="empty max-w-[48ch] m-[6rem_auto] p-[0_2rem]">

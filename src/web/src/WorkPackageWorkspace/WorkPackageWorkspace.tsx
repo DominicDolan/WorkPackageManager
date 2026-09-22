@@ -1,3 +1,4 @@
+import { createQuery } from "../hooks/createQuery"
 import { useTabs } from "../hooks/useTabs"
 import { useDialog } from "../hooks/useDialog"
 import {
@@ -15,7 +16,7 @@ import {
     Loading,
     Show,
     createEffect,
-    createMemo,
+    createProjection,
     createSignal,
     refresh,
 } from "solid-js"
@@ -74,16 +75,20 @@ export function WorkPackageWorkspace(props: {
     revision: number
 }) {
     const legacy = () => props.workPackageRef === UNASSIGNED_REF
-    const workPackage = createMemo(
+    const workPackage = createQuery(
         async (): Promise<WorkPackageDetail | null> =>
             legacy() ? null : api.getWorkPackage(props.workPackageRef),
     )
     const { capture, clear, Banner } = useError()
     const [busy, setBusy] = createOptimistic("")
-    const tabs = createMemo(() => {
-        const detail = workPackage()
-        return detail ? workPackageTabs(detail) : []
-    })
+    const tabs = createProjection(
+        () => {
+            const detail = workPackage.value
+            return detail ? workPackageTabs(detail) : []
+        },
+        [],
+        { key: "key" },
+    )
     const {
         activeTab,
         setActiveTab: setTab,
@@ -91,16 +96,16 @@ export function WorkPackageWorkspace(props: {
         tabProps,
         windowProps,
     } = useTabs<string>(() => {
-        const detail = workPackage()
+        const detail = workPackage.value
         if (!detail || detail.tasks.length) return TASKS_TAB
-        return tabs()[0]?.key ?? TASKS_TAB
+        return tabs[0]?.key ?? TASKS_TAB
     })
     // A removed tab cannot stay selected; the Tasks tab is always there.
     createEffect(
         () =>
             activeTab() !== TASKS_TAB &&
             activeTab() !== NOTES_TAB &&
-            !tabs().some((tab) => tab.key === activeTab()),
+            !tabs.some((tab) => tab.key === activeTab()),
         (missing) => {
             if (missing) setTab(TASKS_TAB)
         },
@@ -110,7 +115,7 @@ export function WorkPackageWorkspace(props: {
         props.changed()
     }
     const { openDialog: openAddBranch } = useDialog(({ closeDialog }) => (
-        <Show when={workPackage()} keyed>
+        <Show when={workPackage.value} keyed>
             {(detail) => (
                 <AddBranchDialog
                     workPackage={detail}
@@ -126,7 +131,7 @@ export function WorkPackageWorkspace(props: {
         </Show>
     ))
     const addInvestigation = action(async function* () {
-        const detail = workPackage()
+        const detail = workPackage.value
         if (busy() || !detail) return
         setBusy("add-tab")
         clear()
@@ -149,7 +154,7 @@ export function WorkPackageWorkspace(props: {
         if (kind === "run") openAgent()
     }
     const { openDialog: openAgent } = useDialog(({ closeDialog }) => (
-        <Show when={workPackage()} keyed>
+        <Show when={workPackage.value} keyed>
             {(detail) => (
                 <AgentLauncher
                     workPackage={detail}
@@ -160,8 +165,7 @@ export function WorkPackageWorkspace(props: {
             )}
         </Show>
     ))
-    // Opened from a Run tab, which is rebuilt on every refresh of a running
-    // loop, so the dialog lives here and takes the run as it was when opened.
+    // Keep the dialog open even if its originating Run tab is removed.
     let supervisedRun: WorkRunDetail | undefined
     const { openDialog: openSupervisorDialog } = useDialog(
         ({ closeDialog }) => (
@@ -173,8 +177,7 @@ export function WorkPackageWorkspace(props: {
             />
         ),
     )
-    // A branch's rebase conflict is offered from here for the same reason: the
-    // Branch tab is rebuilt on every refresh, and a rebase attempt causes one.
+    // Conflict resolution also survives switching or removing its branch tab.
     const [notice, setNotice] = createSignal("")
     let conflict: GitConflict | undefined
     const { openDialog: openConflictDialog } = useDialog(({ closeDialog }) => (
@@ -201,7 +204,7 @@ export function WorkPackageWorkspace(props: {
         openSupervisorDialog()
     }
     const { openDialog: openCreateTask } = useDialog(({ closeDialog }) => (
-        <Show when={workPackage()} keyed>
+        <Show when={workPackage.value} keyed>
             {(detail) => (
                 <CreateTask
                     workPackage={detail}
@@ -217,7 +220,7 @@ export function WorkPackageWorkspace(props: {
     ))
     const { openDialog: openInvestigation } = useDialog(({ closeDialog }) => (
         <Show
-            when={workPackage()?.investigations.find(
+            when={workPackage.value?.investigations.find(
                 (item) => item.status !== "complete",
             )}
             keyed>
@@ -275,14 +278,22 @@ export function WorkPackageWorkspace(props: {
 
     function WorkPackageContent() {
         return (
-            <Show when={workPackage()} keyed>
+            <Show when={props.workPackageRef} keyed>
+                {(_ref) => <WorkPackageDetailContent />}
+            </Show>
+        )
+    }
+
+    function WorkPackageDetailContent() {
+        return (
+            <Show when={workPackage.value}>
                 {(detail) => {
                     const investigation = (ref: string) =>
-                        detail.investigations.find((item) => item.ref === ref)
+                        detail().investigations.find((item) => item.ref === ref)
                     const branch = (id: number) =>
-                        detail.branches.find((item) => item.id === id)
+                        detail().branches.find((item) => item.id === id)
                     const runnable = () =>
-                        detail.investigations.find(
+                        detail().investigations.find(
                             (item) => item.status !== "complete",
                         )
                     const delivery = (branch: WorkPackageBranchDetail) =>
@@ -295,7 +306,7 @@ export function WorkPackageWorkspace(props: {
                                   git: branch.git,
                                   tasks: branch.delivery.taskRefs
                                       .map((ref) =>
-                                          detail.tasks.find(
+                                          detail().tasks.find(
                                               (task) => task.ref === ref,
                                           ),
                                       )
@@ -312,7 +323,7 @@ export function WorkPackageWorkspace(props: {
                                 <div class="topbar flex min-h-[3.6rem] items-center gap-[0.8rem] p-[0_clamp(1.25rem,_3vw,_2.5rem)]">
                                     <Brand compact />
                                     <span class="topbar-divider w-px h-[1rem]" />
-                                    <span>{detail.name}</span>
+                                    <span>{detail().name}</span>
                                 </div>
                                 <div class="mx-auto max-w-[1600px] px-5 pb-0 pt-5 sm:px-8">
                                     <button
@@ -328,17 +339,17 @@ export function WorkPackageWorkspace(props: {
                                                     class="dot w-[0.65rem] h-[0.65rem]"
                                                     style={{
                                                         background:
-                                                            detail.color,
+                                                            detail().color,
                                                     }}
                                                 />
-                                                <span>{detail.ref}</span>
+                                                <span>{detail().ref}</span>
                                             </div>
                                             <h1 class="headline m-[0.55rem_0_0]">
-                                                {detail.name}
+                                                {detail().name}
                                             </h1>
-                                            <Show when={detail.brief}>
+                                            <Show when={detail().brief}>
                                                 <p class="description line-clamp-2 max-w-[70ch] m-[0.8rem_0_0]">
-                                                    {detail.brief}
+                                                    {detail().brief}
                                                 </p>
                                             </Show>
                                         </div>
@@ -352,7 +363,7 @@ export function WorkPackageWorkspace(props: {
                                                 Add task
                                             </button>
                                             <Show
-                                                when={detail.tasks.length > 0}
+                                                when={detail().tasks.length > 0}
                                                 fallback={
                                                     <Show when={runnable()}>
                                                         <button
@@ -367,15 +378,16 @@ export function WorkPackageWorkspace(props: {
                                                 <button
                                                     class="primary"
                                                     disabled={
-                                                        !detail.queue.length ||
+                                                        !detail().queue
+                                                            .length ||
                                                         workPackageRunActive(
-                                                            detail.run,
+                                                            detail().run,
                                                         )
                                                     }
                                                     onClick={() => openAgent()}
                                                     aria-busy={
                                                         workPackageRunActive(
-                                                            detail.run,
+                                                            detail().run,
                                                         )
                                                             ? "true"
                                                             : "false"
@@ -402,7 +414,7 @@ export function WorkPackageWorkspace(props: {
                                                 <NotesIcon />
                                                 Notes
                                             </button>
-                                            <For each={tabs()}>
+                                            <For each={tabs}>
                                                 {(tab) => {
                                                     const { label, Icon } =
                                                         TAB_KINDS[tab.kind]
@@ -439,7 +451,7 @@ export function WorkPackageWorkspace(props: {
                                 <section {...windowProps(TASKS_TAB)}>
                                     <Show when={matches(TASKS_TAB)}>
                                         <WorkPackageOverview
-                                            workPackage={detail}
+                                            workPackage={detail()}
                                             openTask={props.openTask}
                                             busy={busy()}
                                             mutate={mutate}
@@ -449,14 +461,14 @@ export function WorkPackageWorkspace(props: {
                                 <section {...windowProps(NOTES_TAB)}>
                                     <Show when={matches(NOTES_TAB)}>
                                         <NotesPanel
-                                            workPackage={detail}
+                                            workPackage={detail()}
                                             openNote={props.openNote}
                                             openIssue={props.openIssue}
                                             changed={changed}
                                         />
                                     </Show>
                                 </section>
-                                <For each={detail.investigations}>
+                                <For each={detail().investigations}>
                                     {(item) => (
                                         <section
                                             {...windowProps(
@@ -474,7 +486,7 @@ export function WorkPackageWorkspace(props: {
                                                 {(current) => (
                                                     <InvestigationPanel
                                                         investigation={current}
-                                                        workPackage={detail}
+                                                        workPackage={detail()}
                                                         changed={changed}
                                                     />
                                                 )}
@@ -482,25 +494,26 @@ export function WorkPackageWorkspace(props: {
                                         </section>
                                     )}
                                 </For>
-                                <For each={detail.branches}>
+                                <For
+                                    each={detail().branches}
+                                    keyed={(item) => item.id}>
                                     {(item) => (
                                         <section
                                             {...windowProps(
-                                                branchTab(item.id),
+                                                branchTab(item().id),
                                             )}>
                                             <Show
                                                 when={
                                                     matches(
-                                                        branchTab(item.id),
-                                                    ) && branch(item.id)
-                                                }
-                                                keyed>
+                                                        branchTab(item().id),
+                                                    ) && branch(item().id)
+                                                }>
                                                 {(current) => (
                                                     <BranchPanel
-                                                        workPackage={detail}
-                                                        branch={current}
+                                                        workPackage={detail()}
+                                                        branch={current()}
                                                         delivery={delivery(
-                                                            current,
+                                                            current(),
                                                         )}
                                                         tools={
                                                             props.snapshot.tools
@@ -518,14 +531,14 @@ export function WorkPackageWorkspace(props: {
                                         </section>
                                     )}
                                 </For>
-                                <For each={detail.workRuns}>
+                                <For each={detail().workRuns}>
                                     {(item) => (
                                         <section
                                             {...windowProps(runTab(item.id))}>
                                             <Show
                                                 when={
                                                     matches(runTab(item.id)) &&
-                                                    detail.workRuns.find(
+                                                    detail().workRuns.find(
                                                         (run) =>
                                                             run.id === item.id,
                                                     )
@@ -533,7 +546,7 @@ export function WorkPackageWorkspace(props: {
                                                 keyed>
                                                 {(current) => (
                                                     <RunPanel
-                                                        workPackage={detail}
+                                                        workPackage={detail()}
                                                         run={current}
                                                         openTask={
                                                             props.openTask
