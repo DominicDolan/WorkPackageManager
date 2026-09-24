@@ -687,6 +687,8 @@ export function readBranch(branch: string, base: string | null): BranchGitInfo {
             commits: [],
             filesChanged: 0,
             aheadOfBase: null,
+            unpushed: null,
+            diverged: false,
         }
     }
 
@@ -698,6 +700,27 @@ export function readBranch(branch: string, base: string | null): BranchGitInfo {
     ])
     const upstream =
         upstreamResult.code === 0 ? upstreamResult.stdout.trim() || null : null
+
+    // `upstream...branch` counts both sides: left is what only the remote has,
+    // right is what only the local branch has.
+    let unpushed: number | null = null
+    let diverged = false
+    if (upstream) {
+        const counted = git([
+            "rev-list",
+            "--left-right",
+            "--count",
+            `${upstream}...${branch}`,
+        ])
+        if (counted.code === 0) {
+            const [behind, ahead] = counted.stdout
+                .trim()
+                .split(/\s+/)
+                .map(Number)
+            unpushed = ahead ?? 0
+            diverged = (behind ?? 0) > 0 && unpushed > 0
+        }
+    }
 
     let range: string | null = null
     if (base && refExists(base)) {
@@ -714,6 +737,8 @@ export function readBranch(branch: string, base: string | null): BranchGitInfo {
             commits: [],
             filesChanged: 0,
             aheadOfBase: null,
+            unpushed,
+            diverged,
         }
     }
 
@@ -751,6 +776,8 @@ export function readBranch(branch: string, base: string | null): BranchGitInfo {
         commits,
         filesChanged,
         aheadOfBase: commits.length,
+        unpushed,
+        diverged,
     }
 }
 
@@ -900,6 +927,33 @@ export function splitTitleAndBody(raw: string): {
 }
 
 /* -------------------------------------------------------- pull requests */
+
+/**
+ * Push `branch` to `origin` under `remoteBranch` and track it there. A branch
+ * whose history was rewritten since the last push (a rebase) goes up with
+ * `--force-with-lease`, which still refuses to clobber commits someone else
+ * pushed in the meantime.
+ */
+export function pushBranch(input: {
+    branch: string
+    remoteBranch?: string | null
+    force: boolean
+}): void {
+    const { branch, force } = input
+    const remoteBranch = input.remoteBranch?.trim() || branch
+
+    if (!branchExists(branch))
+        throw new Error(`Branch '${branch}' does not exist locally.`)
+
+    const args = ["git", "push", "-u"]
+    if (force) args.push("--force-with-lease")
+    args.push("origin", `${branch}:${remoteBranch}`)
+
+    const push = runSync(args, GH_TIMEOUT_MS)
+    if (push.timedOut) throw new Error(`Pushing '${branch}' timed out.`)
+    if (push.code !== 0)
+        throw new Error(push.stderr.trim() || `Could not push '${branch}'.`)
+}
 
 export interface CreatePrResult {
     url: string

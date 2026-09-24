@@ -32,6 +32,9 @@ export function AgentSettings(props: {
     setPermission: (value: AgentPermissionMode) => void
     unattended: boolean
     recommendedTier?: ModelTier | null
+    /** Offer "Recommended for each task". Defaults to `unattended`; an agent
+     *  that is not itself working a task has no tier to follow. */
+    perTaskModel?: boolean
 }) {
     // A dialog can render a second settings group for an unattended run's
     // supervisor. Keep the native radio groups independent in that case.
@@ -120,7 +123,7 @@ export function AgentSettings(props: {
                         value=""
                         setValue={props.setModel}
                         defaultLabel={defaultLabel()}
-                        recommended={props.unattended}
+                        recommended={props.perTaskModel ?? props.unattended}
                         busy
                     />
                 }>
@@ -131,7 +134,7 @@ export function AgentSettings(props: {
                     value={props.model}
                     setValue={props.setModel}
                     defaultLabel={defaultLabel()}
-                    recommended={props.unattended}
+                    recommended={props.perTaskModel ?? props.unattended}
                 />
             </Loading>
             <div class="grid items-start gap-4 sm:grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]">

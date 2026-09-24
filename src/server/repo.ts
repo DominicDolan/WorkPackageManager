@@ -8,8 +8,6 @@ import {
 import { workspace } from "../config/paths"
 import { branchExists, renameBranch } from "./branches"
 import { deleteTaskAttachments, listTaskAttachments } from "./attachments"
-import { detachAllNotes, linkedNotes } from "./noteLinks"
-import { detachAllIssues } from "./issueLinks"
 import {
     branchNameFor,
     workPackageBranchNameFor,
@@ -403,7 +401,6 @@ export function getTaskDetail(ref: string): TaskDetail {
         events: listEvents(task.id),
         runs: listRuns(task.id),
         attachments: listTaskAttachments(task.ref),
-        notes: linkedNotes("task", task.ref),
     }
 }
 
@@ -714,7 +711,6 @@ export function addNote(ref: string, note: string): Task {
 export function deleteTask(ref: string): void {
     const task = requireTask(ref)
     getDb().transaction(() => {
-        detachAllNotes("task", task.ref)
         getDb()
             .query("DELETE FROM branch_tasks WHERE task_ref = $ref")
             .run({ $ref: task.ref })
@@ -1172,8 +1168,6 @@ export function deleteWorkPackage(refOrName: string): {
     }
 
     getDb().transaction(() => {
-        detachAllNotes("work-package", workPackage.ref)
-        detachAllIssues(workPackage.ref)
         getDb()
             .query(
                 "UPDATE investigations SET work_package_ref = NULL, updated_at = $at WHERE work_package_ref = $ref COLLATE NOCASE",
@@ -1825,9 +1819,6 @@ export function getInvestigationDetail(ref: string): InvestigationDetail {
     const investigation = requireInvestigation(ref)
     return {
         ...investigation,
-        notes: investigation.workPackageRef
-            ? linkedNotes("work-package", investigation.workPackageRef)
-            : [],
         tasks: listTasks({
             investigationRef: investigation.ref,
             includeClosed: true,

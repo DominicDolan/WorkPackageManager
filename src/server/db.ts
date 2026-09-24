@@ -196,6 +196,7 @@ const SCHEMA = [
      task_refs_json      TEXT    NOT NULL DEFAULT '[]',
      agent_run_id        INTEGER,
      work_package_run_id INTEGER,
+     pipeline_json       TEXT,
      created_at          TEXT    NOT NULL,
      updated_at          TEXT    NOT NULL
    )`,
@@ -208,28 +209,10 @@ const SCHEMA = [
      applied_at TEXT NOT NULL
    )`,
 
-    // Links from workflow records to Markdown notes. Notes themselves remain
-    // files in the separately versioned notes folder; only their relative path
-    // belongs in SQLite. A generic subject pair keeps task and work package behaviour
-    // identical without pretending an on-disk file can be a foreign key.
-    `CREATE TABLE IF NOT EXISTS note_links (
-     subject_kind TEXT NOT NULL CHECK(subject_kind IN ('task', 'work-package')),
-     subject_ref  TEXT NOT NULL,
-     note_path    TEXT NOT NULL,
-     attached_at  TEXT NOT NULL,
-     PRIMARY KEY (subject_kind, subject_ref, note_path)
-   )`,
-
-    `CREATE INDEX IF NOT EXISTS idx_note_links_path ON note_links(note_path)`,
-
-    // Issues attached to a work package, by the id the Issues view uses: the JSON
-    // file's path in the notes folder, plus `#<index>` for a file holding several.
-    `CREATE TABLE IF NOT EXISTS issue_links (
-     work_package_ref TEXT NOT NULL,
-     issue_id         TEXT NOT NULL,
-     attached_at      TEXT NOT NULL,
-     PRIMARY KEY (work_package_ref, issue_id)
-   )`,
+    // Notes and issues were once attached to tasks and work packages. They are
+    // turned into tasks and investigations instead now, so the links are gone.
+    `DROP TABLE IF EXISTS note_links`,
+    `DROP TABLE IF EXISTS issue_links`,
 
     // One row per delivery branch produced by combining task branches. Deliberately
     // NOT a foreign key to tasks: combining usually closes the tasks, and a task
@@ -404,6 +387,9 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
         column: "resumed_at",
         definition: "TEXT",
     },
+    // A start-to-finish run's plan and where it has got to. Null for every
+    // other kind of run.
+    { table: "work_runs", column: "pipeline_json", definition: "TEXT" },
 ]
 
 /** Indexes over columns that ADDED_COLUMNS may have only just created, so they

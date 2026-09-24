@@ -445,13 +445,20 @@ export function startChecks(input: {
     check?: string
     resume?: boolean
     previous?: ChecksReport | null
+    /** Told the finished report once it is stored, or null when the run died
+     *  without one. Not called when a run was already going and this joined it. */
+    onFinished?: (report: ChecksReport | null) => void
 }): ChecksProgress {
-    const { branch, base, check, resume, previous } = input
+    const { branch, base, check, resume, previous, onFinished } = input
     if (check && !configuredChecks().some((item) => item.name === check))
         throw new Error(`Unknown check '${check}'.`)
 
     const existing = inFlight.get(branch)
-    if (existing) return existing
+    if (existing) {
+        if (onFinished)
+            throw new Error(`Checks are already running on '${branch}'.`)
+        return existing
+    }
 
     const progress: ChecksProgress = {
         branch,
@@ -496,15 +503,24 @@ export function startChecks(input: {
             // ad-hoc branch still gets checked; it just does not gate anything.
             if (findCombinedBranch(branch))
                 updateCombinedBranch(branch, { checks: report })
+            return report
         })
         .catch((error: unknown) => {
             // Nothing above should throw — a failing check is a result, not an
             // exception — but a run that died must not leave the branch looking busy
             // forever, and the reason belongs somewhere a person can find it.
             console.error(`checks failed to run on '${branch}':`, error)
+            return null
         })
-        .finally(() => {
+        .then((report) => {
             inFlight.delete(branch)
+            // After the branch stops looking busy, so a caller that starts the
+            // next run from here is not refused as a duplicate.
+            try {
+                onFinished?.(report)
+            } catch (error) {
+                console.error(`after checks on '${branch}':`, error)
+            }
             announceChange("tasks")
         })
 

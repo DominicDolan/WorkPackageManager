@@ -213,6 +213,19 @@ them and shows each one's output. The result is stored against the branch, so a
 green run from the CLI unblocks the PR button in the UI and vice versa. A report
 goes stale as soon as the branch gets another commit.
 
+**Run with supervisor** runs the suite with an agent standing by, like the
+supervisor of an unattended work package run. Pick the agent, and when a check
+fails it gets a headless `supervise-checks` run with the failing command and its
+output. It fixes the failure, commits the fix on the branch, and ends on
+`RESOLVED` or `UNRESOLVED`. On `RESOLVED`, the checks resume. The new commit
+means the whole suite runs again. Each check gets at most two supervisor visits.
+After that, or on `UNRESOLVED`, the run stops and the Checks panel says why. The
+run also stops if the supervisor leaves uncommitted changes to tracked files,
+because checks read the working tree but are recorded against the commit. The
+supervisors' output is listed under the checks, and **Stop supervisor** ends the
+run. Its prompt is `prompts/supervise-checks.md`, which you can override like
+the other prompts.
+
 The gate can be overridden — the PR panel offers "Open anyway, without passing
 checks" whenever something is failing or stale. A check can be broken on master
 or irrelevant to a docs-only branch, and a gate with no way past it gets worked
@@ -642,6 +655,15 @@ moves, and the tab asks whether to **resolve it with an agent**: Codex on its
 `fast` tier by default, with the conflict report as its brief. The agent redoes
 the rebase and finishes it, but does not push.
 
+**Rebase on master with supervisor** asks for the agent first. If the rebase
+stops on conflicts, it goes straight to a headless `resolve-conflicts` run.
+Nobody is there to ask, so the supervisor settles disagreements itself, or
+aborts if it can't. Git decides whether that worked, not the agent's reply: the
+rebase counts only if none is left in progress and the base is an ancestor of
+the branch. The tab shows the supervisor's progress and output, and puts you
+back on the branch you were on. **Stop supervisor** stops the agent and aborts
+its rebase, leaving the branch as it was.
+
 #### Notes and issues
 
 A work package page always has a **Notes** tab next to Tasks. It shows the notes
@@ -718,8 +740,29 @@ the button reads **Continue** instead: that is resuming, not starting a second.
 
 #### Runs
 
-**Work with an agent** on the work package page, or **+ → Run**, starts a run,
-and every run gets a **Run** tab. There are three kinds:
+**Work with an agent** on the work package page works the package from start
+to finish. The dialog lists the investigations not yet run, one task run, and
+every branch without a pull request. You can untick any of them, or add
+investigations, task runs and branches in the dialog. The run then goes in
+this order:
+
+1. Each investigation, as a headless `/plan-tasks` told that nobody is there
+   to answer questions.
+2. Each task run, as an unattended loop over whatever is still unfinished.
+   Task agents use their own model setting, **Recommended for each task** by
+   default.
+3. Each branch: rebase on its base, generate the PR description, run all
+   checks, then open the pull request. A branch that was rebased after it was
+   pushed is force-pushed with lease first.
+
+The dialog's one agent setting runs the investigations and is the supervisor
+for everything after them: the task loop, a rebase that hits conflicts, and
+failing checks. If a stage stops short, the whole run stops there and its tab
+says why. **Resume** starts that stage again, and finished stages are not
+repeated. Only one such run or unattended loop can run at a time across the
+workspace.
+
+**+ → Run** starts one of the other three kinds. Every run gets a **Run** tab:
 
 - **Work next task** — `/work-task` on the next task nothing is holding up.
 - **Guided work package run** — `/work-package WP-1`: one agent works every
@@ -933,12 +976,13 @@ happens if the capture fails, so this is how you find out that it did.
 Every command can be fired from the web UI rather than typed into a terminal,
 against whatever is on screen:
 
-| Where                       | Button                               | What it runs                                                            |
-| --------------------------- | ------------------------------------ | ----------------------------------------------------------------------- |
-| Issues → an open issue      | **Investigate**                      | `/plan-tasks #677`                                                      |
-| Investigations → **Run it** | **Run it here**                      | `/plan-tasks I-3`                                                       |
-| Tasks → a selected task     | **Work with agent**                  | `/work-task T-12`                                                       |
-| A work package's page       | **Work with an agent** / **+ → Run** | `/work-task`, `/work-package WP-1`, or an unattended loop, as a Run tab |
+| Where                       | Button                 | What it runs                                                            |
+| --------------------------- | ---------------------- | ----------------------------------------------------------------------- |
+| Issues → an open issue      | **Investigate**        | `/plan-tasks #677`                                                      |
+| Investigations → **Run it** | **Run it here**        | `/plan-tasks I-3`                                                       |
+| Tasks → a selected task     | **Work with agent**    | `/work-task T-12`                                                       |
+| A work package's page       | **Work with an agent** | Investigations → task runs → branches to PR, as a Run tab               |
+| A work package's page       | **+ → Run**            | `/work-task`, `/work-package WP-1`, or an unattended loop, as a Run tab |
 
 Every resumable run records a **session id**, so **Resume** on a run — the one on screen, or any
 in the run history — opens a new terminal window on that same conversation
@@ -1080,9 +1124,6 @@ Sync does not commit first either — the Commit button beside it does that, and
 quietly committing a half-written note because you asked to pull would be a
 surprise.
 
-The same **Sync** button appears in the Issues view, because it is the same
-folder and the same pull; see below.
-
 Fetching and pushing are the only operations here that talk to a network, and
 neither is automatic.
 
@@ -1148,8 +1189,10 @@ pipes, too — `tasks notes images --paths | xargs -d '\n' feh`.
 
 ## Issues
 
-The Issues view reads every `.json` file in the notes folder, recognises the ones
-that describe an issue, and shows them as cards. **Nothing here talks to an issue
+The Notes & issues page reads every `.json` file in the notes folder, recognises
+the ones that describe an issue, and shows them as cards alongside the notes.
+Every card, note or issue, has **Add as task** and **Add as investigation**,
+which copy its text into a new task or investigation in a work package. **Nothing here talks to an issue
 tracker.** Whatever produces the files — `gh issue view --json`, a script, an
 agent — is somebody else's job; this view is a reader, and the files are re-read
 on every request, so replacing one and switching back to the tab is the whole

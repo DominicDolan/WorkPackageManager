@@ -29,28 +29,6 @@ export function migrateWorkPackages(database: Database): void {
             )
         }
     }
-    // Rebuild the table because its CHECK constraint also contains the old name.
-    const noteSchema = database
-        .query<{ sql: string }, []>(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'note_links'",
-        )
-        .get()
-    if (noteSchema?.sql.includes("'group'")) {
-        database.exec(`CREATE TABLE work_package_note_links (
-      subject_kind TEXT NOT NULL CHECK(subject_kind IN ('task', 'work-package')),
-      subject_ref TEXT NOT NULL,
-      note_path TEXT NOT NULL,
-      attached_at TEXT NOT NULL,
-      PRIMARY KEY (subject_kind, subject_ref, note_path)
-    )`)
-        database.exec(`INSERT INTO work_package_note_links
-      SELECT CASE subject_kind WHEN 'group' THEN 'work-package' ELSE subject_kind END,
-        subject_ref, note_path, attached_at FROM note_links`)
-        database.exec("DROP TABLE note_links")
-        database.exec(
-            "ALTER TABLE work_package_note_links RENAME TO note_links",
-        )
-    }
     if (hasTable("agent_runs")) {
         database.exec(
             "UPDATE agent_runs SET subject_kind = 'work-package' WHERE subject_kind = 'group'",

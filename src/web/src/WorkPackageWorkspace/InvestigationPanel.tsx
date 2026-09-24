@@ -139,7 +139,7 @@ export function InvestigationPanel(props: {
                                 </Show>
                             </article>
                             <Loading fallback={null}>
-                                <Show when={runs.value.length}>
+                                <Show when={runs.value?.length}>
                                     <section class="mt-6">
                                         <h3 class="m-0 text-sm font-semibold">
                                             Runs

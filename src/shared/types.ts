@@ -299,8 +299,6 @@ export interface TaskDetail extends Task {
     events: TaskEvent[]
     runs: CheckpointRun[]
     attachments: TaskAttachment[]
-    /** Reusable Markdown notes attached as reference material. */
-    notes: NoteSummary[]
 }
 
 /* ------------------------------------------------------------------ work packages */
@@ -475,8 +473,6 @@ export interface Investigation {
 /** An investigation plus the tasks it produced. */
 export interface InvestigationDetail extends Investigation {
     tasks: Task[]
-    /** Notes attached to the work package that owns this investigation. */
-    notes: NoteSummary[]
 }
 
 /* -------------------------------------------------------------- notes */
@@ -527,6 +523,12 @@ export interface NoteAttachment {
 }
 
 /** A note plus its body and attachments — what the detail view edits. */
+/** A note as the Notes grid lists it: the whole body, so a card can be read in
+ *  place without opening it. */
+export interface NoteListItem extends NoteSummary {
+    body: string
+}
+
 export interface Note extends NoteSummary {
     /** The Markdown below the frontmatter. */
     body: string
@@ -645,6 +647,12 @@ export interface IssueSummary {
     /** When the file was written, if it says. */
     fetchedAt: string | null
     excerpt: string
+}
+
+/** An issue as the Notes grid lists it, body included. */
+export interface IssueListItem extends IssueSummary {
+    bodyFormat: "markdown" | "html"
+    body: string
 }
 
 export interface IssueDetail extends IssueSummary {
@@ -808,6 +816,11 @@ export interface BranchGitInfo {
     filesChanged: number
     /** Null when the base branch cannot be resolved (deleted, renamed). */
     aheadOfBase: number | null
+    /** Local commits not yet on `upstream`. Null when there is no upstream. */
+    unpushed: number | null
+    /** The upstream has commits the local branch lacks — after a rebase, say —
+     *  so the next push has to force. */
+    diverged: boolean
 }
 
 /** A combined branch plus its live Git state and the tasks it carries. */
@@ -816,6 +829,9 @@ export interface CombinedBranchDetail extends CombinedBranch {
     tasks: Task[]
     /** Set while a check run is in flight for this branch. */
     checksRunning: ChecksProgress | null
+    /** The latest supervised checks run on this branch since the server
+     *  started, whether still going or settled. */
+    checksSupervision: ChecksSupervision | null
 }
 
 /* ------------------------------------------------------ work package branches */
@@ -869,23 +885,39 @@ export interface WorkPackageBranchDetail extends WorkPackageBranch {
     /** Null until the branch has commits. Existing branches attached to a work package
      *  are registered even when no task merge created them. */
     delivery: CombinedBranch | null
+    /** The latest supervised rebase of this branch since the server started,
+     *  whether still resolving or settled. */
+    rebaseSupervision: RebaseSupervision | null
 }
 
-/** What every attached reference carries for its card, whatever it is. */
-interface WorkPackageReferenceBase {
-    attachedAt: string
-    /** The start of the content, capped: all a card can ever show. */
-    preview: string
-    previewFormat: "markdown" | "html"
-    /** Characters of readable text in the whole thing, markup aside. How much
-     *  there is, so a card can be sized to it. */
-    length: number
-}
+export type RebaseSupervisionStatus =
+    /** The rebase hit conflicts and the supervisor is resolving them. */
+    | "resolving"
+    | "rebased"
+    /** The supervisor finished without the branch ending up on its base. */
+    | "blocked"
+    | "stopped"
+    | "failed"
 
-/** A note or an issue attached to a work package. */
-export type WorkPackageReference =
-    | (WorkPackageReferenceBase & { kind: "note"; note: NoteSummary })
-    | (WorkPackageReferenceBase & { kind: "issue"; issue: IssueSummary })
+/**
+ * A rebase with a supervisor standing by: when it stops on conflicts, a
+ * headless agent re-runs it and resolves them. Held in memory, like a
+ * supervised checks run.
+ */
+export interface RebaseSupervision {
+    branch: string
+    onto: string
+    supervisor: RunSupervisor
+    status: RebaseSupervisionStatus
+    startedAt: string
+    /** Why it stopped, when it did for a reason worth saying. */
+    stopReason: string
+    /** The conflicts the first attempt stopped on. */
+    conflict: GitConflict
+    /** The branch had been pushed, so the next push has to force. */
+    pushed: boolean
+    agent: WorkRunAgent | null
+}
 
 /* ------------------------------------------------------------ work package detail */
 
@@ -903,11 +935,6 @@ export interface WorkPackageDetail extends WorkPackageSummary {
     investigations: Investigation[]
     /** The branches it delivers through, oldest first. */
     branches: WorkPackageBranchDetail[]
-    /** Investigation and reference notes attached to this work package. */
-    notes: NoteSummary[]
-    /** Notes and issues attached to this work package, newest attachment first —
-     *  what its Notes tab draws, as one collection. */
-    references: WorkPackageReference[]
     /** The unfinished tasks, in dependency order — what an agent works through. */
     queue: Task[]
     /**
@@ -1022,6 +1049,7 @@ export const AGENT_COMMANDS = [
     "resolve-checks",
     "resolve-conflicts",
     "supervise-task",
+    "supervise-checks",
 ] as const
 export type AgentCommand = (typeof AGENT_COMMANDS)[number]
 
@@ -1199,6 +1227,45 @@ export interface RunSupervisor {
  *  resumes the run. */
 export const MAX_SUPERVISIONS_PER_TASK = 2
 
+/** How many times the supervisor is called in for any one failing check before
+ *  a supervised checks run gives up and waits for a person. */
+export const MAX_SUPERVISIONS_PER_CHECK = 2
+
+export type ChecksSupervisionStatus =
+    /** The checks themselves are running. */
+    | "checking"
+    /** A check failed and the supervisor is at work on it. */
+    | "fixing"
+    | "passed"
+    /** A check failed and the supervisor could not, or may no longer, clear it. */
+    | "blocked"
+    | "stopped"
+    | "failed"
+
+/** A supervisor agent called in on one failing check. */
+export type ChecksSupervisorAgent = WorkRunAgent & { check: string }
+
+/**
+ * Checks run with a supervisor standing by: each failure is handed to a
+ * headless agent to fix, and the checks resume once it has. Held in memory,
+ * like the checks' own progress — the agents it launches do not outlive the
+ * server either.
+ */
+export interface ChecksSupervision {
+    branch: string
+    supervisor: RunSupervisor
+    status: ChecksSupervisionStatus
+    startedAt: string
+    /** Why it stopped, when it did for a reason worth saying. */
+    stopReason: string
+    /** Every supervisor launched, oldest first. */
+    agents: ChecksSupervisorAgent[]
+}
+
+export const checksSupervisionActive = (
+    supervision: Pick<ChecksSupervision, "status"> | null | undefined,
+) => supervision?.status === "checking" || supervision?.status === "fixing"
+
 export interface WorkPackageRun {
     id: number
     workPackageRef: string
@@ -1243,13 +1310,19 @@ export interface WorkPackageRun {
  * the record that ties the launch to the work package and says which tasks it
  * set out to do, so the tab can show them being worked through.
  */
-export const WORK_RUN_KINDS = ["next-task", "guided", "unattended"] as const
+export const WORK_RUN_KINDS = [
+    "next-task",
+    "guided",
+    "unattended",
+    "pipeline",
+] as const
 export type WorkRunKind = (typeof WORK_RUN_KINDS)[number]
 
 export const WORK_RUN_KIND_LABELS: Record<WorkRunKind, string> = {
     "next-task": "Work next task",
     guided: "Guided work package run",
     unattended: "Unattended work package",
+    pipeline: "Start to finish",
 }
 
 export interface WorkRun {
@@ -1295,7 +1368,16 @@ export interface WorkRunItem {
 export type WorkRunAgent = Pick<
     AgentRun,
     "id" | "command" | "status" | "exitCode" | "createdAt" | "finishedAt"
->
+> & {
+    /** For a supervisor: why it was called in. */
+    calledFor?: string | null
+    /** For a supervisor that has finished: the verdict its report ended on,
+     *  or null when it gave none. */
+    verdict?: SupervisorVerdict | null
+}
+
+/** The last line a supervisor is told to end its report on. */
+export type SupervisorVerdict = "resolved" | "unresolved"
 
 export type WorkRunStatus =
     "launched" | "running" | "finished" | "stopped" | "blocked" | "failed"
@@ -1310,6 +1392,91 @@ export interface WorkRunDetail extends WorkRun {
     /** The agent working right now, or the last one to have — what Stop and
      *  Resume act on. */
     agentRun: AgentRun | null
+    /** A start-to-finish run's stages. Null for every other kind. */
+    pipeline: PipelineDetail | null
+}
+
+/* ------------------------------------------------------ start-to-finish runs */
+
+/**
+ * A work package worked from start to finish: its investigations, then the
+ * tasks they filed, then each branch taken through to a pull request.
+ *
+ * One agent setting runs the whole thing. It investigates, and it supervises
+ * everything after: the task loop, a rebase that conflicts, and failing
+ * checks. Task agents can use a model of their own, since a task's tier is
+ * usually a better guide than the model chosen to oversee the run.
+ */
+export interface PipelineTaskRun {
+    /** The model each task's agent uses, or `RECOMMENDED_MODEL`. */
+    model: string
+    /** Extra prompt text for every task's agent in this run. */
+    extra: string
+}
+
+export interface PipelinePlan {
+    /** Investigates, and supervises everything after. */
+    agent: RunSupervisor
+    /** Investigation refs, run in this order. */
+    investigations: string[]
+    taskRuns: PipelineTaskRun[]
+    /** Work package branch ids, delivered in this order. */
+    branches: number[]
+}
+
+export const BRANCH_STEPS = ["rebase", "describe", "checks", "pr"] as const
+export type BranchStep = (typeof BRANCH_STEPS)[number]
+
+export const BRANCH_STEP_LABELS: Record<BranchStep, string> = {
+    rebase: "Rebase on base",
+    describe: "Generate pull request description",
+    checks: "Run all checks",
+    pr: "Create pull request",
+}
+
+export type PipelineStepState =
+    "waiting" | "running" | "done" | "skipped" | "stopped" | "blocked"
+
+interface PipelineStepBase {
+    state: PipelineStepState
+    /** What happened, when there is something worth saying. */
+    detail: string
+}
+
+export type PipelineStep = PipelineStepBase &
+    (
+        | {
+              kind: "investigation"
+              ref: string
+              /** Every agent launched on it, oldest first. */
+              agentRunIds: number[]
+          }
+        | {
+              kind: "tasks"
+              /** Its index in `PipelinePlan.taskRuns`. */
+              index: number
+              workPackageRunId: number | null
+          }
+        | {
+              kind: "branch"
+              step: BranchStep
+              branchId: number
+              /** As it was named when the run reached it. */
+              branchName: string
+          }
+    )
+
+/** A pipeline step plus what the run tab shows for it. */
+export type PipelineStepDetail = PipelineStep & {
+    /** The step's title: an investigation's, or its branch's label. */
+    title: string
+    /** Investigation agents, for their output. */
+    agents: WorkRunAgent[]
+}
+
+export interface PipelineDetail {
+    plan: PipelinePlan
+    steps: PipelineStepDetail[]
 }
 
 /** True while the loop still owns the work package — nothing else should start a task. */

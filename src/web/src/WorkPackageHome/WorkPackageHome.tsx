@@ -34,9 +34,15 @@ export function WorkPackageHome(props: {
         )
     // These timestamps are retained when a task subsequently moves on, which is
     // exactly the activity signal the portfolio needs: the most recently started
-    // or completed work package should remain at the top.
+    // or completed work package should remain at the top. Creating a work package
+    // counts too, so a new one leads until another is worked on.
     const workPackagesByRecentWork = createMemo(() => {
-        const recentWork = new Map<string, string>()
+        const recentWork = new Map<string, string>(
+            props.snapshot.workPackages.map((workPackage) => [
+                workPackage.ref,
+                workPackage.createdAt,
+            ]),
+        )
         for (const task of props.snapshot.tasks) {
             if (!task.workPackageRef) continue
             const at = [task.startedAt, task.devCompletedAt].reduce<

@@ -32,18 +32,7 @@ export function ProductRail(props: {
                     <Show when={props.active === "notes"}>
                         <span class="rail-indicator absolute [inset-block:0] left-0 w-[3px]" />
                     </Show>
-                    Notes
-                </button>
-                <button
-                    class={` relative flex min-h-[2.8rem] items-center gap-[0.75rem] p-[0_1.5rem] w-full max-[820px]:min-h-[2rem] max-[820px]:p-[0_0_0_1rem]`}
-                    aria-current={
-                        props.active === "issues" ? "page" : undefined
-                    }
-                    onClick={() => props.select("issues")}>
-                    <Show when={props.active === "issues"}>
-                        <span class="rail-indicator absolute [inset-block:0] left-0 w-[3px]" />
-                    </Show>
-                    Issues
+                    Notes & issues
                 </button>
             </nav>
             <div class="rail-note relative z-[1] mt-auto pt-[1rem] max-[820px]:hidden">

@@ -744,6 +744,34 @@ details.collection[open] > summary::before {
 details.collection > summary span {
     font-variant-numeric: tabular-nums;
 }
+/* A supervisor called in on the row above: set in under it and marked in the
+   signal colour, so it reads as something that happened to that row. */
+details.supervisor {
+    margin-inline-start: 2rem;
+    border-inline-start: 3px solid var(--signal);
+    border-radius: 0 0.35rem 0.35rem 0;
+    background: color-mix(in srgb, var(--signal) 6%, var(--paper));
+    color: var(--steel);
+    font-size: 0.75rem;
+}
+details.supervisor > summary {
+    cursor: pointer;
+    list-style: none;
+}
+details.supervisor > summary::-webkit-details-marker {
+    display: none;
+}
+details.supervisor > summary::before {
+    content: "\25B8";
+    color: var(--signal);
+}
+details.supervisor[open] > summary::before {
+    content: "\25BE";
+}
+details.supervisor > summary strong {
+    color: var(--signal);
+    font-weight: 600;
+}
 :is(p, aside, div).notice {
     --notice-line: var(--line-strong);
     --notice-surface: var(--paper);

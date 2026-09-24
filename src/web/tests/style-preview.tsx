@@ -34,7 +34,6 @@ const task = {
     events: [],
     runs: [],
     attachments: [],
-    notes: [],
 }
 const tasks = [
     task,
@@ -72,7 +71,6 @@ const investigation = {
     startedAt: date,
     completedAt: date,
     tasks,
-    notes: [note],
 }
 const git = {
     exists: true,
@@ -119,9 +117,9 @@ const workPackage = {
             updatedAt: date,
             git,
             delivery: null,
+            rebaseSupervision: null,
         },
     ],
-    notes: [note],
     queue: [task],
     outsideBlockers: [],
     inProgress: [task],
@@ -138,6 +136,7 @@ const branch = {
     tasks,
     git,
     checksRunning: null,
+    checksSupervision: null,
     prTitle: "A shared styling vocabulary",
     prBody: note.body,
     prUrl: null,
@@ -219,7 +218,7 @@ function fixture(key: keyof typeof api, value: unknown) {
 }
 fixture("listWorkPackages", [workPackage])
 fixture("listTasks", tasks)
-fixture("getTask", { ...task, notes: [note] })
+fixture("getTask", task)
 fixture("getWorkPackage", workPackage)
 fixture("listInvestigations", [investigation])
 fixture("getInvestigation", investigation)

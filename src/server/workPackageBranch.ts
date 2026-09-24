@@ -50,9 +50,8 @@ import {
     type WorkPackageBranchDetail,
     type WorkPackageDetail,
 } from "../shared/types"
-import { linkedNotes } from "./noteLinks"
-import { workPackageReferences } from "./workPackageReferences"
 import { listWorkRuns, workRunDetail } from "./workRuns"
+import { rebaseSupervision } from "./rebaseSupervisor"
 
 /**
  * A work package's branches as integration branches.
@@ -640,7 +639,13 @@ export function workPackageBranchDetail(
             taskRefs: [],
         })
     }
-    return { ...branch, base, git, delivery }
+    return {
+        ...branch,
+        base,
+        git,
+        delivery,
+        rebaseSupervision: rebaseSupervision(branch.branchName),
+    }
 }
 
 /**
@@ -690,8 +695,6 @@ export function getWorkPackageDetail(refOrName: string): WorkPackageDetail {
         branches: listWorkPackageBranches(workPackage.ref).map(
             workPackageBranchDetail,
         ),
-        notes: linkedNotes("work-package", workPackage.ref),
-        references: workPackageReferences(workPackage.ref),
         queue,
         outsideBlockers: [...outside.values()],
         // Workspace-wide, not work package-scoped: a task in flight anywhere is what stops

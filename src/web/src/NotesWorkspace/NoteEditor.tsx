@@ -1,6 +1,11 @@
 import type { Note } from "@shared/types"
 import { action, createOptimistic, Show, createSignal } from "solid-js"
 import { api, noteAssetUrl } from "../api"
+import {
+    AddToWorkPackageButtons,
+    type WorkItemKind,
+} from "../components/AddToWorkPackage"
+import { BackIcon } from "../components/icons"
 import { renderMarkdown } from "../markdown"
 import { useError } from "../hooks/useError"
 
@@ -10,6 +15,8 @@ export function NoteEditor(props: {
     setMode: (mode: "write" | "preview") => void
     saved: () => Promise<unknown>
     close: () => void
+    /** Turn the saved note into a task or an investigation. */
+    add: (kind: WorkItemKind) => void
 }) {
     const [title, setTitle] = createSignal(() => props.note.title)
     const [tags, setTags] = createSignal(() => props.note.tags.join(", "))
@@ -116,6 +123,15 @@ export function NoteEditor(props: {
 
     return (
         <article class="document max-w-[980px] p-[clamp(1.25rem,_3vw,_3rem)]">
+            <div class="flex flex-wrap items-center justify-between gap-[0.75rem] mb-[1.4rem]">
+                <button
+                    class="back inline-flex items-center gap-[0.35rem]"
+                    onClick={props.close}>
+                    <BackIcon />
+                    All notes & issues
+                </button>
+                <AddToWorkPackageButtons add={props.add} />
+            </div>
             <header class="flex items-start justify-between gap-[1rem] pb-[1.25rem] max-[560px]:block">
                 <div>
                     <p class="reference">{props.note.path}</p>

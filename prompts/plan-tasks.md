@@ -40,9 +40,6 @@ below is in service of it:
 tasks investigation show I-<n> --json
 ```
 
-If its `notes` array is non-empty, those notes were attached as investigation
-material. Read each one before researching with `tasks notes show <path> --raw`.
-
 Mark it as being worked on before you start, so anyone looking at the UI can see
 it is in flight:
 

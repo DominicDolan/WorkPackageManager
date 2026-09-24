@@ -18,6 +18,7 @@ const initial = {
     updatedAt: "initial",
     checks: null,
     checksRunning: null,
+    checksSupervision: null,
 } as unknown as CombinedBranchDetail
 let latest = initial
 let update: (value: CombinedBranchDetail) => void
@@ -26,6 +27,7 @@ api.getBranch = async () => latest
 api.getChecks = async () => ({
     checks: latest.checks,
     checksRunning: latest.checksRunning,
+    checksSupervision: latest.checksSupervision,
 })
 api.getWorkPackage = async () =>
     ({
@@ -116,8 +118,6 @@ function Fixture() {
                 revision={revision()}
                 back={() => {}}
                 openTask={() => {}}
-                openNote={() => {}}
-                openIssue={() => {}}
             />
         </div>
     )
@@ -272,6 +272,7 @@ async function run() {
         ...latest,
         updatedAt: "finished",
         checksRunning: null,
+        checksSupervision: null,
         checks: {
             branch: initial.branchName,
             base: "main",

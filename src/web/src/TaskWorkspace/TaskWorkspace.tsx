@@ -32,7 +32,6 @@ export function TaskWorkspace(props: {
     snapshot: WorkspaceSnapshot
     back: () => void
     openTask: (ref: string) => void
-    openNote: (path: string) => void
     changed: () => void
     revision: number
 }) {
@@ -204,11 +203,6 @@ export function TaskWorkspace(props: {
                                 setNote={setNote}
                                 mutate={mutate}
                                 openAgent={() => setAgentOpen(true)}
-                                openNote={props.openNote}
-                                notesChanged={() => {
-                                    refresh(task)
-                                    props.changed()
-                                }}
                             />
                         </div>
                     </div>

@@ -20,6 +20,30 @@ export function PlusIcon() {
     )
 }
 
+/** Grow a card: arrows out to the corners. */
+export function ExpandIcon() {
+    return (
+        <svg
+            class="icon w-[1rem] h-[1rem]"
+            viewBox="0 0 20 20"
+            aria-hidden="true">
+            <path d="M11.5 3.5h5v5M16.5 3.5l-5.5 5.5M8.5 16.5h-5v-5M3.5 16.5 9 11" />
+        </svg>
+    )
+}
+
+/** Shrink a card back: arrows in from the corners. */
+export function CollapseIcon() {
+    return (
+        <svg
+            class="icon w-[1rem] h-[1rem]"
+            viewBox="0 0 20 20"
+            aria-hidden="true">
+            <path d="M16.5 8.5h-5v-5M11.5 8.5l5-5M3.5 11.5h5v5M8.5 11.5l-5 5" />
+        </svg>
+    )
+}
+
 /* Tab kinds on the work package page. Sized to sit beside tab text. */
 
 export function TasksIcon() {
@@ -55,20 +79,6 @@ export function BranchIcon() {
             <circle cx="6" cy="15.5" r="1.75" />
             <circle cx="14" cy="6.5" r="1.75" />
             <path d="M6 6.25v7.5M14 8.25c0 3.5-8 2.5-8 5.5" />
-        </svg>
-    )
-}
-
-export function NotesIcon() {
-    return (
-        <svg
-            class="icon w-[1rem] h-[1rem]"
-            viewBox="0 0 20 20"
-            aria-hidden="true">
-            <path
-                d="M5.5 3.5h6l3 3v10h-9zM11.5 3.5v3h3M8 10.5h4.5M8 13.5h4.5"
-                stroke-linejoin="round"
-            />
         </svg>
     )
 }

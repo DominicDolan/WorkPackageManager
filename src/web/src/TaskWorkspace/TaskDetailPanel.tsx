@@ -8,7 +8,6 @@ import {
 } from "@shared/types"
 import { For, Show } from "solid-js"
 import { api, taskAssetUrl } from "../api"
-import { AttachedNotes } from "../components/AttachedNotes"
 import { InfoCard } from "../components/InfoCard"
 import { StatusBadge } from "../components/StatusBadge"
 import { ComparisonViewer } from "./ComparisonViewer"
@@ -29,8 +28,6 @@ export function TaskDetailPanel(props: {
         onSuccess?: () => void,
     ) => Promise<void>
     openAgent: () => void
-    openNote: (path: string) => void
-    notesChanged: () => void
 }) {
     let title!: HTMLInputElement
     let description!: HTMLTextAreaElement
@@ -339,23 +336,6 @@ export function TaskDetailPanel(props: {
                         )}
                     </For>
                 </div>
-            </section>
-
-            <section class="mt-8">
-                <h2 class="title mb-4">Reference notes</h2>
-                <article class="p-5">
-                    <AttachedNotes
-                        notes={props.task.notes}
-                        attach={(path) =>
-                            api.attachTaskNote(props.task.ref, path)
-                        }
-                        detach={(path) =>
-                            api.detachTaskNote(props.task.ref, path)
-                        }
-                        changed={props.notesChanged}
-                        open={props.openNote}
-                    />
-                </article>
             </section>
 
             <section class="mt-8">

@@ -10,12 +10,18 @@ import {
 import { CreateWorkPackage } from "../CreateWorkPackage/CreateWorkPackage"
 import { WorkPackageHome } from "../WorkPackageHome/WorkPackageHome"
 import { WorkPackageWorkspace } from "../WorkPackageWorkspace/WorkPackageWorkspace"
-import { IssuesWorkspace } from "../IssuesWorkspace/IssuesWorkspace"
 import { NotesWorkspace } from "../NotesWorkspace/NotesWorkspace"
 import { TaskWorkspace } from "../TaskWorkspace/TaskWorkspace"
 import { PageSkeleton } from "../components/PageSkeleton"
 import type { MainView } from "../types/navigation"
 import { loadWorkspace } from "./loadWorkspace"
+
+/** Issues share the Notes page now; `/issues` links from before still land there. */
+function viewAt(pathname: string): MainView {
+    return pathname === "/notes" || pathname === "/issues"
+        ? "notes"
+        : "work-packages"
+}
 
 export function App() {
     const snapshot = createQuery(loadWorkspace)
@@ -29,13 +35,7 @@ export function App() {
     const [taskRef, setTaskRef] = createSignal<string | null>(
         initial?.[2] ? decodeURIComponent(initial[2]) : null,
     )
-    const [view, setView] = createSignal<MainView>(
-        location.pathname === "/notes"
-            ? "notes"
-            : location.pathname === "/issues"
-              ? "issues"
-              : "work-packages",
-    )
+    const [view, setView] = createSignal<MainView>(viewAt(location.pathname))
     const [notePath, setNotePath] = createSignal(
         new URLSearchParams(location.search).get("note") ?? "",
     )
@@ -57,13 +57,7 @@ export function App() {
             setTaskRef(match?.[2] ? decodeURIComponent(match[2]) : null)
             setNotePath(new URLSearchParams(location.search).get("note") ?? "")
             setIssueId(new URLSearchParams(location.search).get("issue") ?? "")
-            setView(
-                location.pathname === "/notes"
-                    ? "notes"
-                    : location.pathname === "/issues"
-                      ? "issues"
-                      : "work-packages",
-            )
+            setView(viewAt(location.pathname))
         }
         addEventListener("popstate", restoreLocation)
         // The CLI and agents write through the same API server. Keep this view in
@@ -93,20 +87,6 @@ export function App() {
             "",
             `/work-packages/${encodeURIComponent(workPackageRef()!)}/tasks/${encodeURIComponent(ref)}`,
         )
-    }
-    const openNote = (path: string) => {
-        setView("notes")
-        setWorkPackageRef(null)
-        setTaskRef(null)
-        setNotePath(path)
-        history.pushState(null, "", `/notes?note=${encodeURIComponent(path)}`)
-    }
-    const openIssue = (id: string) => {
-        setView("issues")
-        setWorkPackageRef(null)
-        setTaskRef(null)
-        setIssueId(id)
-        history.pushState(null, "", `/issues?issue=${encodeURIComponent(id)}`)
     }
     const home = () => {
         setView("work-packages")
@@ -153,14 +133,9 @@ export function App() {
                 <Show when={view() === "notes"}>
                     <NotesWorkspace
                         select={selectView}
+                        openWorkPackage={openWorkPackage}
                         initialPath={notePath()}
-                        revision={workspaceRevision()}
-                    />
-                </Show>
-                <Show when={view() === "issues"}>
-                    <IssuesWorkspace
-                        select={selectView}
-                        initialId={issueId()}
+                        initialIssueId={issueId()}
                         revision={workspaceRevision()}
                     />
                 </Show>
@@ -185,8 +160,6 @@ export function App() {
                                             snapshot={snapshot.value}
                                             back={home}
                                             openTask={openTask}
-                                            openNote={openNote}
-                                            openIssue={openIssue}
                                             changed={reload}
                                             revision={workspaceRevision()}
                                         />
@@ -198,7 +171,6 @@ export function App() {
                                             snapshot={snapshot.value}
                                             back={backToWorkPackage}
                                             openTask={openTask}
-                                            openNote={openNote}
                                             changed={reload}
                                             revision={workspaceRevision()}
                                         />

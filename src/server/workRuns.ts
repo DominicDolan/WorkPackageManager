@@ -1,5 +1,5 @@
 import { getDb, nowIso } from "./db"
-import { findAgentRun, startRun, stopRun } from "./agents"
+import { findAgentRun, startRun, stopRun, supervisorVerdict } from "./agents"
 import { findTask, findWorkPackageRun, requireWorkPackage } from "./repo"
 import { getWorkPackageDetail } from "./workPackageBranch"
 import {
@@ -7,7 +7,18 @@ import {
     setSupervisor,
     startWorkPackageRun,
     stopWorkPackageRun,
+    supervisorCalledFor,
 } from "./workPackageRuns"
+import {
+    beginPipeline,
+    pipelineAgentRunId,
+    pipelineDetail,
+    pipelineLoopIds,
+    pipelineStatus,
+    preparePipeline,
+    resumePipeline,
+    stopPipeline,
+} from "./workPackagePipeline"
 import {
     nextWorkableTask,
     satisfiesDependency,
@@ -16,6 +27,7 @@ import {
     type AgentPermissionMode,
     type AgentRun,
     type AgentRunMode,
+    type PipelinePlan,
     type RunSupervisor,
     type WorkPackageRun,
     type WorkRun,
@@ -101,6 +113,8 @@ export interface StartWorkRunInput {
     extra: string
     /** Unattended runs only: who to call in when a task stops short. */
     supervisor?: RunSupervisor | null
+    /** Start-to-finish runs only: what to work, and in which order. */
+    plan?: PipelinePlan
 }
 
 /** Launch the agent a run describes, and record the run as a tab. */
@@ -116,8 +130,19 @@ export function startWorkRun(input: StartWorkRunInput): WorkRunDetail {
     let mode = input.mode
     let permissionMode = input.permissionMode
     let label = input.label?.trim() ?? ""
+    let pipeline: string | null = null
 
-    if (input.kind === "unattended") {
+    if (input.kind === "pipeline") {
+        if (!input.plan) throw new Error("A start-to-finish run needs a plan.")
+        const prepared = preparePipeline(workPackage.ref, input.plan)
+        mode = "print"
+        permissionMode = prepared.plan.agent.permissionMode
+        pipeline = JSON.stringify(prepared.record)
+        // Filled in as each task run starts: the investigations have not
+        // filed their tasks yet.
+        taskRefs = []
+        label ||= "Start to finish"
+    } else if (input.kind === "unattended") {
         // Nobody is at a terminal for any of these agents, so the only mode
         // that can finish is headless, and the only permission mode that can
         // finish is the one that never asks.
@@ -174,9 +199,10 @@ export function startWorkRun(input: StartWorkRunInput): WorkRunDetail {
     const row = getDb()
         .query<{ id: number }, Record<string, string | number | null>>(
             `INSERT INTO work_runs (work_package_ref, label, kind, harness, model, mode, permission_mode,
-                                extra, task_refs_json, agent_run_id, work_package_run_id, created_at, updated_at)
+                                extra, task_refs_json, agent_run_id, work_package_run_id, pipeline_json,
+                                created_at, updated_at)
          VALUES ($ref, $label, $kind, $harness, $model, $mode, $permission, $extra, $tasks,
-                 $agentRun, $packageRun, $at, $at)
+                 $agentRun, $packageRun, $pipeline, $at, $at)
          RETURNING id`,
         )
         .get({
@@ -191,8 +217,10 @@ export function startWorkRun(input: StartWorkRunInput): WorkRunDetail {
             $tasks: JSON.stringify(taskRefs),
             $agentRun: agentRunId,
             $packageRun: workPackageRunId,
+            $pipeline: pipeline,
             $at: at,
         })!
+    if (pipeline) beginPipeline(row.id)
     return workRunDetail(requireWorkRun(row.id))
 }
 
@@ -218,7 +246,9 @@ export function deleteWorkRun(id: number): void {
 
 export function stopWorkRun(id: number): WorkRunDetail {
     const run = requireWorkRun(id)
-    if (run.workPackageRunId !== null) stopWorkPackageRun(run.workPackageRunId)
+    if (run.kind === "pipeline") stopPipeline(run.id)
+    else if (run.workPackageRunId !== null)
+        stopWorkPackageRun(run.workPackageRunId)
     else if (run.agentRunId !== null) stopRun(run.agentRunId)
     return workRunDetail(requireWorkRun(id))
 }
@@ -230,6 +260,10 @@ export function stopWorkRun(id: number): WorkRunDetail {
  */
 export function resumeWorkRun(id: number): WorkRunDetail {
     const run = requireWorkRun(id)
+    if (run.kind === "pipeline") {
+        resumePipeline(run.id)
+        return workRunDetail(requireWorkRun(id))
+    }
     const loop =
         run.workPackageRunId !== null
             ? findWorkPackageRun(run.workPackageRunId)
@@ -282,6 +316,7 @@ const AGENT_STATUS: Record<AgentRun["status"], WorkRunStatus> = {
 
 /** The run as its tab draws it: its state, and where each task stands. */
 export function workRunDetail(run: WorkRun): WorkRunDetail {
+    if (run.kind === "pipeline") return pipelineRunDetail(run)
     const loop =
         run.workPackageRunId !== null
             ? findWorkPackageRun(run.workPackageRunId)
@@ -302,23 +337,7 @@ export function workRunDetail(run: WorkRun): WorkRunDetail {
         loop?.status === "running" ? loop.currentRef?.toLowerCase() : null
     const agents = headlessAgentsByTask(run, loop)
 
-    const items: WorkRunItem[] = run.taskRefs.map((ref) => {
-        const task = findTask(ref)
-        const state: WorkRunItem["state"] =
-            task && satisfiesDependency(task.status)
-                ? "done"
-                : task?.status === "in_progress" ||
-                    ref.toLowerCase() === current
-                  ? "working"
-                  : "waiting"
-        return {
-            ref: task?.ref ?? ref,
-            title: task?.title ?? "(deleted)",
-            status: task?.status ?? null,
-            state,
-            agents: agents.get(ref.toLowerCase()) ?? [],
-        }
-    })
+    const items = run.taskRefs.map((ref) => workRunItem(ref, current, agents))
 
     return {
         ...run,
@@ -327,6 +346,53 @@ export function workRunDetail(run: WorkRun): WorkRunDetail {
         items,
         supervisor: loop?.supervisor ?? null,
         agentRun,
+        pipeline: null,
+    }
+}
+
+/** A start-to-finish run: its stages, and the tasks its task runs worked. */
+function pipelineRunDetail(run: WorkRun): WorkRunDetail {
+    const settled = pipelineStatus(run.id)
+    const loops = pipelineLoopIds(run.id)
+        .map((id) => findWorkPackageRun(id))
+        .filter((loop): loop is WorkPackageRun => loop !== null)
+    const working = settled?.status === "running" ? loops.at(-1) : undefined
+    const current =
+        working?.status === "running" ? working.currentRef?.toLowerCase() : null
+    const agents = headlessAgentsFor(loops.flatMap((loop) => loop.runIds))
+    const pipeline = pipelineDetail(run.id)
+
+    return {
+        ...run,
+        status: settled?.status ?? "failed",
+        statusDetail: settled
+            ? settled.stopReason
+            : "The run's pipeline record is missing.",
+        items: run.taskRefs.map((ref) => workRunItem(ref, current, agents)),
+        supervisor: pipeline?.plan.agent ?? null,
+        agentRun: findAgentRun(pipelineAgentRunId(run.id) ?? -1),
+        pipeline,
+    }
+}
+
+function workRunItem(
+    ref: string,
+    current: string | null | undefined,
+    agents: Map<string, WorkRunAgent[]>,
+): WorkRunItem {
+    const task = findTask(ref)
+    const state: WorkRunItem["state"] =
+        task && satisfiesDependency(task.status)
+            ? "done"
+            : task?.status === "in_progress" || ref.toLowerCase() === current
+              ? "working"
+              : "waiting"
+    return {
+        ref: task?.ref ?? ref,
+        title: task?.title ?? "(deleted)",
+        status: task?.status ?? null,
+        state,
+        agents: agents.get(ref.toLowerCase()) ?? [],
     }
 }
 
@@ -341,20 +407,25 @@ function headlessAgentsByTask(
     run: WorkRun,
     loop: WorkPackageRun | null,
 ): Map<string, WorkRunAgent[]> {
-    const ids = loop
-        ? loop.runIds.length
-            ? loop.runIds
-            : legacyLoopRunIds(run, loop)
-        : run.kind === "next-task" && run.agentRunId !== null
-          ? [run.agentRunId]
-          : []
+    return headlessAgentsFor(
+        loop
+            ? loop.runIds.length
+                ? loop.runIds
+                : legacyLoopRunIds(run, loop)
+            : run.kind === "next-task" && run.agentRunId !== null
+              ? [run.agentRunId]
+              : [],
+    )
+}
 
+function headlessAgentsFor(ids: number[]): Map<string, WorkRunAgent[]> {
     const byTask = new Map<string, WorkRunAgent[]>()
     for (const id of ids) {
         const agent = findAgentRun(id)
         if (!agent || agent.mode !== "print" || agent.subjectKind !== "task")
             continue
         const key = agent.subjectRef.toLowerCase()
+        const supervising = agent.command === "supervise-task"
         byTask.set(key, [
             ...(byTask.get(key) ?? []),
             {
@@ -364,6 +435,13 @@ function headlessAgentsByTask(
                 exitCode: agent.exitCode,
                 createdAt: agent.createdAt,
                 finishedAt: agent.finishedAt,
+                ...(supervising && {
+                    calledFor: supervisorCalledFor(agent.prompt),
+                    verdict:
+                        agent.status === "running"
+                            ? null
+                            : supervisorVerdict(agent.id),
+                }),
             },
         ])
     }

@@ -13,7 +13,6 @@ import { TaskWorkspace } from "../src/TaskWorkspace/TaskWorkspace"
 import { api } from "../src/api"
 import { AgentSettings } from "../src/components/AgentSettings"
 import { NotesWorkspace } from "../src/NotesWorkspace/NotesWorkspace"
-import { IssuesWorkspace } from "../src/IssuesWorkspace/IssuesWorkspace"
 import "../src/styles.css"
 
 for (const key of Object.keys(api))
@@ -62,7 +61,7 @@ const workspace = {
         unpushed: null,
     },
 }
-const note = (path: string, title: string) =>
+const note = (path: string, title: string, updatedAt: string) =>
     ({
         path,
         title,
@@ -70,9 +69,25 @@ const note = (path: string, title: string) =>
         tags: [],
         folder: "",
         excerpt: title,
+        updatedAt,
     }) as unknown as Note
-const one = note("one.md", "First note")
-const two = note("two.md", "Second note")
+const one = note("one.md", "First note", "2026-09-01T00:00:00Z")
+const two = note("two.md", "Second note", "2026-09-02T00:00:00Z")
+const noIssues = {
+    issues: [],
+    facets: { sources: [], labels: [], total: 0 },
+    notes: workspace,
+}
+const cards = () => [...root.querySelectorAll<HTMLElement>("main article")]
+const openCard = (title: string) =>
+    cards()
+        .find((card) => card.textContent?.includes(title))!
+        .querySelector<HTMLButtonElement>("header button")!
+const anyBusy = () => !!root.querySelector('[aria-busy="true"]')
+const editorOpen = () =>
+    [...root.querySelectorAll("button.back")].some((el) =>
+        el.textContent?.includes("All notes & issues"),
+    )
 async function run() {
     const first = deferred<Awaited<ReturnType<typeof api.listNotes>>>()
     const searchA = deferred<Awaited<ReturnType<typeof api.listNotes>>>()
@@ -90,7 +105,8 @@ async function run() {
             : options?.q === "ab"
               ? searchB.promise
               : first.promise
-    api.getNote = async (path) => (path === one.path ? one : detail.promise)
+    api.listIssues = async () => noIssues
+    api.getNote = () => detail.promise
     let revise!: (value: number) => void
     let dispose = render(() => {
         const [revision, setRevision] = createSignal(0)
@@ -98,8 +114,8 @@ async function run() {
         return (
             <NotesWorkspace
                 select={() => {}}
+                openWorkPackage={() => {}}
                 revision={revision()}
-                initialPath={one.path}
             />
         )
     }, root)
@@ -114,13 +130,11 @@ async function run() {
     change(search, "a")
     await tick()
     check(
-        search.value === "a" &&
-            root.querySelector(".note-list")?.getAttribute("aria-busy") ===
-                "true",
+        search.value === "a" && anyBusy(),
         "notes search reflects latest query and marks results busy",
     )
     check(
-        root.textContent?.includes("First note"),
+        cards().some((card) => card.textContent?.includes("First note")),
         "notes retain previous results during search",
     )
     change(search, "ab")
@@ -128,48 +142,57 @@ async function run() {
     searchB.resolve({ ...listing, notes: [two] })
     await tick()
     check(
-        root
-            .querySelector(".note-list")
-            ?.textContent?.includes("Second note") &&
-            root.querySelector(".note-list")?.getAttribute("aria-busy") ===
-                "false",
+        cards().some((card) => card.textContent?.includes("Second note")) &&
+            !anyBusy(),
         "latest search result settles",
     )
     searchA.resolve({ ...listing, notes: [one] })
     await tick()
     check(
-        !root.querySelector(".note-list")?.textContent?.includes("First note"),
+        !cards().some((card) => card.textContent?.includes("First note")),
         "late search response cannot overwrite the latest results",
     )
-    root.querySelector<HTMLButtonElement>(".note-list button")!.click()
+    check(
+        cards()[0]?.textContent?.includes("Content for Second note"),
+        "a card shows the note's body without opening it",
+    )
+    const expand = cards()[0]!.querySelector<HTMLButtonElement>(
+        'button[aria-pressed="false"]',
+    )!
+    expand.click()
     await tick()
     check(
-        root.querySelector(".note-list button")?.getAttribute("aria-busy") ===
-            "true",
-        "requested note row shows loading immediately",
+        cards()[0]!.className.includes("row-span-2") &&
+            cards()[0]!
+                .querySelector("button[aria-pressed]")
+                ?.getAttribute("aria-pressed") === "true",
+        "expanding a card spans it across more of the grid",
     )
+    openCard("Second note").click()
+    await tick()
     check(
-        root.querySelector(".detail [inert]") &&
-            root.textContent?.includes("Content for First note"),
-        "previous note stays visible but inert while switching",
+        cards()[0]?.getAttribute("aria-busy") === "true",
+        "requested note card shows loading immediately",
     )
     detail.resolve(two)
     await tick()
     check(
-        !root.querySelector(".detail [inert]") &&
-            root.textContent?.includes("Content for Second note"),
-        "settled note becomes interactive",
+        !anyBusy() && editorOpen(),
+        "settled note becomes the editor and clears pending state",
     )
     const reload = deferred<typeof listing>()
     api.listNotes = () => reload.promise
     revise(1)
     await tick()
-    check(
-        root.querySelector(".note-list")?.getAttribute("aria-busy") === "false",
-        "same-query background refresh stays quiet",
-    )
+    check(!anyBusy(), "same-query background refresh stays quiet")
     reload.resolve(listing)
     await tick()
+    root.querySelector<HTMLButtonElement>("button.back")!.click()
+    await tick()
+    check(
+        cards()[0]?.className.includes("row-span-2"),
+        "an expanded card stays expanded after opening a note and coming back",
+    )
     dispose()
 
     const issue = {
@@ -193,35 +216,44 @@ async function run() {
     }
     const issueSearch = deferred<typeof issues>()
     const issueDetail = deferred<IssueDetail>()
+    api.listNotes = async () => ({ ...listing, notes: [] })
     api.listIssues = async (options) =>
         options?.q ? issueSearch.promise : issues
     api.getIssue = () => issueDetail.promise
     dispose = render(
-        () => <IssuesWorkspace select={() => {}} revision={0} />,
+        () => (
+            <NotesWorkspace
+                select={() => {}}
+                openWorkPackage={() => {}}
+                revision={0}
+            />
+        ),
         root,
     )
     await tick()
-    change(root.querySelector<HTMLInputElement>("input")!, "example")
+    change(
+        root.querySelector<HTMLInputElement>('input[type="search"]')!,
+        "example",
+    )
     await tick()
     check(
-        root.querySelector<HTMLInputElement>("input")!.value === "example" &&
-            root.querySelector('.detail [aria-busy="true"]'),
+        root.querySelector<HTMLInputElement>('input[type="search"]')!.value ===
+            "example" && anyBusy(),
         "issue search retains latest text with pending results",
     )
     issueSearch.resolve(issues)
     await tick()
-    root.querySelector<HTMLButtonElement>(".detail button.card-item")!.click()
+    openCard("Example issue").click()
     await tick()
     check(
-        root
-            .querySelector(".detail button.card-item")
-            ?.getAttribute("aria-busy") === "true",
+        cards()[0]?.getAttribute("aria-busy") === "true",
         "requested issue card shows pending state",
     )
     issueDetail.resolve(issue)
     await tick()
     check(
-        !root.querySelector('.detail [aria-busy="true"]') &&
+        !anyBusy() &&
+            editorOpen() &&
             root.textContent?.includes("Issue details"),
         "issue details settle and clear pending state",
     )
@@ -235,7 +267,6 @@ async function run() {
             priority: "medium",
             description: "",
             tags: [],
-            notes: [],
             events: [],
             runs: [],
             attachments: [],
@@ -249,7 +280,6 @@ async function run() {
     const secondTask = task("T-2")
     const nextTask = deferred<TaskDetail>()
     api.getTask = async (ref) => (ref === "T-1" ? firstTask : nextTask.promise)
-    api.listNotes = async () => listing
     dispose = render(() => {
         const [ref, setRef] = createSignal("T-1")
         return (
@@ -264,7 +294,6 @@ async function run() {
                 }
                 back={() => {}}
                 openTask={setRef}
-                openNote={() => {}}
                 changed={() => {}}
                 revision={0}
             />

@@ -1,10 +1,12 @@
 import {
     findAgentRun,
+    unattendedSupervisor,
     onRunSettled,
     runResult,
     runTrail,
     startRun,
     stopRun,
+    supervisorVerdict,
 } from "./agents"
 import { getWorkPackageDetail, missingTargets } from "./workPackageBranch"
 import {
@@ -187,7 +189,7 @@ export function startWorkPackageRun(input: StartWorkPackageRunInput): {
     }
 
     const supervisor = input.supervisor
-        ? checkedSupervisor(input.supervisor)
+        ? unattendedSupervisor(input.supervisor, "clear a blocker")
         : null
 
     const detail = getWorkPackageDetail(workPackage.ref)
@@ -236,27 +238,6 @@ export function startWorkPackageRun(input: StartWorkPackageRunInput): {
 }
 
 /**
- * A supervisor's settings, made fit to run unattended. Like the task agents,
- * it has nobody to ask, so "ask first" becomes "never ask"; and like them, it
- * cannot clear anything in a mode that changes nothing.
- */
-function checkedSupervisor(supervisor: RunSupervisor): RunSupervisor {
-    if (supervisor.permissionMode === "plan")
-        throw new Error(
-            "A supervisor cannot use Plan only: it changes nothing, so it could never clear a blocker.",
-        )
-    return {
-        harness: supervisor.harness,
-        model: supervisor.model,
-        permissionMode:
-            supervisor.permissionMode === "manual"
-                ? "bypassPermissions"
-                : supervisor.permissionMode,
-        extra: supervisor.extra,
-    }
-}
-
-/**
  * Attach a supervisor to a loop already under way, or change or remove the one
  * it has. An agent already at work is left alone; the change applies from the
  * next time a task stops short.
@@ -267,7 +248,7 @@ export function setSupervisor(
 ): WorkPackageRun {
     return setWorkPackageRunSupervisor(
         id,
-        supervisor ? checkedSupervisor(supervisor) : null,
+        supervisor ? unattendedSupervisor(supervisor, "clear a blocker") : null,
     )
 }
 
@@ -486,6 +467,16 @@ function handoffFor(
     return lines.join("\n")
 }
 
+/** Opens the line of a supervisor's brief that says why it was called in. */
+const CALLED_FOR = "The run could not carry on because: "
+
+/** Why a task's supervisor was called in, read back from the brief it was
+ *  launched with. */
+export function supervisorCalledFor(prompt: string): string | null {
+    const line = prompt.split("\n").find((one) => one.startsWith(CALLED_FOR))
+    return line ? line.slice(CALLED_FOR.length).trim() || null : null
+}
+
 /**
  * The brief a supervisor is launched with: what went wrong on the task and
  * everything the agent working it left behind, plus what any earlier
@@ -501,7 +492,7 @@ function supervisorBrief(
         "## The brief",
         "",
         `The agent working ${task.ref} ${describeEnd(worker)}.`,
-        `The run could not carry on because: ${shortfall}`,
+        `${CALLED_FOR}${shortfall}`,
         "",
         ...taskSection(task),
         "",
@@ -543,17 +534,6 @@ function launchSupervisor(
     })
     setWorkPackageRunCurrent(workPackageRun.id, run.id, task.ref)
     return run
-}
-
-/**
- * What a supervisor concluded, from the verdict its instructions tell it to end
- * on. Anything else — no answer, or no verdict — counts as unresolved: a
- * supervisor that cannot say it cleared the blocker has not.
- */
-function supervisorResolved(agentRunId: number): boolean {
-    const result = runResult(agentRunId)
-    const last = result?.split("\n").at(-1)?.trim().replace(/[`*.]/g, "")
-    return last === "RESOLVED"
 }
 
 /**
@@ -645,7 +625,9 @@ function advance(agentRunId: number, status: AgentRunStatus): void {
         : whyNotDone(task)
 
     if (shortfall && supervising) {
-        if (!supervisorResolved(agentRunId)) {
+        // No verdict counts as unresolved: a supervisor that cannot say it
+        // cleared the blocker has not.
+        if (supervisorVerdict(agentRunId) !== "resolved") {
             settleWorkPackageRun(
                 workPackageRun.id,
                 "blocked",

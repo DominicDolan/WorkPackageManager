@@ -95,11 +95,6 @@ import {
     updateNote,
 } from "../server/notes"
 import {
-    detachDeletedNote,
-    linkedNotes,
-    renameNoteLinks,
-} from "../server/noteLinks"
-import {
     WORK_PACKAGE_COLORS,
     workPackageTasks,
     INVESTIGATION_STATUS_LABELS,
@@ -892,7 +887,6 @@ function workPackageShow(args: Args): void {
         workPackageRef: workPackage.ref,
         includeClosed: true,
     })
-    const notes = linkedNotes("work-package", workPackage.ref)
     const investigations = listInvestigations({
         workPackageRef: workPackage.ref,
     })
@@ -900,7 +894,7 @@ function workPackageShow(args: Args): void {
 
     if (flagBool(args, "json")) {
         emitJson({
-            workPackage: { ...workPackage, notes, investigations, branches },
+            workPackage: { ...workPackage, investigations, branches },
             tasks,
         })
         return
@@ -914,11 +908,6 @@ function workPackageShow(args: Args): void {
         )
     }
     for (const branch of branches) printBranchLine(branch)
-    if (notes.length) {
-        print(`  ${dim("reference notes")}`)
-        for (const note of notes)
-            print(`    ${bold(note.title)}  ${dim(note.path)}`)
-    }
     if (!tasks.length) {
         print(`  ${dim("nothing in it yet")}`)
         print()
@@ -965,7 +954,6 @@ function workPackageQueue(args: Args): void {
         emitJson({
             workPackage: {
                 ...workPackage,
-                notes: linkedNotes("work-package", workPackage.ref),
                 branches: listWorkPackageBranches(workPackage.ref),
             },
             queue: queue.map((task) => ({
@@ -1416,14 +1404,6 @@ function investigationShow(args: Args): void {
         for (const line of detail.findings.split("\n")) print(`  ${line}`)
     }
 
-    if (detail.notes.length) {
-        print()
-        print(`  ${dim("reference notes")}`)
-        for (const note of detail.notes) {
-            print(`    ${bold(note.title)}  ${dim(note.path)}`)
-        }
-    }
-
     print()
     if (detail.tasks.length) {
         print(`  ${dim("tasks filed")}`)
@@ -1708,7 +1688,6 @@ async function notesEdit(args: Args): Promise<void> {
         tags: flagList(args, "tag"),
         path: flagString(args, "rename"),
     })
-    renameNoteLinks(current.path, note.path)
 
     if (flagBool(args, "json")) {
         emitJson({ note })
@@ -1877,7 +1856,6 @@ function notesRemove(args: Args): void {
     deleteNote(note.path, {
         keepAttachments: flagBool(args, "keep-attachments"),
     })
-    detachDeletedNote(note.path)
     print(`${green("deleted")}  ${bold(note.path)}  ${note.title}`)
 }
 

@@ -4,6 +4,7 @@ import { notesDir, notesDirExists, resolveInNotes } from "./notes"
 import type {
     IssueDetail,
     IssueLabel,
+    IssueListItem,
     IssuePerson,
     IssueState,
     IssueSummary,
@@ -433,6 +434,13 @@ export interface IssueQuery {
 }
 
 export function listIssues(query: IssueQuery = {}): IssueSummary[] {
+    return listIssuesWithBodies(query).map(
+        ({ body: _body, bodyFormat: _bodyFormat, ...issue }) => issue,
+    )
+}
+
+/** The same list, each issue with its body, for the Notes grid's cards. */
+export function listIssuesWithBodies(query: IssueQuery = {}): IssueListItem[] {
     const issues = jsonFiles().flatMap(readFile)
     const search = query.search?.trim().toLowerCase()
 
@@ -457,7 +465,7 @@ export function listIssues(query: IssueQuery = {}): IssueSummary[] {
                       .includes(search)
                 : true,
         )
-        .map(({ body: _body, raw: _raw, ...summary }) => summary)
+        .map(({ raw: _raw, ...issue }) => issue)
         .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))
 }
 

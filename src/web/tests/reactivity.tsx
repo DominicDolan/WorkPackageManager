@@ -141,6 +141,7 @@ async function run() {
                             setMode={() => {}}
                             saved={async () => {}}
                             close={() => {}}
+                            add={() => {}}
                         />
                     )}
                 </Show>
@@ -227,8 +228,6 @@ async function run() {
         tasks: [],
         investigations: [investigation],
         branches: [],
-        notes: [],
-        references: [],
         queue: [],
         outsideBlockers: [],
         inProgress: [],

@@ -1,6 +1,9 @@
 import {
+    checksSupervisionActive,
     type CombinedBranchDetail,
     type GitConflict,
+    type RebaseSupervision,
+    type RunSupervisor,
     type WorkPackageBranchDetail,
     type WorkPackageDetail,
 } from "@shared/types"
@@ -15,12 +18,14 @@ import {
     type Element,
 } from "solid-js"
 import { api } from "../api"
+import { SupervisorPickerDialog } from "../components/SupervisorPickerDialog"
 import { useError } from "../hooks/useError"
 import { renderMarkdown } from "../markdown"
 import type { WorkspaceSnapshot } from "../types/workspace"
 import { BranchCheckLauncher } from "./BranchCheckLauncher"
 import { BranchChecks } from "./BranchChecks"
 import { BranchTasks } from "./BranchTasks"
+import { AgentOutput } from "../components/AgentOutput"
 import { TabHeading } from "./TabHeading"
 
 export function BranchPanel(props: {
@@ -37,8 +42,14 @@ export function BranchPanel(props: {
     const [current, setCurrent] = createSignal<
         CombinedBranchDetail | undefined
     >()
-    const [branchName, setBranchName] = createSignal(props.branch.branchName)
-    const [remoteBranch, setRemoteBranch] = createSignal("")
+    // Unsaved edits only. Until the field is touched it shows the saved value,
+    // so nothing has to copy server data into it, and a refetch or the checks
+    // poll replacing `current` cannot wipe what is being typed.
+    const [branchNameDraft, setBranchName] = createSignal<string>()
+    const [remoteBranchDraft, setRemoteBranch] = createSignal<string>()
+    const branchName = () => branchNameDraft() ?? props.branch.branchName
+    const remoteBranch = () =>
+        remoteBranchDraft() ?? current()?.remoteBranch ?? ""
     const [title, setTitle] = createSignal("")
     const [body, setBody] = createSignal("")
     const [mode, setMode] = createSignal<"write" | "preview">("write")
@@ -46,6 +57,11 @@ export function BranchPanel(props: {
     const { capture, clear, Banner } = useError()
     const [notice, setNotice] = createSignal("")
     const [checkAgentOpen, setCheckAgentOpen] = createSignal(false)
+    const [pickingRebaseSupervisor, setPickingRebaseSupervisor] =
+        createSignal(false)
+    const [stoppingRebase, setStoppingRebase] = createSignal(false)
+    const rebaseSupervision = () => props.branch.rebaseSupervision
+    const resolving = () => rebaseSupervision()?.status === "resolving"
 
     const applyBranch = (branch: CombinedBranchDetail, overwrite = true) => {
         const previous = current()
@@ -53,6 +69,8 @@ export function BranchPanel(props: {
             setTitle(branch.prTitle ?? "")
         if (overwrite || body() === (previous?.prBody ?? ""))
             setBody(branch.prBody ?? "")
+        if (remoteBranchDraft()?.trim() === (branch.remoteBranch ?? ""))
+            setRemoteBranch(undefined)
         setCurrent(branch)
     }
     createEffect(
@@ -61,18 +79,6 @@ export function BranchPanel(props: {
             if (branch && branch.updatedAt !== current()?.updatedAt)
                 applyBranch(branch, false)
             if (!branch) setCurrent(undefined)
-        },
-    )
-    createEffect(
-        () => props.branch.branchName,
-        (name) => {
-            setBranchName(name)
-        },
-    )
-    createEffect(
-        () => current()?.remoteBranch ?? "",
-        (name) => {
-            setRemoteBranch(name)
         },
     )
 
@@ -117,6 +123,15 @@ export function BranchPanel(props: {
                         prBody: body(),
                     }),
                 "Pull request description saved.",
+            )
+    }
+    const push = () => {
+        const branch = current()
+        if (branch)
+            return run(
+                "push",
+                () => api.pushBranch(branch.branchName, branch.git.diverged),
+                "New commits pushed to the pull request.",
             )
     }
     const openPr = action(async function* (draft: boolean) {
@@ -167,6 +182,7 @@ export function BranchPanel(props: {
                 props.branch.id,
                 { branchName: next },
             )
+            setBranchName(undefined)
 
             setNotice(
                 props.branch.git.exists
@@ -178,6 +194,43 @@ export function BranchPanel(props: {
             capture(caught)
         }
     })
+    const rebasedNotice = (base: string, upToDate: boolean, pushed: boolean) =>
+        upToDate
+            ? `Already up to date with ${base}.`
+            : `Rebased onto ${base}.${pushed ? " It was pushed before, so the next push has to force." : ""}`
+
+    // Failures reach the dialog, which shows them where the choice was made.
+    const rebaseWithSupervisor = async (supervisor: RunSupervisor) => {
+        const base = props.branch.base
+        clear()
+        setNotice("")
+        const result = await api.rebaseWorkPackageBranch(
+            props.workPackage.ref,
+            props.branch.id,
+            supervisor,
+        )
+        if (!result.supervision)
+            setNotice(rebasedNotice(base, result.upToDate, result.pushed))
+        props.workPackageChanged()
+    }
+
+    const stopRebaseSupervisor = async () => {
+        if (stoppingRebase()) return
+        setStoppingRebase(true)
+        clear()
+        try {
+            await api.stopRebaseSupervisor(
+                props.workPackage.ref,
+                props.branch.id,
+            )
+            props.workPackageChanged()
+        } catch (caught) {
+            capture(caught)
+        } finally {
+            setStoppingRebase(false)
+        }
+    }
+
     const rebase = action(async function* () {
         if (busy()) return
 
@@ -195,11 +248,7 @@ export function BranchPanel(props: {
                 props.conflicted(result.conflict)
                 return
             }
-            setNotice(
-                result.upToDate
-                    ? `Already up to date with ${base}.`
-                    : `Rebased onto ${base}.${result.pushed ? " It was pushed before, so the next push has to force." : ""}`,
-            )
+            setNotice(rebasedNotice(base, result.upToDate, result.pushed))
             props.workPackageChanged()
         } catch (caught) {
             yield
@@ -239,6 +288,8 @@ export function BranchPanel(props: {
     const checksBlocking = () => {
         if (props.tools.checkCount === 0) return ""
         if (current()?.checksRunning) return "Checks are still running."
+        if (checksSupervisionActive(current()?.checksSupervision))
+            return "The supervisor is still working on the checks."
         if (!report()) return "Run the checks before opening a pull request."
         if (missingChecks().length)
             return `Run the remaining checks: ${missingChecks().join(", ")}.`
@@ -392,17 +443,56 @@ export function BranchPanel(props: {
                     <button
                         aria-busy={busy() === "rebase" ? "true" : "false"}
                         class="outlined"
-                        disabled={!!busy() || !props.branch.git.exists}
+                        disabled={
+                            !!busy() || resolving() || !props.branch.git.exists
+                        }
                         title={`Replay this branch onto the latest ${props.branch.base}`}
                         onClick={rebase}>
                         Rebase on {props.branch.base}
                     </button>
+                    <Show
+                        when={resolving()}
+                        fallback={
+                            <button
+                                class="outlined"
+                                disabled={!!busy() || !props.branch.git.exists}
+                                title="Rebase, and if it stops on conflicts, have an agent resolve them and finish it"
+                                onClick={() =>
+                                    setPickingRebaseSupervisor(true)
+                                }>
+                                Rebase on {props.branch.base} with supervisor
+                            </button>
+                        }>
+                        <button
+                            class="outlined"
+                            aria-busy={stoppingRebase() ? "true" : "false"}
+                            disabled={stoppingRebase()}
+                            title="Stop the supervisor and abort its rebase, leaving the branch as it was"
+                            onClick={() => void stopRebaseSupervisor()}>
+                            Stop supervisor
+                        </button>
+                    </Show>
                     <Show when={busy() === "rebase"}>
                         <span class="branch-working" role="status">
                             Fetching {props.branch.base} and rebasing…
                         </span>
                     </Show>
                 </div>
+                <Show when={rebaseSupervision()}>
+                    {(supervision) => (
+                        <RebaseSupervisionStatus supervision={supervision()} />
+                    )}
+                </Show>
+                <Show when={pickingRebaseSupervisor()}>
+                    <SupervisorPickerDialog
+                        title={`Rebase on ${props.branch.base} with a supervisor`}
+                        description={`If the rebase stops on conflicts, the supervisor re-runs it, resolves them and finishes it. If it cannot settle a conflict, it aborts, leaving the branch as it was. It does not push.`}
+                        action="Rebase"
+                        previous={rebaseSupervision()?.supervisor ?? null}
+                        close={() => setPickingRebaseSupervisor(false)}
+                        start={rebaseWithSupervisor}
+                    />
+                </Show>
                 <div class="branch-metrics grid grid-cols-[repeat(3,_minmax(0,_1fr))] gap-[0.75rem] max-[560px]:grid-cols-[1fr]">
                     <Metric
                         label="Commits"
@@ -643,13 +733,41 @@ export function BranchPanel(props: {
                                 }>
                                 <div class="pull-request-open flex flex-wrap items-center justify-between gap-[1rem]">
                                     <span>Pull request opened</span>
-                                    <a
-                                        class="primary"
-                                        href={branch().prUrl!}
-                                        target="_blank"
-                                        rel="noreferrer">
-                                        View pull request
-                                    </a>
+                                    <div class="flex flex-wrap items-center gap-[0.5rem]">
+                                        <Show when={branch().git.unpushed}>
+                                            {(unpushed) => (
+                                                <button
+                                                    aria-busy={
+                                                        busy() === "push"
+                                                            ? "true"
+                                                            : "false"
+                                                    }
+                                                    class="outlined"
+                                                    disabled={!!busy()}
+                                                    title={
+                                                        branch().git.diverged
+                                                            ? "The branch was rewritten since it was pushed, so this push forces (with lease)."
+                                                            : undefined
+                                                    }
+                                                    onClick={push}>
+                                                    {branch().git.diverged
+                                                        ? "Force push"
+                                                        : "Push"}{" "}
+                                                    {unpushed()} new commit
+                                                    {unpushed() === 1
+                                                        ? ""
+                                                        : "s"}
+                                                </button>
+                                            )}
+                                        </Show>
+                                        <a
+                                            class="primary"
+                                            href={branch().prUrl!}
+                                            target="_blank"
+                                            rel="noreferrer">
+                                            View pull request
+                                        </a>
+                                    </div>
                                 </div>
                             </Show>
                         </BranchSection>
@@ -674,6 +792,55 @@ export function BranchPanel(props: {
                 )}
             </Show>
         </section>
+    )
+}
+
+const rebaseEnded: Record<
+    Exclude<RebaseSupervision["status"], "resolving" | "rebased">,
+    string
+> = {
+    blocked: "The supervisor stopped",
+    failed: "The supervised rebase failed",
+    stopped: "The supervised rebase was stopped",
+}
+
+/** Where a supervised rebase has got to, with the supervisor's output. */
+function RebaseSupervisionStatus(props: { supervision: RebaseSupervision }) {
+    const files = () => props.supervision.conflict.files.length
+    const message = () => {
+        const { status, onto, stopReason, pushed } = props.supervision
+        if (status === "resolving")
+            return `The rebase onto ${onto} stopped on conflicts in ${files()} file${files() === 1 ? "" : "s"}. The supervisor is resolving them. You can leave this page.`
+        if (status === "rebased")
+            return `The supervisor resolved the conflicts and rebased onto ${onto}.${pushed ? " It was pushed before, so the next push has to force." : ""}`
+        return `${rebaseEnded[status]}${stopReason ? `: ${stopReason}` : "."}`
+    }
+    const warning = () =>
+        props.supervision.status !== "resolving" &&
+        props.supervision.status !== "rebased"
+    return (
+        <div class="mb-[1rem] grid gap-[0.5rem]">
+            <p
+                class={warning() ? "notice warning m-0" : "hint m-0"}
+                role="status"
+                aria-busy={
+                    props.supervision.status === "resolving" ? "true" : "false"
+                }>
+                {message()}
+            </p>
+            <Show when={props.supervision.agent}>
+                {(agent) => (
+                    <details open={props.supervision.status === "resolving"}>
+                        <summary class="cursor-pointer">
+                            Supervisor output
+                        </summary>
+                        <div class="mt-2">
+                            <AgentOutput agent={agent()} label="Supervisor" />
+                        </div>
+                    </details>
+                )}
+            </Show>
+        </div>
     )
 }
 

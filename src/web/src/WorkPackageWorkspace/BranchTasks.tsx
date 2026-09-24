@@ -33,9 +33,15 @@ export function BranchTasks(props: {
         setSelected(
             new Set(props.branch.taskRefs.map((ref) => ref.toLowerCase())),
         )
+    // Effects run their callback whenever the compute re-runs, even when it
+    // returns the same value, so compare explicitly: only a real change to the
+    // saved list may discard the ticks being made.
+    let savedRefs: string | undefined
     createEffect(
         () => props.branch.taskRefs.join(","),
-        () => {
+        (refs) => {
+            if (refs === savedRefs) return
+            savedRefs = refs
             reset()
         },
     )

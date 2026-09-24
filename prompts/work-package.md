@@ -27,9 +27,6 @@ through several branches, and a task is usually on exactly one of them.
 **That order is the answer.** Do not re-derive it, and do not reorder it because
 something looks easier.
 
-If the work package's `notes` array is non-empty, read each reference note with
-`tasks notes show <path> --raw` before starting the queue.
-
 If the queue is empty, say so and stop — everything in the work package is already Dev
 Complete or beyond.
 

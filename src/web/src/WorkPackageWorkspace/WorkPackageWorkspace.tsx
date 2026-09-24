@@ -22,7 +22,6 @@ import {
 } from "solid-js"
 import { AgentLauncher } from "../AgentLauncher/AgentLauncher"
 import { CreateTask } from "../CreateTask/CreateTask"
-import { InvestigationLauncher } from "../InvestigationLauncher/InvestigationLauncher"
 import { api } from "../api"
 import { useError } from "../hooks/useError"
 import { Brand } from "../components/Brand"
@@ -32,7 +31,6 @@ import {
     BackIcon,
     BranchIcon,
     InvestigationIcon,
-    NotesIcon,
     PlusIcon,
     RunIcon,
     TasksIcon,
@@ -44,12 +42,11 @@ import { AddTabMenu, type NewTabKind } from "./AddTabMenu"
 import { BranchPanel } from "./BranchPanel"
 import { InvestigationPanel } from "./InvestigationPanel"
 import { LegacyWorkPackage } from "./LegacyWorkPackage"
-import { NotesPanel } from "./NotesPanel"
+import { PipelineDialog } from "./PipelineDialog"
 import { RunPanel } from "./RunPanel"
 import { SupervisorDialog } from "./SupervisorDialog"
 import { WorkPackageOverview } from "./WorkPackageOverview"
 import {
-    NOTES_TAB,
     TASKS_TAB,
     branchTab,
     investigationTab,
@@ -69,8 +66,6 @@ export function WorkPackageWorkspace(props: {
     snapshot: WorkspaceSnapshot
     back: () => void
     openTask: (ref: string) => void
-    openNote: (path: string) => void
-    openIssue: (id: string) => void
     changed: () => void
     revision: number
 }) {
@@ -104,7 +99,6 @@ export function WorkPackageWorkspace(props: {
     createEffect(
         () =>
             activeTab() !== TASKS_TAB &&
-            activeTab() !== NOTES_TAB &&
             !tabs.some((tab) => tab.key === activeTab()),
         (missing) => {
             if (missing) setTab(TASKS_TAB)
@@ -165,6 +159,19 @@ export function WorkPackageWorkspace(props: {
             )}
         </Show>
     ))
+    const { openDialog: openPipeline } = useDialog(({ closeDialog }) => (
+        <Show when={workPackage.value} keyed>
+            {(detail) => (
+                <PipelineDialog
+                    workPackage={detail}
+                    snapshot={props.snapshot}
+                    close={closeDialog}
+                    changed={changed}
+                    started={(id) => setTab(runTab(id))}
+                />
+            )}
+        </Show>
+    ))
     // Keep the dialog open even if its originating Run tab is removed.
     let supervisedRun: WorkRunDetail | undefined
     const { openDialog: openSupervisorDialog } = useDialog(
@@ -214,21 +221,6 @@ export function WorkPackageWorkspace(props: {
                         changed()
                         props.openTask(ref)
                     }}
-                />
-            )}
-        </Show>
-    ))
-    const { openDialog: openInvestigation } = useDialog(({ closeDialog }) => (
-        <Show
-            when={workPackage.value?.investigations.find(
-                (item) => item.status !== "complete",
-            )}
-            keyed>
-            {(item) => (
-                <InvestigationLauncher
-                    investigation={item}
-                    close={closeDialog}
-                    started={changed}
                 />
             )}
         </Show>
@@ -292,9 +284,14 @@ export function WorkPackageWorkspace(props: {
                         detail().investigations.find((item) => item.ref === ref)
                     const branch = (id: number) =>
                         detail().branches.find((item) => item.id === id)
-                    const runnable = () =>
-                        detail().investigations.find(
-                            (item) => item.status !== "complete",
+                    // One loop or start-to-finish run at a time: they share
+                    // the working tree.
+                    const working = () =>
+                        workPackageRunActive(detail().run) ||
+                        detail().workRuns.some(
+                            (run) =>
+                                run.kind === "pipeline" &&
+                                run.status === "running",
                         )
                     const delivery = (branch: WorkPackageBranchDetail) =>
                         props.snapshot.branches.find(
@@ -315,6 +312,7 @@ export function WorkPackageWorkspace(props: {
                                               task !== undefined,
                                       ),
                                   checksRunning: null,
+                                  checksSupervision: null,
                               }
                             : undefined)
                     return (
@@ -362,39 +360,20 @@ export function WorkPackageWorkspace(props: {
                                                 <PlusIcon />
                                                 Add task
                                             </button>
-                                            <Show
-                                                when={detail().tasks.length > 0}
-                                                fallback={
-                                                    <Show when={runnable()}>
-                                                        <button
-                                                            class="primary"
-                                                            onClick={() =>
-                                                                openInvestigation()
-                                                            }>
-                                                            Run investigation
-                                                        </button>
-                                                    </Show>
+                                            <button
+                                                class="primary"
+                                                disabled={working()}
+                                                onClick={() => openPipeline()}
+                                                aria-busy={
+                                                    working() ? "true" : "false"
+                                                }
+                                                title={
+                                                    working()
+                                                        ? "An agent is already working through a work package."
+                                                        : "Investigate, work the tasks, and deliver each branch as a pull request"
                                                 }>
-                                                <button
-                                                    class="primary"
-                                                    disabled={
-                                                        !detail().queue
-                                                            .length ||
-                                                        workPackageRunActive(
-                                                            detail().run,
-                                                        )
-                                                    }
-                                                    onClick={() => openAgent()}
-                                                    aria-busy={
-                                                        workPackageRunActive(
-                                                            detail().run,
-                                                        )
-                                                            ? "true"
-                                                            : "false"
-                                                    }>
-                                                    Work with an agent
-                                                </button>
-                                            </Show>
+                                                Work with an agent
+                                            </button>
                                         </div>
                                     </div>
                                     <div class="mt-[2rem] flex items-end gap-[1.5rem] max-[560px]:gap-[1rem]">
@@ -407,12 +386,6 @@ export function WorkPackageWorkspace(props: {
                                                 class="inline-flex items-center gap-[0.4rem]">
                                                 <TasksIcon />
                                                 Tasks
-                                            </button>
-                                            <button
-                                                ref={tabProps(NOTES_TAB)}
-                                                class="inline-flex items-center gap-[0.4rem]">
-                                                <NotesIcon />
-                                                Notes
                                             </button>
                                             <For each={tabs}>
                                                 {(tab) => {
@@ -455,16 +428,6 @@ export function WorkPackageWorkspace(props: {
                                             openTask={props.openTask}
                                             busy={busy()}
                                             mutate={mutate}
-                                        />
-                                    </Show>
-                                </section>
-                                <section {...windowProps(NOTES_TAB)}>
-                                    <Show when={matches(NOTES_TAB)}>
-                                        <NotesPanel
-                                            workPackage={detail()}
-                                            openNote={props.openNote}
-                                            openIssue={props.openIssue}
-                                            changed={changed}
                                         />
                                     </Show>
                                 </section>

@@ -41,6 +41,26 @@ export function renderRichBody(
     return clean.innerHTML
 }
 
+/**
+ * An issue as Markdown, for the description of a task or the brief of an
+ * investigation made from it: a link back to the source, then the body. HTML
+ * bodies are flattened to their text, one line per block.
+ */
+export function issueAsMarkdown(issue: IssueDetail): string {
+    const reference = issue.url
+        ? `[${issue.key}](${issue.url})`
+        : `\`${issue.key}\``
+    const body =
+        issue.bodyFormat === "markdown"
+            ? issue.body.trim()
+            : linesOf(
+                  new DOMParser().parseFromString(issue.body, "text/html").body,
+              )
+    return (
+        `From issue ${reference}: ${issue.title}` + (body ? `\n\n${body}` : "")
+    )
+}
+
 /** Tags an editor uses to lay out lines, as opposed to meaning anything. */
 const LINE_TAGS = new Set(["DIV", "SPAN", "BR", "P", "FONT", "B", "STRONG"])
 

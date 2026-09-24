@@ -1,11 +1,16 @@
 import { ISSUE_SOURCE_LABELS, type IssueDetail } from "@shared/types"
 import { Show, createSignal } from "solid-js"
 import { BackIcon } from "../components/icons"
+import {
+    AddToWorkPackageButtons,
+    type WorkItemKind,
+} from "../components/AddToWorkPackage"
 import { renderIssueBody } from "./issueBody"
 
 export function IssueDetailPane(props: {
     issue: IssueDetail
     back: () => void
+    add: (kind: WorkItemKind) => void
 }) {
     const [raw, setRaw] = createSignal(false)
     return (
@@ -14,7 +19,7 @@ export function IssueDetailPane(props: {
                 class="back inline-flex items-center gap-[0.35rem] mb-[1.4rem]"
                 onClick={props.back}>
                 <BackIcon />
-                All issues
+                All notes & issues
             </button>
             <header class="flex items-start justify-between gap-[1rem] pb-[1.25rem] max-[560px]:block">
                 <div>
@@ -27,17 +32,20 @@ export function IssueDetailPane(props: {
                         {props.issue.title}
                     </h2>
                 </div>
-                <Show when={props.issue.url}>
-                    {(url) => (
-                        <a
-                            class="primary max-[560px]:mt-[1rem]"
-                            href={url()}
-                            target="_blank"
-                            rel="noreferrer">
-                            Open source
-                        </a>
-                    )}
-                </Show>
+                <div class="flex flex-wrap items-center justify-end gap-[0.5rem] max-[560px]:mt-[1rem] max-[560px]:justify-start">
+                    <AddToWorkPackageButtons add={props.add} />
+                    <Show when={props.issue.url}>
+                        {(url) => (
+                            <a
+                                class="primary"
+                                href={url()}
+                                target="_blank"
+                                rel="noreferrer">
+                                Open source
+                            </a>
+                        )}
+                    </Show>
+                </div>
             </header>
             <dl class="properties grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-[1px] m-[1.5rem_0] max-[560px]:grid-cols-[1fr]">
                 <div class="p-[0.8rem]">

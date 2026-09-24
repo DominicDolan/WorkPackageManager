@@ -294,9 +294,6 @@ scenarios were captured, and which of them you wrote or changed for this task.
 Do the actual work described by the task. Read `tasks show <ref> --json` for the
 description and any notes.
 
-If its `notes` array contains reference notes, read each one with
-`tasks notes show <path> --raw` before editing.
-
 If the task carries `attachments` — screenshots or other files someone attached
 when filing or editing it — each entry's `absolutePath` is a real file on disk.
 Read the images relevant to the change before starting; they often show the bug

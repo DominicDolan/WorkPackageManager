@@ -6,7 +6,7 @@ import { api } from "../src/api"
 import { InvestigationBrief } from "../src/WorkPackageWorkspace/InvestigationBrief"
 import { NoteEditor } from "../src/NotesWorkspace/NoteEditor"
 import { CreateTask } from "../src/CreateTask/CreateTask"
-import { IssuesWorkspace } from "../src/IssuesWorkspace/IssuesWorkspace"
+import { NotesWorkspace } from "../src/NotesWorkspace/NotesWorkspace"
 import "../src/styles.css"
 
 for (const key of Object.keys(api))
@@ -121,6 +121,7 @@ async function run() {
                 mode="write"
                 setMode={() => {}}
                 close={() => {}}
+                add={() => {}}
                 saved={() => {
                     refreshing = true
                     return refreshed.promise
@@ -206,21 +207,35 @@ async function run() {
             },
         },
     }
+    // Sync and Push follow the notes folder's Git state, read with the notes.
+    const notes = {
+        notes: [],
+        folders: [],
+        tags: [],
+        workspace: listing.notes,
+    }
     let reads = 0
-    const readRequest = deferred<typeof listing>()
+    const readRequest = deferred<typeof notes>()
     const syncRequest = deferred<Awaited<ReturnType<typeof api.pullNotes>>>()
-    api.listIssues = async () => (++reads === 1 ? listing : readRequest.promise)
+    api.listIssues = async () => listing
+    api.listNotes = async () => (++reads === 1 ? notes : readRequest.promise)
     api.pullNotes = () => syncRequest.promise
     dispose = render(
-        () => <IssuesWorkspace select={() => {}} revision={0} />,
+        () => (
+            <NotesWorkspace
+                select={() => {}}
+                openWorkPackage={() => {}}
+                revision={0}
+            />
+        ),
         root,
     )
     await tick()
     // The initial revision effect may refresh the initial listing as well.
-    readRequest.resolve(listing)
+    readRequest.resolve(notes)
     await tick()
-    const refreshRequest = deferred<typeof listing>()
-    api.listIssues = () => refreshRequest.promise
+    const refreshRequest = deferred<typeof notes>()
+    api.listNotes = () => refreshRequest.promise
     button("Sync").click()
     await tick()
     check(
@@ -234,7 +249,7 @@ async function run() {
         button("Sync").getAttribute("aria-busy") === "true",
         "real derived refresh holds the action open",
     )
-    refreshRequest.resolve(listing)
+    refreshRequest.resolve(notes)
     await tick()
     check(
         button("Sync").getAttribute("aria-busy") === "false" &&

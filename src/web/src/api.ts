@@ -15,10 +15,10 @@ import type {
     InvestigationStatus,
     IssueDetail,
     IssueState,
-    IssueSummary,
+    IssueListItem,
     Note,
     NoteAttachment,
-    NoteSummary,
+    NoteListItem,
     GitConflict,
     NotesGitInfo,
     NotesWorkspaceInfo,
@@ -33,6 +33,8 @@ import type {
     WorkPackageBranchDetail,
     BranchTaskSync,
     WorkPackageDetail,
+    RebaseSupervision,
+    PipelinePlan,
     RunSupervisor,
     WorkRunDetail,
     WorkRunKind,
@@ -67,7 +69,7 @@ export interface Meta {
 
 /** The Issues view's payload: the cards, plus what the filters can offer. */
 export interface IssueListing {
-    issues: IssueSummary[]
+    issues: IssueListItem[]
     facets: {
         sources: { source: string; count: number }[]
         labels: string[]
@@ -78,7 +80,7 @@ export interface IssueListing {
 
 /** The Notes sidebar's whole payload: one read gives the list and its filters. */
 export interface NoteListing {
-    notes: NoteSummary[]
+    notes: NoteListItem[]
     folders: string[]
     tags: string[]
     workspace: NotesWorkspaceInfo
@@ -233,6 +235,8 @@ export const api = {
             permissionMode: AgentPermissionMode
             extra: string
             supervisor?: RunSupervisor | null
+            /** Start-to-finish runs only. */
+            plan?: PipelinePlan
         },
     ) =>
         request<{ workRun: WorkRunDetail; workPackage: WorkPackageDetail }>(
@@ -280,17 +284,31 @@ export const api = {
     /** Forget a branch tab. The Git branch is left alone. */
     /** Rebase the branch onto its base's tip. A conflict aborts and is returned,
      *  not thrown, so the caller can offer it to an agent. */
-    rebaseWorkPackageBranch: (ref: string, id: number) =>
+    /** With a supervisor, conflicts go straight to it instead of coming back
+     *  for the user to hand to an agent. */
+    rebaseWorkPackageBranch: (
+        ref: string,
+        id: number,
+        supervisor?: RunSupervisor,
+    ) =>
         request<{
             rebased: boolean
             upToDate: boolean
             pushed: boolean
             conflict: GitConflict | null
+            supervision: RebaseSupervision | null
             branch: WorkPackageBranchDetail
             workPackage: WorkPackageDetail
         }>(`/work-packages/${encodeURIComponent(ref)}/branches/${id}/rebase`, {
             method: "POST",
+            body: JSON.stringify(supervisor ? { supervisor } : {}),
         }),
+
+    stopRebaseSupervisor: (ref: string, id: number) =>
+        request<{ branch: WorkPackageBranchDetail }>(
+            `/work-packages/${encodeURIComponent(ref)}/branches/${id}/rebase-supervisor`,
+            { method: "DELETE" },
+        ),
 
     removeWorkPackageBranch: (ref: string, id: number) =>
         request<{ workPackage: WorkPackageDetail }>(
@@ -312,30 +330,6 @@ export const api = {
                 body: JSON.stringify(input),
             },
         ),
-
-    attachWorkPackageNote: (ref: string, path: string) =>
-        request<{ workPackage: WorkPackageDetail }>(
-            `/work-packages/${encodeURIComponent(ref)}/note-links`,
-            { method: "POST", body: JSON.stringify({ path }) },
-        ).then((r) => r.workPackage),
-
-    detachWorkPackageNote: (ref: string, path: string) =>
-        request<{ workPackage: WorkPackageDetail }>(
-            `/work-packages/${encodeURIComponent(ref)}/note-links/${notePath(path)}`,
-            { method: "DELETE" },
-        ).then((r) => r.workPackage),
-
-    attachWorkPackageIssue: (ref: string, id: string) =>
-        request<{ workPackage: WorkPackageDetail }>(
-            `/work-packages/${encodeURIComponent(ref)}/issue-links`,
-            { method: "POST", body: JSON.stringify({ id }) },
-        ).then((r) => r.workPackage),
-
-    detachWorkPackageIssue: (ref: string, id: string) =>
-        request<{ workPackage: WorkPackageDetail }>(
-            `/work-packages/${encodeURIComponent(ref)}/issue-links/${encodeURIComponent(id)}`,
-            { method: "DELETE" },
-        ).then((r) => r.workPackage),
 
     /** Deletes the organizing, never the tasks — the response says which ones were
      *  turned loose so the UI can say so too. */
@@ -528,18 +522,6 @@ export const api = {
             body: JSON.stringify({ note }),
         }).then((r) => r.task),
 
-    attachTaskNote: (ref: string, path: string) =>
-        request<{ task: TaskDetail }>(
-            `/tasks/${encodeURIComponent(ref)}/note-links`,
-            { method: "POST", body: JSON.stringify({ path }) },
-        ).then((r) => r.task),
-
-    detachTaskNote: (ref: string, path: string) =>
-        request<{ task: TaskDetail }>(
-            `/tasks/${encodeURIComponent(ref)}/note-links/${notePath(path)}`,
-            { method: "DELETE" },
-        ).then((r) => r.task),
-
     /** Upload one or more files against a task. Multipart, so no JSON body here —
      *  `request` would otherwise set a content-type that loses the boundary. */
     uploadTaskAttachments: async (ref: string, files: File[]) => {
@@ -664,9 +646,12 @@ export const api = {
         ).then((r) => r.branch),
 
     getChecks: (name: string) =>
-        request<Pick<CombinedBranchDetail, "checks" | "checksRunning">>(
-            `/branches/${branchPath(name)}/checks`,
-        ),
+        request<
+            Pick<
+                CombinedBranchDetail,
+                "checks" | "checksRunning" | "checksSupervision"
+            >
+        >(`/branches/${branchPath(name)}/checks`),
 
     /** Starts all checks, a single check, or resumes an incomplete suite. */
     runChecks: (name: string, check?: string, resume = false) =>
@@ -678,11 +663,37 @@ export const api = {
             },
         ).then((r) => r.branch),
 
+    /** Runs the suite with a supervisor that fixes each failure and resumes. */
+    runChecksWithSupervisor: (
+        name: string,
+        supervisor: RunSupervisor,
+        resume: boolean,
+    ) =>
+        request<{ branch: CombinedBranchDetail }>(
+            `/branches/${branchPath(name)}/checks`,
+            {
+                method: "POST",
+                body: JSON.stringify({ resume, supervisor }),
+            },
+        ).then((r) => r.branch),
+
+    stopChecksSupervisor: (name: string) =>
+        request<{ branch: CombinedBranchDetail }>(
+            `/branches/${branchPath(name)}/checks-supervisor`,
+            { method: "DELETE" },
+        ).then((r) => r.branch),
+
     createPr: (name: string, draft: boolean, force = false) =>
         request<{ branch: CombinedBranchDetail; pushed: boolean }>(
             `/branches/${branchPath(name)}/pr`,
             { method: "POST", body: JSON.stringify({ draft, force }) },
         ),
+
+    pushBranch: (name: string, force = false) =>
+        request<{ branch: CombinedBranchDetail }>(
+            `/branches/${branchPath(name)}/push`,
+            { method: "POST", body: JSON.stringify({ force }) },
+        ).then((r) => r.branch),
 
     forgetBranch: (name: string) =>
         request<{ deleted: string }>(`/branches/${branchPath(name)}`, {

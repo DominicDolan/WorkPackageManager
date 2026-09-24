@@ -22,6 +22,7 @@ import type {
     GitConflict,
     Note,
     NoteAttachment,
+    NoteListItem,
     NoteSummary,
     NotesGitInfo,
     NotesWorkspaceInfo,
@@ -331,9 +332,17 @@ function summarize(
 export function listNotes(
     options: { tag?: string; folder?: string; search?: string } = {},
 ): NoteSummary[] {
+    return listNotesWithBodies(options).map(({ body: _body, ...note }) => note)
+}
+
+/** The same list, each note with its whole body: the Notes grid shows every
+ *  note in full where it sits. */
+export function listNotesWithBodies(
+    options: { tag?: string; folder?: string; search?: string } = {},
+): NoteListItem[] {
     if (!notesDirExists()) return []
     const root = ws().notesDir
-    const found: NoteSummary[] = []
+    const found: NoteListItem[] = []
 
     const walk = (directory: string): void => {
         for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -350,10 +359,12 @@ export function listNotes(
                 continue
 
             try {
-                found.push(
-                    summarize(path, readFileSync(absolute, "utf8"), absolute)
-                        .summary,
+                const { summary, body } = summarize(
+                    path,
+                    readFileSync(absolute, "utf8"),
+                    absolute,
                 )
+                found.push({ ...summary, body })
             } catch {
                 // An unreadable file should cost one row, not the whole list.
             }

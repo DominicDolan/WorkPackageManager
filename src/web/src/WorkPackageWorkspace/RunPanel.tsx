@@ -1,25 +1,21 @@
 import {
+    BRANCH_STEP_LABELS,
     RECOMMENDED_MODEL,
     WORK_RUN_KIND_LABELS,
-    type AgentRunDetail,
+    type PipelineStepDetail,
+    type PipelineStepState,
     type WorkPackageDetail,
     type WorkRunAgent,
     type WorkRunDetail,
     type WorkRunItem,
     type WorkRunStatus,
 } from "@shared/types"
-import {
-    action,
-    createOptimistic,
-    createSignal,
-    For,
-    onSettled,
-    Show,
-} from "solid-js"
+import { action, createOptimistic, createSignal, For, Show } from "solid-js"
 import { api } from "../api"
+import { AgentOutput } from "../components/AgentOutput"
 import { StatusBadge } from "../components/StatusBadge"
+import { SupervisorRow } from "../components/SupervisorRow"
 import { useError } from "../hooks/useError"
-import { renderMarkdown } from "../markdown"
 import { TabHeading } from "./TabHeading"
 
 const STATUS_LABELS: Record<WorkRunStatus, string> = {
@@ -65,7 +61,7 @@ export function RunPanel(props: {
     // An unattended loop that has settled any way but finishing can carry on
     // from where it got to.
     const resumable = () =>
-        props.run.kind === "unattended" &&
+        (props.run.kind === "unattended" || props.run.kind === "pipeline") &&
         (props.run.status === "stopped" ||
             props.run.status === "blocked" ||
             props.run.status === "failed")
@@ -163,6 +159,18 @@ export function RunPanel(props: {
                         {props.run.extra}
                     </p>
                 </Show>
+                <Show when={props.run.pipeline && props.run.supervisor}>
+                    {(agent) => (
+                        <p class="caption muted mt-3 mb-0">
+                            It investigates, and supervises the task runs, the
+                            rebase and the checks:{" "}
+                            <span class="font-mono">
+                                {agent().harness}
+                                {agent().model ? ` · ${agent().model}` : ""}
+                            </span>
+                        </p>
+                    )}
+                </Show>
                 <Show when={props.run.kind === "unattended"}>
                     <div class="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
                         <p class="caption muted m-0 min-w-0 flex-1">
@@ -219,7 +227,11 @@ export function RunPanel(props: {
                             class="primary"
                             aria-busy={busy() === "resume" ? "true" : "false"}
                             disabled={!!busy()}
-                            title="Start the loop again. The task it stopped on goes to a fresh agent, handed the task and what the last agent left behind."
+                            title={
+                                props.run.kind === "pipeline"
+                                    ? "Start the stage it stopped on again. Stages already done stay done."
+                                    : "Start the loop again. The task it stopped on goes to a fresh agent, handed the task and what the last agent left behind."
+                            }
                             onClick={() =>
                                 act("resume", () =>
                                     api.resumeWorkRun(
@@ -256,6 +268,40 @@ export function RunPanel(props: {
                 </div>
             </article>
 
+            <Show when={props.run.pipeline}>
+                {(pipeline) => (
+                    <article class="elevated p-5">
+                        <header class="flex items-baseline justify-between gap-3">
+                            <h3 class="m-0">Stages</h3>
+                            <span class="caption muted">
+                                {
+                                    pipeline().steps.filter(
+                                        (step) =>
+                                            step.state === "done" ||
+                                            step.state === "skipped",
+                                    ).length
+                                }{" "}
+                                of {pipeline().steps.length} done
+                            </span>
+                        </header>
+                        <ol
+                            class="mt-4 grid gap-1 p-0"
+                            style={{ "list-style": "none" }}>
+                            <For each={pipeline().steps}>
+                                {(step, index) => (
+                                    <PipelineStepRow
+                                        runId={props.run.id}
+                                        step={step}
+                                        index={index()}
+                                        running={running()}
+                                    />
+                                )}
+                            </For>
+                        </ol>
+                    </article>
+                )}
+            </Show>
+
             <article class="elevated p-5">
                 <header class="flex items-baseline justify-between gap-3">
                     <h3 class="m-0">Tasks</h3>
@@ -269,7 +315,11 @@ export function RunPanel(props: {
                     <For
                         each={props.run.items}
                         fallback={
-                            <li class="hint">This run had no tasks to work.</li>
+                            <li class="hint">
+                                {props.run.kind === "pipeline"
+                                    ? "Tasks join this list as each task run starts."
+                                    : "This run had no tasks to work."}
+                            </li>
                         }>
                         {(item, index) => (
                             <RunItem
@@ -287,25 +337,15 @@ export function RunPanel(props: {
     )
 }
 
-/** A task in the run, with the output of the agents that worked it folded
- *  away underneath. */
 /*
  * Keep expansion and cached output across tab switches and page navigation.
  * Background refreshes reconcile the run in place and retain its mounted UI.
  */
 const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set())
 
-interface SeenOutput {
-    detail: AgentRunDetail
-    /** Null while the reader is following the end of the log. */
-    scrollTop: number | null
-}
-const seenOutput = new Map<number, SeenOutput>()
-/** Agents whose working is unfolded under their final answer. */
-const [showingWorking, setShowingWorking] = createSignal<ReadonlySet<number>>(
-    new Set(),
-)
-
+/** A task in the run, with the output of the agents that worked it folded
+ *  away underneath, and a row under it for each time a supervisor was called
+ *  in on it. */
 function RunItem(props: {
     runId: number
     item: WorkRunItem
@@ -322,7 +362,12 @@ function RunItem(props: {
             else next.delete(key())
             return next
         })
-    const hasOutput = () => props.item.agents.length > 0
+    const isSupervisor = (agent: WorkRunAgent) =>
+        agent.command === "supervise-task"
+    const workers = () =>
+        props.item.agents.filter((agent) => !isSupervisor(agent))
+    const supervisors = () => props.item.agents.filter(isSupervisor)
+    const hasOutput = () => workers().length > 0
     const unblocking = () => {
         const last = props.item.agents.at(-1)
         return (
@@ -331,16 +376,9 @@ function RunItem(props: {
             last.status === "running"
         )
     }
-    // Numbered among the task's own agents; a supervisor is named as one.
-    const labelFor = (agent: WorkRunAgent) => {
-        if (agent.command === "supervise-task") return "Supervisor"
-        const workers = props.item.agents.filter(
-            (one) => one.command !== "supervise-task",
-        )
-        return workers.length > 1
-            ? `Attempt ${workers.indexOf(agent) + 1}`
-            : null
-    }
+    // Numbered among the task's own agents. Supervisors get rows of their own.
+    const labelFor = (agent: WorkRunAgent) =>
+        workers().length > 1 ? `Attempt ${workers().indexOf(agent) + 1}` : null
 
     return (
         <li>
@@ -399,7 +437,7 @@ function RunItem(props: {
             </div>
             <Show when={open() && hasOutput()}>
                 <div class="mt-1 mb-2 ml-8 grid gap-2">
-                    <For each={props.item.agents}>
+                    <For each={workers()}>
                         {(agent) => (
                             <AgentOutput
                                 agent={agent}
@@ -409,142 +447,123 @@ function RunItem(props: {
                     </For>
                 </div>
             </Show>
+            <For each={supervisors()}>
+                {(agent) => (
+                    <div class="mt-1">
+                        <SupervisorRow
+                            agent={agent}
+                            afterResolved="It cleared the way, so a fresh agent picked the task back up with its report."
+                            afterUnresolved="The run stopped here for a person."
+                        />
+                    </div>
+                )}
+            </For>
         </li>
     )
 }
 
-const AGENT_STATUS_LABELS: Record<WorkRunAgent["status"], string> = {
-    launched: "Launched",
+const STEP_LABELS: Record<PipelineStepState, string> = {
+    waiting: "Waiting",
     running: "Running",
-    succeeded: "Exited cleanly",
-    failed: "Failed",
+    done: "Done",
+    skipped: "Skipped",
     stopped: "Stopped",
+    blocked: "Needs attention",
 }
 
-/**
- * One headless agent's saved log. Fetched only once it is opened, and
- * followed while the agent is still writing to it.
- */
-function AgentOutput(props: { agent: WorkRunAgent; label: string | null }) {
-    const seen = seenOutput.get(props.agent.id)
-    const [detail, setDetail] = createSignal<AgentRunDetail | null>(
-        seen?.detail ?? null,
-    )
-    const { capture, Banner } = useError()
-    let log: HTMLPreElement | undefined
+const STEP_TONES: Record<PipelineStepState, string> = {
+    waiting: "",
+    running: "accent",
+    done: "success",
+    skipped: "",
+    stopped: "",
+    blocked: "warning",
+}
 
-    // Keep following the end of the log, unless someone has scrolled up to
-    // read something — in which case leave them where they are.
-    const restoreScroll = () =>
-        requestAnimationFrame(() => {
-            if (!log) return
-            const scrollTop = seenOutput.get(props.agent.id)?.scrollTop ?? null
-            log.scrollTop = scrollTop ?? log.scrollHeight
-        })
-    const rememberScroll = () => {
-        const remembered = seenOutput.get(props.agent.id)
-        if (!log || !remembered) return
-        remembered.scrollTop =
-            log.scrollHeight - log.scrollTop - log.clientHeight < 40
-                ? null
-                : log.scrollTop
-    }
-
-    const load = async () => {
-        try {
-            const next = await api.getAgentRun(props.agent.id)
-            seenOutput.set(props.agent.id, {
-                detail: next,
-                scrollTop: seenOutput.get(props.agent.id)?.scrollTop ?? null,
-            })
-            setDetail(next)
-            restoreScroll()
-        } catch (caught) {
-            capture(caught)
-        }
-    }
-
-    onSettled(() => {
-        if (seen) restoreScroll()
-        // A finished agent's log will not change, so once seen it is not
-        // fetched again.
-        if (!seen || seen.detail.status === "running") void load()
-        const poll = setInterval(() => {
-            const status = detail()?.status ?? props.agent.status
-            if (status === "running") void load()
-        }, 2000)
-        return () => clearInterval(poll)
-    })
-
-    const status = () => detail()?.status ?? props.agent.status
-    // With a final answer to show, the working behind it is folded away until
-    // asked for. Without one — still going, or stopped before answering — the
-    // working is all there is.
-    const result = () => detail()?.result ?? null
-    const working = () => !result() || showingWorking().has(props.agent.id)
-    const toggleWorking = () => {
-        setShowingWorking((current) => {
+/** One stage of a start-to-finish run, with an investigator's output folded
+ *  away underneath. */
+function PipelineStepRow(props: {
+    runId: number
+    step: PipelineStepDetail
+    index: number
+    running: boolean
+}) {
+    const key = () => `${props.runId}:step:${props.index}`
+    const open = () => expanded().has(key())
+    const setOpen = (value: boolean) =>
+        setExpanded((current) => {
             const next = new Set(current)
-            if (next.has(props.agent.id)) next.delete(props.agent.id)
-            else next.add(props.agent.id)
+            if (value) next.add(key())
+            else next.delete(key())
             return next
         })
-        restoreScroll()
+    const kind = () => {
+        const step = props.step
+        return step.kind === "investigation"
+            ? step.ref
+            : step.kind === "tasks"
+              ? "Tasks"
+              : BRANCH_STEP_LABELS[step.step]
     }
+    const hasOutput = () => props.step.agents.length > 0
 
     return (
-        <div class="tonal p-3">
-            <header class="flex flex-wrap items-baseline gap-2 caption muted">
-                <Show when={props.label}>
-                    {(label) => <span class="font-medium">{label()}</span>}
-                </Show>
-                <span aria-busy={status() === "running" ? "true" : "false"}>
-                    {AGENT_STATUS_LABELS[status()]}
-                    {detail()?.exitCode !== null &&
-                    detail()?.exitCode !== undefined &&
-                    detail()?.exitCode !== 0
-                        ? ` (exit ${detail()!.exitCode})`
-                        : ""}
-                </span>
-                <time class="ml-auto">
-                    {new Date(props.agent.createdAt).toLocaleString()}
-                </time>
-            </header>
-            <Banner />
-            <Show when={result()}>
-                {(answer) => (
-                    <>
-                        <article
-                            class="prose mt-2 text-sm"
-                            innerHTML={renderMarkdown(answer())}
-                        />
-                        <button
-                            class="outlined mt-2 p-[0.2rem_0.6rem] caption"
-                            aria-expanded={working() ? "true" : "false"}
-                            onClick={toggleWorking}>
-                            {working() ? "Hide working" : "Show working"}
-                        </button>
-                    </>
-                )}
+        <li>
+            <div class="flex items-center gap-1">
+                <button
+                    class="w-7 shrink-0 self-stretch p-0 text-center caption muted"
+                    aria-expanded={open() ? "true" : "false"}
+                    aria-label={`${open() ? "Hide" : "Show"} agent output for ${props.step.title}`}
+                    disabled={!hasOutput()}
+                    onClick={() => setOpen(!open())}>
+                    {hasOutput() ? (open() ? "\u25BE" : "\u25B8") : ""}
+                </button>
+                <div
+                    class="card-item row compact flex min-w-0 flex-1 items-center gap-3 px-3 py-2"
+                    aria-current={
+                        props.step.state === "running" ? "step" : undefined
+                    }>
+                    <span class="w-5 text-right font-mono caption muted">
+                        {props.index + 1}
+                    </span>
+                    <span class="min-w-0 flex-1">
+                        <span class="block truncate text-sm">
+                            <span class="caption muted">{kind()}</span>{" "}
+                            {props.step.title}
+                        </span>
+                        <Show when={props.step.detail}>
+                            <span class="block caption muted whitespace-pre-wrap">
+                                {props.step.detail}
+                            </span>
+                        </Show>
+                    </span>
+                    <span
+                        class={`badge ${STEP_TONES[props.step.state]} p-[0.12rem_0.42rem]`}
+                        aria-busy={
+                            props.step.state === "running" && props.running
+                                ? "true"
+                                : "false"
+                        }>
+                        {STEP_LABELS[props.step.state]}
+                    </span>
+                </div>
+            </div>
+            <Show when={open() && hasOutput()}>
+                <div class="mt-1 mb-2 ml-8 grid gap-2">
+                    <For each={props.step.agents}>
+                        {(agent, attempt) => (
+                            <AgentOutput
+                                agent={agent}
+                                label={
+                                    props.step.agents.length > 1
+                                        ? `Attempt ${attempt() + 1}`
+                                        : null
+                                }
+                            />
+                        )}
+                    </For>
+                </div>
             </Show>
-            <Show when={working() && detail()?.truncated}>
-                <p class="hint m-0 mt-2">
-                    The log is long, so only its end is shown.
-                </p>
-            </Show>
-            <Show when={working()}>
-                <pre
-                    ref={log}
-                    onScroll={rememberScroll}
-                    class="mt-2 mb-0 max-h-[28rem] overflow-auto whitespace-pre-wrap p-3 text-xs">
-                    {detail() === null
-                        ? "Loading…"
-                        : detail()!.output ||
-                          (status() === "running"
-                              ? "Nothing written yet."
-                              : "This agent wrote no output.")}
-                </pre>
-            </Show>
-        </div>
+        </li>
     )
 }
