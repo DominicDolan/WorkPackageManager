@@ -44,6 +44,11 @@ tidy and say so. Guessing at a decision like that does more harm than stopping.
 
 ## Finish with a report
 
+You are running headless, and your process ends the moment your reply does.
+Nothing wakes you up again. Run every command in the foreground and wait for
+it, however long a test suite takes. Never end your reply saying you are
+waiting for something: a reply without a verdict counts as `UNRESOLVED`.
+
 Say what stopped the task, what you decided, what you changed, and what state
 you left the task in. The next agent on this task is given this report, so write
 it for that agent.

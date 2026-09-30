@@ -28,6 +28,9 @@ import type {
     Task,
     TaskAttachment,
     TaskDetail,
+    TranscriptDetail,
+    TranscriptSummary,
+    TranscriptLink,
     WorkPackage,
     BaselineReport,
     WorkPackageBranchDetail,
@@ -121,6 +124,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
     meta: () => request<Meta>("/meta"),
+
+    listTranscripts: () =>
+        request<{ transcripts: TranscriptSummary[] }>("/transcripts").then(
+            (r) => r.transcripts,
+        ),
+    getTranscript: (path: string) =>
+        request<{ transcript: TranscriptDetail }>(
+            `/transcripts/${encodeURIComponent(path)}`,
+        ).then((r) => r.transcript),
+    addTranscriptLink: (path: string, link: TranscriptLink) =>
+        request<{ transcript: TranscriptDetail }>(
+            `/transcripts/${encodeURIComponent(path)}/links`,
+            {
+                method: "POST",
+                body: JSON.stringify(link),
+            },
+        ).then((r) => r.transcript),
+    removeTranscriptLink: (path: string, link: TranscriptLink) =>
+        request<{ transcript: TranscriptDetail }>(
+            `/transcripts/${encodeURIComponent(path)}/links`,
+            {
+                method: "DELETE",
+                body: JSON.stringify(link),
+            },
+        ).then((r) => r.transcript),
 
     listTasks: (status?: Status) =>
         request<{ tasks: Task[] }>(

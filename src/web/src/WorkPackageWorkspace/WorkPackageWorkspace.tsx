@@ -451,6 +451,9 @@ export function WorkPackageWorkspace(props: {
                                                         investigation={current}
                                                         workPackage={detail()}
                                                         changed={changed}
+                                                        revision={
+                                                            props.revision
+                                                        }
                                                     />
                                                 )}
                                             </Show>

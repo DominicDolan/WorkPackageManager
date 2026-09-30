@@ -9,13 +9,13 @@ export function ProductRail(props: {
 }) {
     return (
         <aside
-            class={`${styles.scope} product-rail sticky top-0 flex h-[100vh] flex-col p-[1.75rem_1.5rem] overflow-hidden after:absolute after:right-[-5rem] after:bottom-[5rem] after:w-[11rem] after:h-[11rem] max-[820px]:relative max-[820px]:w-auto max-[820px]:h-auto max-[820px]:min-h-[4rem] max-[820px]:flex-row max-[820px]:items-center max-[820px]:justify-between max-[820px]:p-[1rem_1.25rem] max-[820px]:after:hidden`}>
+            class={`${styles.scope} product-rail sticky top-0 flex h-[100vh] flex-col p-[1.75rem_1.5rem] overflow-hidden after:absolute after:right-[-5rem] after:bottom-[5rem] after:w-[11rem] after:h-[11rem] max-[820px]:relative max-[820px]:w-auto max-[820px]:h-auto max-[820px]:min-h-[4rem] max-[820px]:flex-row max-[820px]:items-center max-[820px]:justify-between max-[820px]:p-[1rem_1.25rem] max-[820px]:after:hidden max-[560px]:flex-wrap`}>
             <Brand />
             <nav
-                class="primary m-[4.5rem_-1.5rem_0] max-[820px]:m-0"
+                class="primary m-[4.5rem_-1.5rem_0] max-[820px]:m-0 max-[560px]:flex max-[560px]:w-full"
                 aria-label="Primary navigation">
                 <button
-                    class={` relative flex min-h-[2.8rem] items-center gap-[0.75rem] p-[0_1.5rem] w-full max-[820px]:min-h-[2rem] max-[820px]:p-[0_0_0_1rem]`}
+                    class="relative flex min-h-[2.8rem] items-center gap-[0.75rem] p-[0_1.5rem] w-full max-[820px]:min-h-[2rem] max-[820px]:p-[0_0_0_1rem] max-[560px]:w-auto max-[560px]:flex-1 max-[560px]:justify-center max-[560px]:p-0 max-[560px]:text-xs"
                     aria-current={
                         props.active === "work-packages" ? "page" : undefined
                     }
@@ -26,13 +26,24 @@ export function ProductRail(props: {
                     Work packages
                 </button>
                 <button
-                    class={` relative flex min-h-[2.8rem] items-center gap-[0.75rem] p-[0_1.5rem] w-full max-[820px]:min-h-[2rem] max-[820px]:p-[0_0_0_1rem]`}
+                    class="relative flex min-h-[2.8rem] items-center gap-[0.75rem] p-[0_1.5rem] w-full max-[820px]:min-h-[2rem] max-[820px]:p-[0_0_0_1rem] max-[560px]:w-auto max-[560px]:flex-1 max-[560px]:justify-center max-[560px]:p-0 max-[560px]:text-xs"
                     aria-current={props.active === "notes" ? "page" : undefined}
                     onClick={() => props.select("notes")}>
                     <Show when={props.active === "notes"}>
                         <span class="rail-indicator absolute [inset-block:0] left-0 w-[3px]" />
                     </Show>
                     Notes & issues
+                </button>
+                <button
+                    class="relative flex min-h-[2.8rem] items-center gap-[0.75rem] p-[0_1.5rem] w-full max-[820px]:min-h-[2rem] max-[820px]:p-[0_0_0_1rem] max-[560px]:w-auto max-[560px]:flex-1 max-[560px]:justify-center max-[560px]:p-0 max-[560px]:text-xs"
+                    aria-current={
+                        props.active === "transcripts" ? "page" : undefined
+                    }
+                    onClick={() => props.select("transcripts")}>
+                    <Show when={props.active === "transcripts"}>
+                        <span class="rail-indicator absolute [inset-block:0] left-0 w-[3px]" />
+                    </Show>
+                    Transcripts
                 </button>
             </nav>
             <div class="rail-note relative z-[1] mt-auto pt-[1rem] max-[820px]:hidden">

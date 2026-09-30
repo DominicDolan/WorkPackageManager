@@ -203,6 +203,7 @@ export function TaskWorkspace(props: {
                                 setNote={setNote}
                                 mutate={mutate}
                                 openAgent={() => setAgentOpen(true)}
+                                revision={props.revision}
                             />
                         </div>
                     </div>

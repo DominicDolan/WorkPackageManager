@@ -130,6 +130,16 @@ const SCHEMA = [
      completed_at TEXT
    )`,
 
+    `CREATE TABLE IF NOT EXISTS transcript_links (
+     path       TEXT NOT NULL,
+     target_kind TEXT NOT NULL CHECK (target_kind IN ('task', 'investigation')),
+     target_ref TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     PRIMARY KEY (path, target_kind, target_ref)
+   )`,
+    `CREATE INDEX IF NOT EXISTS idx_transcript_links_target
+     ON transcript_links(target_kind, target_ref)`,
+
     // A named bundle of tasks. Membership is a column on `tasks`, not a join
     // table, because a task belongs to at most one work package — expressing that in the
     // schema is what keeps it true. Tasks point back by ref rather than by foreign

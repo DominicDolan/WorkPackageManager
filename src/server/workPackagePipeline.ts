@@ -175,12 +175,9 @@ function stepsFor(plan: PipelinePlan): PipelineStep[] {
             ref,
             agentRunIds: [],
         })),
-        ...plan.taskRuns.map((_, index): PipelineStep => ({
-            ...fresh,
-            kind: "tasks",
-            index,
-            workPackageRunId: null,
-        })),
+        ...(plan.taskRun
+            ? [{ ...fresh, kind: "tasks" as const, workPackageRunId: null }]
+            : []),
         ...plan.branches.flatMap((branchId) => {
             const branch = requireWorkPackageBranch(branchId)
             return BRANCH_STEPS.map((step): PipelineStep => ({
@@ -233,16 +230,16 @@ export function preparePipeline(
     const normalised: PipelinePlan = {
         agent,
         investigations: [...new Set(plan.investigations)],
-        taskRuns: plan.taskRuns.map((run) => ({
-            model: run.model || RECOMMENDED_MODEL,
-            extra: run.extra,
-        })),
+        taskRun: plan.taskRun && {
+            model: plan.taskRun.model || RECOMMENDED_MODEL,
+            extra: plan.taskRun.extra,
+        },
         branches: [...new Set(plan.branches)],
     }
     const steps = stepsFor(normalised)
     if (!steps.length)
         throw new Error(
-            "Choose at least one investigation, task run or branch to work.",
+            "Choose at least one investigation, the task run, or a branch to work.",
         )
     return {
         plan: normalised,
@@ -263,9 +260,9 @@ const currentIndex = (record: PipelineRecord) =>
         (step) => step.state !== "done" && step.state !== "skipped",
     )
 
-/** Pull requests being opened right now, by run id. They are awaited in this
- *  process, so a restart loses them. */
-const openingPr = new Set<number>()
+/** Runs with a background stage in flight — a description being written or a
+ *  PR being opened. They are awaited in this process, so a restart loses them. */
+const inFlight = new Set<number>()
 
 /**
  * Carry a pipeline as far as it can go right now: judge the stage in flight,
@@ -359,7 +356,8 @@ function begin(
             return
         }
         placeUnbranchedTasks(record, detail.queue)
-        const taskRun = record.plan.taskRuns[step.index]!
+        // A task stage exists only when the plan has a task run.
+        const taskRun = record.plan.taskRun!
         const started = startWorkPackageRun({
             workPackageRef,
             harness: agent.harness,
@@ -434,17 +432,18 @@ function begin(
             step.detail = "Kept the description already written."
             return
         }
-        const { title, body } = generatePrDescription(
-            branch.branchName,
-            current.base,
-        )
-        updateCombinedBranch(branch.branchName, {
-            prTitle: title,
-            prBody: body,
-            baseBranch: current.base,
+        inBackground(id, record, step, async () => {
+            const { title, body } = await generatePrDescription(
+                branch.branchName,
+                current.base,
+            )
+            updateCombinedBranch(branch.branchName, {
+                prTitle: title,
+                prBody: body,
+                baseBranch: current.base,
+            })
+            return title
         })
-        step.state = "done"
-        step.detail = title
         return
     }
 
@@ -469,20 +468,40 @@ function begin(
         return
     }
 
-    // The pull request. A branch rebased after it was pushed has to go up
-    // again first, or the PR would be opened on the old history.
-    if (current.git.upstream && (current.git.diverged || current.git.unpushed))
-        pushBranch({
-            branch: branch.branchName,
-            remoteBranch: delivery.remoteBranch,
-            force: current.git.diverged,
-        })
-    step.state = "running"
-    openingPr.add(id)
+    inBackground(id, record, step, async () => {
+        // A branch rebased after it was pushed has to go up again first, or
+        // the PR would be opened on the old history.
+        if (
+            current.git.upstream &&
+            (current.git.diverged || current.git.unpushed)
+        )
+            await pushBranch({
+                branch: branch.branchName,
+                remoteBranch: delivery.remoteBranch,
+                force: current.git.diverged,
+            })
+        return (await openPullRequest(branch.branchName)).url
+    })
+}
+
+/**
+ * Do a stage's work without holding up the server: describing a branch runs
+ * an agent, and opening its PR pushes and calls `gh`, which can take minutes.
+ * The stage stays running until `work` settles; its result is the stage's
+ * detail when it succeeds, and a failure blocks the run.
+ */
+function inBackground(
+    id: number,
+    record: PipelineRecord,
+    step: PipelineStep,
+    work: () => Promise<string>,
+): void {
     const index = record.steps.indexOf(step)
-    openPullRequest(branch.branchName)
+    step.state = "running"
+    inFlight.add(id)
+    work()
         .then(
-            (result) => settleStep(id, index, "done", result.url),
+            (detail) => settleStep(id, index, "done", detail),
             (caught) =>
                 settleStep(
                     id,
@@ -491,10 +510,10 @@ function begin(
                     caught instanceof Error ? caught.message : String(caught),
                 ),
         )
-        .finally(() => openingPr.delete(id))
+        .finally(() => inFlight.delete(id))
 }
 
-/** Record how an asynchronous stage ended, then carry on from it. */
+/** Record how a background stage ended, then carry on from it. */
 function settleStep(
     id: number,
     index: number,
@@ -503,9 +522,15 @@ function settleStep(
 ): void {
     const record = readRecord(id)
     const step = record?.steps[index]
+    // Stopped by hand while it worked: what it did stands, but the run stays
+    // stopped and resuming picks the stage up again.
     if (!record || !step || step.state !== "running") return
     step.state = state
     step.detail = detail
+    if (state === "blocked" && record.status === "running") {
+        record.status = "blocked"
+        record.stopReason = detail
+    }
     writeRecord(id, record)
     if (record.status === "running") setTimeout(() => progress(id), 0)
 }
@@ -585,7 +610,7 @@ function judge(id: number, record: PipelineRecord, step: PipelineStep): void {
         return
     }
 
-    if (step.step === "pr" && openingPr.has(id)) return
+    if (inFlight.has(id)) return
     step.state = "blocked"
     step.detail = "It stopped before it finished."
 }
@@ -672,6 +697,7 @@ export function stopPipeline(id: number): void {
             stopSupervisedChecks(step.branchName)
         }
         // Describing and opening the PR are single commands, left to finish.
+        // Their results are kept, and resuming does not repeat a PR opened.
     } catch {
         // Already settled on its own. Nothing to stop.
     }
@@ -729,7 +755,7 @@ export function pipelineStatus(
     return record && { status: record.status, stopReason: record.stopReason }
 }
 
-/** Every loop a pipeline's task runs started, oldest first. */
+/** The loop a pipeline's task run started, if it has got that far. */
 export function pipelineLoopIds(id: number): number[] {
     return (readRecord(id)?.steps ?? []).flatMap((step) =>
         step.kind === "tasks" && step.workPackageRunId !== null
@@ -784,7 +810,7 @@ export function pipelineDetail(id: number): PipelineDetail | null {
                 }),
             }
         if (step.kind === "tasks")
-            return { ...step, title: `Task run ${step.index + 1}`, agents: [] }
+            return { ...step, title: "Every open task", agents: [] }
         return {
             ...step,
             title: branches.get(step.branchId)?.label ?? step.branchName,

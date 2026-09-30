@@ -5,7 +5,6 @@ import {
     RECOMMENDED_MODEL,
     type AgentHarnessId,
     type AgentPermissionMode,
-    type PipelineTaskRun,
     type WorkPackageDetail,
 } from "@shared/types"
 import {
@@ -35,15 +34,6 @@ import { PlusIcon } from "../components/icons"
 import { useError } from "../hooks/useError"
 import type { WorkspaceSnapshot } from "../types/workspace"
 
-type TaskRunDraft = PipelineTaskRun & { key: number }
-
-let nextKey = 0
-const newTaskRun = (): TaskRunDraft => ({
-    key: nextKey++,
-    model: RECOMMENDED_MODEL,
-    extra: "",
-})
-
 /**
  * "Work with an agent": work the whole package start to finish. Investigations
  * first, then task runs over what they filed, then each branch through rebase,
@@ -67,7 +57,8 @@ export function PipelineDialog(props: {
     const [extra, setExtra] = createSignal("")
     const [label, setLabel] = createSignal("")
 
-    // What hasn't been run yet, one task run, and every branch without a PR.
+    // What hasn't been run yet, the task run when there is or will be work
+    // for it, and every branch without a PR.
     const [investigations, setInvestigations] = createSignal<
         ReadonlySet<string>
     >(
@@ -79,7 +70,17 @@ export function PipelineDialog(props: {
             ),
         ),
     )
-    const [taskRuns, setTaskRuns] = createSignal<TaskRunDraft[]>([newTaskRun()])
+    const [working, setWorking] = createSignal(
+        untrack(
+            () =>
+                props.workPackage.queue.length > 0 ||
+                props.workPackage.investigations.some(
+                    (item) => item.status !== "complete",
+                ),
+        ),
+    )
+    const [taskModel, setTaskModel] = createSignal(RECOMMENDED_MODEL)
+    const [taskExtra, setTaskExtra] = createSignal("")
     const [branches, setBranches] = createSignal<ReadonlySet<number>>(
         new Set(
             untrack(() =>
@@ -131,13 +132,8 @@ export function PipelineDialog(props: {
         else next.delete(value)
         return next
     }
-    const updateTaskRun = (key: number, patch: Partial<PipelineTaskRun>) =>
-        setTaskRuns((runs) =>
-            runs.map((run) => (run.key === key ? { ...run, ...patch } : run)),
-        )
-
     const nothingChosen = () =>
-        !investigations().size && !taskRuns().length && !branches().size
+        !investigations().size && !working() && !branches().size
 
     const start = action(async function* () {
         if (busy() || isPending(harness) || nothingChosen()) return
@@ -167,10 +163,9 @@ export function PipelineDialog(props: {
                     investigations: props.workPackage.investigations
                         .filter((item) => investigations().has(item.ref))
                         .map((item) => item.ref),
-                    taskRuns: taskRuns().map(({ model, extra }) => ({
-                        model,
-                        extra,
-                    })),
+                    taskRun: working()
+                        ? { model: taskModel(), extra: taskExtra() }
+                        : null,
                     branches: props.workPackage.branches
                         .filter((branch) => branches().has(branch.id))
                         .map((branch) => branch.id),
@@ -250,89 +245,57 @@ export function PipelineDialog(props: {
 
             <Stage
                 number={2}
-                title="Task runs"
-                hint="A fresh headless agent per task, in dependency order, with the agent above as supervisor. Each run works whatever is still unfinished when it starts.">
-                <ol class="grid gap-3 p-0 m-0" style={{ "list-style": "none" }}>
-                    <For each={taskRuns()} keyed={(run) => run.key}>
-                        {(run, index) => (
-                            <li>
-                                <article class="inset p-4">
-                                    <header class="flex items-center justify-between gap-3">
-                                        <strong>Task run {index() + 1}</strong>
-                                        <button
-                                            class="outlined p-[0.2rem_0.6rem] caption"
-                                            onClick={() =>
-                                                setTaskRuns((runs) =>
-                                                    runs.filter(
-                                                        (one) =>
-                                                            one.key !==
-                                                            run().key,
-                                                    ),
-                                                )
-                                            }>
-                                            Remove
-                                        </button>
-                                    </header>
-                                    <div class="mt-3">
-                                        <Loading
-                                            fallback={
-                                                <ModelPicker
-                                                    harness={chosenHarness()}
-                                                    models={[]}
-                                                    value=""
-                                                    setValue={() => {}}
-                                                    defaultLabel="Harness default"
-                                                    recommended
-                                                    busy
-                                                />
-                                            }>
-                                            <ModelPicker
-                                                harness={chosenHarness()}
-                                                models={
-                                                    isPending(models)
-                                                        ? []
-                                                        : models()
-                                                }
-                                                busy={isPending(models)}
-                                                value={run().model}
-                                                setValue={(value) =>
-                                                    updateTaskRun(run().key, {
-                                                        model: value,
-                                                    })
-                                                }
-                                                defaultLabel="Harness default"
-                                                recommended
-                                            />
-                                        </Loading>
-                                    </div>
-                                    <label class="field mt-3">
-                                        <span>
-                                            Instructions for task agents
-                                        </span>
-                                        <textarea
-                                            value={run().extra}
-                                            onInput={(event) =>
-                                                updateTaskRun(run().key, {
-                                                    extra: event.currentTarget
-                                                        .value,
-                                                })
-                                            }
-                                            placeholder="Optional context for every task in this run…"
-                                        />
-                                    </label>
-                                </article>
-                            </li>
-                        )}
-                    </For>
-                </ol>
-                <button
-                    class="outlined mt-3"
-                    onClick={() =>
-                        setTaskRuns((runs) => [...runs, newTaskRun()])
-                    }>
-                    <PlusIcon />
-                    Add task run
-                </button>
+                title="Task Run"
+                hint="Works every task still open once the investigations are done: a fresh headless agent per task, in dependency order, with the agent above as supervisor.">
+                <label class="choice flex items-center gap-[0.75rem] p-[0.7rem]">
+                    <input
+                        type="checkbox"
+                        checked={working()}
+                        onChange={(event) =>
+                            setWorking(event.currentTarget.checked)
+                        }
+                    />
+                    <span class="min-w-0 flex-1">Work the open tasks</span>
+                    <span class="caption muted">
+                        {props.workPackage.queue.length} open now
+                    </span>
+                </label>
+                <Show when={working()}>
+                    <div class="mt-3">
+                        <Loading
+                            fallback={
+                                <ModelPicker
+                                    harness={chosenHarness()}
+                                    models={[]}
+                                    value=""
+                                    setValue={() => {}}
+                                    defaultLabel="Harness default"
+                                    recommended
+                                    busy
+                                />
+                            }>
+                            <ModelPicker
+                                harness={chosenHarness()}
+                                models={isPending(models) ? [] : models()}
+                                busy={isPending(models)}
+                                value={taskModel()}
+                                setValue={setTaskModel}
+                                defaultLabel="Harness default"
+                                recommended
+                            />
+                        </Loading>
+                        <label class="field mt-3">
+                            <span>Instructions for task agents</span>
+                            <textarea
+                                value={taskExtra()}
+                                onInput={(event) =>
+                                    setTaskExtra(event.currentTarget.value)
+                                }
+                                placeholder="Optional context for every task…"
+                            />
+                        </label>
+                    </div>
+                </Show>
             </Stage>
 
             <Stage

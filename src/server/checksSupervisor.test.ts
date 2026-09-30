@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-test("a supervised checks run hands a failure to the supervisor, resumes after its commit, and stops at the per-check cap", () => {
+test("a supervised checks run hands a failure to the supervisor, re-runs that check after its commit, carries its session on when it still fails, and stops at the per-check cap", () => {
     const directory = mkdtempSync(join(tmpdir(), "checks-supervisor-"))
     try {
         const git = (...args: string[]) => {
@@ -33,6 +33,7 @@ test("a supervised checks run hands a failure to the supervisor, resumes after i
                 "#!/bin/sh",
                 "for last; do :; done",
                 'case "$last" in',
+                '  *"re-ran \\`brokenresume\\`"*) echo "No such session." >&2; exit 1 ;;',
                 '  *"failing check: fixable"*)',
                 "    echo yes > fixed && git add fixed && git commit -qm Fix >&2",
                 '    printf "Committed the fix.\\nRESOLVED\\n" ;;',
@@ -42,9 +43,16 @@ test("a supervised checks run hands a failure to the supervisor, resumes after i
         )
         chmodSync(agent, 0o755)
 
+        // Each check notes that it ran, so the order the checks ran in can be
+        // asserted. `bin/` is ignored, so the log does not dirty the tree.
+        const order = join(directory, "bin", "order")
         const check = (name: string, script: string) => ({
             name,
-            command: [process.execPath, "-e", script],
+            command: [
+                process.execPath,
+                "-e",
+                `require("fs").appendFileSync(${JSON.stringify(order)}, ${JSON.stringify(name + "\n")}); ${script}`,
+            ],
         })
         const fixedInHead =
             "process.exit(Bun.spawnSync(['git','cat-file','-e','HEAD:fixed']).exitCode)"
@@ -64,6 +72,7 @@ test("a supervised checks run hands a failure to the supervisor, resumes after i
                     `
             import { strict as assert } from "node:assert";
             import { startSupervisedChecks, checksSupervision } from ${JSON.stringify(join(import.meta.dir, "checksSupervisor.ts"))};
+            import { findAgentRun } from ${JSON.stringify(join(import.meta.dir, "agents.ts"))};
             const settled = async () => {
                 const deadline = Date.now() + 15000;
                 for (;;) {
@@ -107,6 +116,9 @@ test("a supervised checks run hands a failure to the supervisor, resumes after i
                 [["fixable", "supervise-checks", "succeeded"]]);
             assert.match(state.agents[0].calledFor, /^fixable failed with exit code \\d+\\.$/);
             assert.equal(state.agents[0].verdict, "resolved");
+            // The failing check alone after the fix, then the rest of the suite.
+            assert.deepEqual(require("fs").readFileSync(${JSON.stringify(order)}, "utf8").trim().split(/\\s+/),
+                ["first", "fixable", "fixable", "first"]);
             console.log("fixed and resumed");
         `),
         ).toContain("fixed and resumed")
@@ -118,9 +130,32 @@ test("a supervised checks run hands a failure to the supervisor, resumes after i
             assert.equal(state.status, "blocked");
             assert.equal(state.agents.length, 2);
             assert.match(state.stopReason, /unfixable still fails after the supervisor was called in 2 times/);
+            // The second visit carries the first one's conversation on.
+            const [first, second] = state.agents.map(a => findAgentRun(a.id));
+            assert.ok(first.sessionId);
+            assert.equal(second.sessionId, first.sessionId);
+            assert.match(second.prompt, /re-ran \`unfixable\` .* and it still fails/);
+            assert.match(state.agents[1].calledFor, /its session carried on/);
             console.log("stopped at the cap");
         `),
         ).toContain("stopped at the cap")
+
+        // A resume that errors is replaced by a fresh supervisor, which does not
+        // count the failed resume towards the cap.
+        setup([check("brokenresume", "process.exit(1)")])
+        expect(
+            run(`
+            const state = await settled();
+            assert.equal(state.status, "blocked");
+            assert.deepEqual(state.agents.map(a => [a.status, a.verdict]),
+                [["succeeded", "resolved"], ["failed", null], ["succeeded", "resolved"]]);
+            assert.match(state.agents[2].calledFor, /a fresh one took over/);
+            const [first, , third] = state.agents.map(a => findAgentRun(a.id));
+            assert.notEqual(third.sessionId, first.sessionId);
+            assert.match(state.stopReason, /brokenresume still fails after the supervisor was called in 2 times/);
+            console.log("fell back to a fresh supervisor");
+        `),
+        ).toContain("fell back to a fresh supervisor")
     } finally {
         rmSync(directory, { recursive: true, force: true })
     }

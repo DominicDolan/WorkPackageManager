@@ -120,11 +120,22 @@ interface HarnessDef {
         sessionId: string | null
     }): string[]
     /**
-     * The argv that reopens a session this harness created, always interactive —
-     * resuming exists so a person can carry on the conversation, and a headless
-     * resume would have nobody to carry it on with.
+     * The argv that reopens a session this harness created, always interactive,
+     * so a person can carry on the conversation. The server's own follow-ups
+     * use `continueArgv` instead.
      */
     resumeArgv(sessionId: string): string[]
+    /**
+     * The argv that carries a session on headless with one more message, for
+     * the server to follow up with an agent it launched: a supervisor told
+     * its fix did not take, say.
+     */
+    continueArgv(input: {
+        sessionId: string
+        prompt: string
+        model: string
+        permissionMode: AgentPermissionMode
+    }): string[]
 }
 
 /**
@@ -241,6 +252,16 @@ const HARNESSES: HarnessDef[] = [
             return argv
         },
         resumeArgv: (sessionId) => ["claude", "--resume", sessionId],
+        // Resuming keeps the session's id, so the conversation stays one
+        // transcript however many times the server follows it up.
+        continueArgv: ({ sessionId, prompt, model, permissionMode }) => {
+            const argv = ["claude", "--resume", sessionId]
+            if (model) argv.push("--model", model)
+            if (permissionMode !== "manual")
+                argv.push("--permission-mode", permissionMode)
+            argv.push("--print", prompt)
+            return argv
+        },
     },
     {
         id: "codex",
@@ -262,6 +283,17 @@ const HARNESSES: HarnessDef[] = [
             return argv
         },
         resumeArgv: (sessionId) => ["codex", "resume", sessionId],
+        continueArgv: ({ sessionId, prompt, model, permissionMode }) => {
+            const argv = ["codex", "exec"]
+            if (model) argv.push("--model", model)
+            if (permissionMode === "auto") argv.push("--approve-for-me")
+            if (permissionMode === "plan") argv.push("--sandbox", "read-only")
+            if (permissionMode === "bypassPermissions") {
+                argv.push("--dangerously-bypass-approvals-and-sandbox")
+            }
+            argv.push("resume", sessionId, prompt)
+            return argv
+        },
     },
     {
         id: "pi",
@@ -285,6 +317,12 @@ const HARNESSES: HarnessDef[] = [
         // `pi --session-id` creates the session if it is missing and opens it if it
         // is not, so reopening is the same flag with no prompt after it.
         resumeArgv: (sessionId) => ["pi", "--session-id", sessionId],
+        continueArgv: ({ sessionId, prompt, model }) => {
+            const argv = ["pi", "--session-id", sessionId]
+            if (model) argv.push("--model", model)
+            argv.push("--print", prompt)
+            return argv
+        },
     },
 ]
 
@@ -657,6 +695,82 @@ export function startRun(input: StartRunInput): AgentRun {
         argv = [...terminal, ...agentArgv]
     }
 
+    return launch({
+        harness: definition.id,
+        model: input.model,
+        mode: input.mode,
+        command: input.command,
+        subjectKind: input.subjectKind,
+        subjectRef: input.subjectRef,
+        prompt,
+        argv,
+        sessionId,
+        cwd: input.cwd ?? null,
+    })
+}
+
+/**
+ * Carry a finished headless run's conversation on with one more message.
+ *
+ * A new run of its own, on the same subject and session: it has its own
+ * output, exit and verdict, which is what whoever is following it up reads.
+ */
+export function continueRun(input: {
+    runId: number
+    prompt: string
+    model: string
+    permissionMode: AgentPermissionMode
+}): AgentRun {
+    const row = withSession(readRow(input.runId))
+    const definition = harness(row.harness)
+    if (row.mode !== "print")
+        throw new Error(
+            `Run ${row.id} was not headless, so it cannot be continued headless.`,
+        )
+    if (row.status === "running" || row.status === "launched")
+        throw new Error(`Run ${row.id} is still running.`)
+    if (!row.session_id)
+        throw new Error(
+            `Run ${row.id} has no recorded conversation id, so it cannot be continued.`,
+        )
+    if (!onPath(definition.bin))
+        throw new Error(
+            `${definition.bin} is not on PATH, so it cannot be run from here.`,
+        )
+
+    const argv = definition.continueArgv({
+        sessionId: row.session_id,
+        prompt: input.prompt,
+        model: input.model,
+        permissionMode: input.permissionMode,
+    })
+    return launch({
+        harness: definition.id,
+        model: input.model,
+        mode: "print",
+        command: row.command as AgentCommand,
+        subjectKind: row.subject_kind,
+        subjectRef: row.subject_ref,
+        prompt: input.prompt,
+        argv,
+        sessionId: row.session_id,
+        cwd: row.cwd,
+    })
+}
+
+/** Record a run and start it. */
+function launch(input: {
+    harness: AgentHarnessId
+    model: string
+    mode: AgentRunMode
+    command: AgentCommand
+    subjectKind: string
+    subjectRef: string
+    prompt: string
+    argv: string[]
+    sessionId: string | null
+    cwd: string | null
+}): AgentRun {
     const createdAt = nowIso()
     const row = getDb()
         .query<{ id: number }, Record<string, string | number | null>>(
@@ -668,16 +782,16 @@ export function startRun(input: StartRunInput): AgentRun {
        RETURNING id`,
         )
         .get({
-            $harness: definition.id,
+            $harness: input.harness,
             $model: input.model,
             $mode: input.mode,
             $command: input.command,
             $kind: input.subjectKind,
             $ref: input.subjectRef,
-            $prompt: prompt,
-            $argv: JSON.stringify(argv),
-            $session: sessionId,
-            $cwd: input.cwd ?? null,
+            $prompt: input.prompt,
+            $argv: JSON.stringify(input.argv),
+            $session: input.sessionId,
+            $cwd: input.cwd,
             $status: input.mode === "terminal" ? "launched" : "running",
             $log: null,
             $at: createdAt,
@@ -686,9 +800,9 @@ export function startRun(input: StartRunInput): AgentRun {
     try {
         const cwd = input.cwd ?? ws.repoRoot
         if (input.mode === "terminal") {
-            spawnTerminal(row.id, argv, cwd)
+            spawnTerminal(row.id, input.argv, cwd)
         } else {
-            spawnHeadless(row.id, argv, cwd)
+            spawnHeadless(row.id, input.argv, cwd)
         }
     } catch (error) {
         finish(row.id, "failed", null)
@@ -765,7 +879,14 @@ function spawnHeadless(id: number, argv: string[], cwd: string): void {
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...process.env, TASKS_DIR: ws.tasksDir },
+        env: {
+            ...process.env,
+            TASKS_DIR: ws.tasksDir,
+            // A headless Claude exits when its turn ends, so a command sent to
+            // the background never reports back: the agent ends on "waiting"
+            // with no answer. Without background tasks it has to wait inline.
+            CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+        },
     })
 
     live.set(id, child)

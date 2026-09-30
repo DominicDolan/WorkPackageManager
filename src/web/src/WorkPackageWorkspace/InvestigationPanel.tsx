@@ -10,6 +10,7 @@ import { InvestigationLauncher } from "../InvestigationLauncher/InvestigationLau
 import { api } from "../api"
 import { PageSkeleton } from "../components/PageSkeleton"
 import { RunHistory } from "../components/RunHistory"
+import { TranscriptAttachments } from "../components/TranscriptAttachments"
 import { InvestigationBrief } from "./InvestigationBrief"
 import { TabHeading } from "./TabHeading"
 
@@ -17,6 +18,7 @@ export function InvestigationPanel(props: {
     investigation: Investigation
     workPackage: WorkPackageDetail
     changed: () => void
+    revision: number
 }) {
     const detail = createQuery(async (): Promise<InvestigationDetail> =>
         api.getInvestigation(props.investigation.ref),
@@ -138,6 +140,11 @@ export function InvestigationPanel(props: {
                                     </div>
                                 </Show>
                             </article>
+                            <TranscriptAttachments
+                                kind="investigation"
+                                ref={investigation.ref}
+                                revision={props.revision}
+                            />
                             <Loading fallback={null}>
                                 <Show when={runs.value?.length}>
                                     <section class="mt-6">

@@ -97,7 +97,7 @@ test("a start-to-finish run investigates, works the tasks it filed, and opens th
             const started = startWorkRun({
                 workPackageRef: workPackage.ref, kind: "pipeline", harness: "pi", model: "",
                 mode: "print", permissionMode: "bypassPermissions", extra: "",
-                plan: { agent, investigations: ["I-1"], taskRuns: [{ model: "", extra: "" }], branches: [branch.id] },
+                plan: { agent, investigations: ["I-1"], taskRun: { model: "", extra: "" }, branches: [branch.id] },
             });
             assert.equal(started.status, "running");
             const deadline = Date.now() + 30000;
@@ -195,7 +195,7 @@ test("a stage that stops short blocks the run, and resuming starts that stage ag
             const started = startWorkRun({
                 workPackageRef: workPackage.ref, kind: "pipeline", harness: "pi", model: "",
                 mode: "print", permissionMode: "manual", extra: "",
-                plan: { agent, investigations: ["I-1"], taskRuns: [], branches: [] },
+                plan: { agent, investigations: ["I-1"], taskRun: { model: "", extra: "" }, branches: [] },
             });
             const settled = async () => {
                 const deadline = Date.now() + 15000;
@@ -237,3 +237,99 @@ test("a stage that stops short blocks the run, and resuming starts that stage ag
         rmSync(directory, { recursive: true, force: true })
     }
 }, 35000)
+
+test("a background stage that fails blocks the run instead of being tried again", () => {
+    const directory = mkdtempSync(join(tmpdir(), "work-package-pipeline-"))
+    try {
+        const git = (...args: string[]) => {
+            const result = Bun.spawnSync(["git", ...args], { cwd: directory })
+            expect(result.exitCode).toBe(0)
+        }
+        git("init", "-b", "main")
+        git("config", "user.name", "Pipeline Test")
+        git("config", "user.email", "pipeline@example.invalid")
+        writeFileSync(join(directory, ".gitignore"), ".tasks/\nbin/\n")
+        git("add", ".gitignore")
+        git("commit", "-m", "Initial")
+        git("switch", "-c", "feature/ready")
+        writeFileSync(join(directory, "ready.txt"), "ready\n")
+        git("add", "ready.txt")
+        git("commit", "-m", "Ready")
+        git("switch", "main")
+
+        const bin = join(directory, "bin")
+        mkdirSync(bin)
+        // Counts its calls, so a stage retried in a loop shows up.
+        script(join(bin, "describe"), [
+            "echo x >> bin/describe-calls",
+            'echo "no model available" >&2',
+            "exit 3",
+        ])
+        mkdirSync(join(directory, ".tasks"))
+        writeFileSync(
+            join(directory, ".tasks", "tasks.config.json"),
+            JSON.stringify({
+                baseBranch: "main",
+                prAgent: [join(bin, "describe")],
+            }),
+        )
+
+        const result = Bun.spawnSync(
+            [
+                process.execPath,
+                "-e",
+                `
+            import { strict as assert } from "node:assert";
+            import { readFileSync } from "node:fs";
+            import { createWorkPackage, listWorkPackageBranches } from ${JSON.stringify(join(import.meta.dir, "repo.ts"))};
+            import { startWorkRun, workRunDetail, requireWorkRun } from ${JSON.stringify(join(import.meta.dir, "workRuns.ts"))};
+            const workPackage = createWorkPackage({
+                name: "Ready",
+                branches: [{ label: "Ready", branchName: "feature/ready", existing: true }],
+            });
+            const [branch] = listWorkPackageBranches(workPackage.ref);
+            const agent = { harness: "pi", model: "", permissionMode: "bypassPermissions", extra: "" };
+            const started = startWorkRun({
+                workPackageRef: workPackage.ref, kind: "pipeline", harness: "pi", model: "",
+                mode: "print", permissionMode: "bypassPermissions", extra: "",
+                plan: { agent, investigations: [], taskRun: null, branches: [branch.id] },
+            });
+            const deadline = Date.now() + 15000;
+            let run;
+            for (;;) {
+                run = workRunDetail(requireWorkRun(started.id));
+                if (run.status !== "running") break;
+                assert.ok(Date.now() < deadline, "the run did not settle");
+                await Bun.sleep(25);
+            }
+            assert.equal(run.status, "blocked");
+            assert.match(run.statusDetail, /no model available/);
+            // Branch steps only: no investigation, and the tasks left alone.
+            assert.deepEqual(run.pipeline.steps.map((step) => step.kind === "branch" ? step.step : step.kind),
+                ["rebase", "describe", "checks", "pr"]);
+            assert.deepEqual(run.pipeline.steps.map((step) => step.state),
+                ["done", "blocked", "waiting", "waiting"]);
+            await Bun.sleep(200);
+            assert.equal(readFileSync("bin/describe-calls", "utf8"), "x\\n");
+            console.log("blocked once");
+            process.exit(0);
+        `,
+            ],
+            {
+                cwd: directory,
+                env: {
+                    ...process.env,
+                    PATH: `${bin}:${process.env.PATH}`,
+                    TASKS_DIR: join(directory, ".tasks"),
+                    TASKS_DB: join(directory, ".tasks", "tasks.db"),
+                },
+                timeout: 20000,
+            },
+        )
+        expect(result.stderr.toString()).toBe("")
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout.toString()).toContain("blocked once")
+    } finally {
+        rmSync(directory, { recursive: true, force: true })
+    }
+}, 25000)

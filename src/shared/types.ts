@@ -477,6 +477,26 @@ export interface InvestigationDetail extends Investigation {
 
 /* -------------------------------------------------------------- notes */
 
+/** A synced meeting transcript is a JSON file in the notes folder. */
+export interface TranscriptLink {
+    kind: "task" | "investigation"
+    ref: string
+}
+
+export interface TranscriptSummary {
+    path: string
+    title: string
+    date: string
+    source: string
+    fetchedAt: string
+    excerpt: string
+    links: TranscriptLink[]
+}
+
+export interface TranscriptDetail extends TranscriptSummary {
+    content: string
+}
+
 /**
  * A note, as it exists on disk: one Markdown file inside the notes folder.
  *
@@ -1419,7 +1439,10 @@ export interface PipelinePlan {
     agent: RunSupervisor
     /** Investigation refs, run in this order. */
     investigations: string[]
-    taskRuns: PipelineTaskRun[]
+    /** Works every task still open once the investigations are done. Null
+     *  leaves the tasks alone, for a run that only investigates or only
+     *  delivers branches. */
+    taskRun: PipelineTaskRun | null
     /** Work package branch ids, delivered in this order. */
     branches: number[]
 }
@@ -1453,8 +1476,6 @@ export type PipelineStep = PipelineStepBase &
           }
         | {
               kind: "tasks"
-              /** Its index in `PipelinePlan.taskRuns`. */
-              index: number
               workPackageRunId: number | null
           }
         | {

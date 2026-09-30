@@ -217,9 +217,12 @@ goes stale as soon as the branch gets another commit.
 supervisor of an unattended work package run. Pick the agent, and when a check
 fails it gets a headless `supervise-checks` run with the failing command and its
 output. It fixes the failure, commits the fix on the branch, and ends on
-`RESOLVED` or `UNRESOLVED`. On `RESOLVED`, the checks resume. The new commit
-means the whole suite runs again. Each check gets at most two supervisor visits.
-After that, or on `UNRESOLVED`, the run stops and the Checks panel says why. The
+`RESOLVED` or `UNRESOLVED`. It doesn't run the full check itself. On
+`RESOLVED`, the app re-runs the failing check alone. If it still fails, the same
+agent session is resumed with the new output. Once the check passes, the rest of
+the suite runs against the new commit. Each check gets at most two supervisor
+visits, counting resumes. After that, on `UNRESOLVED`, or when the supervisor
+ends without a verdict, the run stops and the Checks panel says why. The
 run also stops if the supervisor leaves uncommitted changes to tracked files,
 because checks read the working tree but are recorded against the commit. The
 supervisors' output is listed under the checks, and **Stop supervisor** ends the
@@ -741,16 +744,16 @@ the button reads **Continue** instead: that is resuming, not starting a second.
 #### Runs
 
 **Work with an agent** on the work package page works the package from start
-to finish. The dialog lists the investigations not yet run, one task run, and
-every branch without a pull request. You can untick any of them, or add
-investigations, task runs and branches in the dialog. The run then goes in
-this order:
+to finish. The dialog lists the investigations not yet run, the task run, and
+every branch without a pull request. You can untick any of them, including
+the task run, to run only some stages: for example, just the branches for a
+package whose tasks are done. You can also add investigations and branches in
+the dialog. The run then goes in this order:
 
 1. Each investigation, as a headless `/plan-tasks` told that nobody is there
    to answer questions.
-2. Each task run, as an unattended loop over whatever is still unfinished.
-   Task agents use their own model setting, **Recommended for each task** by
-   default.
+2. The task run: an unattended loop over every task still open. Task agents
+   use their own model setting, **Recommended for each task** by default.
 3. Each branch: rebase on its base, generate the PR description, run all
    checks, then open the pull request. A branch that was rebased after it was
    pushed is force-pushed with lease first.
@@ -981,7 +984,7 @@ against whatever is on screen:
 | Issues → an open issue      | **Investigate**        | `/plan-tasks #677`                                                      |
 | Investigations → **Run it** | **Run it here**        | `/plan-tasks I-3`                                                       |
 | Tasks → a selected task     | **Work with agent**    | `/work-task T-12`                                                       |
-| A work package's page       | **Work with an agent** | Investigations → task runs → branches to PR, as a Run tab               |
+| A work package's page       | **Work with an agent** | Investigations → open tasks → branches to PR, as a Run tab              |
 | A work package's page       | **+ → Run**            | `/work-task`, `/work-package WP-1`, or an unattended loop, as a Run tab |
 
 Every resumable run records a **session id**, so **Resume** on a run — the one on screen, or any

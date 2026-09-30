@@ -414,7 +414,7 @@ export function BranchChecks(props: {
                                             <li class="p-[0.4rem_0.7rem]">
                                                 <SupervisorRow
                                                     agent={agent}
-                                                    afterResolved="It committed a fix, so the checks resumed from the new commit."
+                                                    afterResolved="It committed a fix, so the check ran again against the new commit."
                                                     afterUnresolved="The checks stopped here for a person."
                                                 />
                                             </li>

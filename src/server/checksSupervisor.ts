@@ -1,4 +1,5 @@
 import {
+    continueRun,
     findAgentRun,
     unattendedSupervisor,
     onRunSettled,
@@ -15,6 +16,7 @@ import { checkPassed } from "../shared/checks"
 import {
     MAX_SUPERVISIONS_PER_CHECK,
     checksSupervisionActive,
+    type AgentRun,
     type AgentRunStatus,
     type CheckRun,
     type ChecksReport,
@@ -28,11 +30,13 @@ import {
  *
  * The same idea as a work package run's supervisor, applied to the checks: the
  * suite stops at its first failure, and instead of waiting for a person the
- * failure goes to a fresh headless agent to fix. When that agent ends on
- * `RESOLVED` the suite resumes. Resume keeps passes only for the same commit,
- * so a supervisor that committed its fix, as it is told to, has the whole
- * suite run again against the new head, and one that changed nothing has only
- * the failing check and those after it run.
+ * failure goes to a headless agent to fix. The agent does not run the check
+ * itself to prove its fix; it commits and ends on `RESOLVED`, and this runs
+ * the failing check again, alone. If it still fails, the same agent's session
+ * is carried on with the new output, so what it learned the first time is not
+ * lost. Once it passes, the rest of the suite resumes. Resume keeps passes
+ * only for the same commit, so after a committed fix every other check runs
+ * again against the new head.
  *
  * Everything fails towards stopping. The supervisor saying it could not fix it,
  * saying nothing, being stopped, erroring, or failing the same check
@@ -51,9 +55,26 @@ interface Supervision {
     status: ChecksSupervisionStatus
     startedAt: string
     stopReason: string
-    attempts: { check: string; calledFor: string; agentRunId: number }[]
+    attempts: Attempt[]
     /** The supervisor at work right now, if any. */
     currentAgentId: number | null
+    /** The check being run again alone after a supervisor's fix, if any. */
+    recheck: string | null
+}
+
+interface Attempt {
+    check: string
+    calledFor: string
+    agentRunId: number
+    /** What it was called in on, so a resume that fails can be handed to a
+     *  fresh supervisor instead. */
+    report: ChecksReport
+    failure: CheckRun
+    /** Whether it carried an earlier supervisor's session on. */
+    continued: boolean
+    /** A resume that failed and was replaced by a fresh supervisor. It did no
+     *  work, so it does not count towards the per-check cap. */
+    replaced: boolean
 }
 
 const supervisions = new Map<string, Supervision>()
@@ -129,6 +150,7 @@ export function startSupervisedChecks(input: {
         stopReason: "",
         attempts: [],
         currentAgentId: null,
+        recheck: null,
     }
     // Throws when a run is already going, before anything is recorded.
     startChecks({
@@ -206,6 +228,17 @@ function checked(supervision: Supervision, report: ChecksReport | null): void {
         return
     }
 
+    const recheck = supervision.recheck
+    supervision.recheck = null
+    const rechecked = recheck
+        ? report.checks.find((run) => run.name === recheck)
+        : undefined
+    if (rechecked && checkPassed(rechecked)) {
+        // The fix took. The rest of the suite runs once, against this commit.
+        runAgain(supervision, { resume: true, previous: report })
+        return
+    }
+
     const failure = report.checks.find((run) => !checkPassed(run))
     if (!failure) {
         settle(
@@ -216,9 +249,7 @@ function checked(supervision: Supervision, report: ChecksReport | null): void {
         return
     }
 
-    const earlier = supervision.attempts.filter(
-        (attempt) => attempt.check === failure.name,
-    )
+    const earlier = attemptsOn(supervision, failure.name)
     if (earlier.length >= MAX_SUPERVISIONS_PER_CHECK) {
         settle(
             supervision,
@@ -229,9 +260,61 @@ function checked(supervision: Supervision, report: ChecksReport | null): void {
         return
     }
 
+    // The same check failing again goes back to the agent that worked on it,
+    // when its conversation can be carried on. A new check gets a fresh agent.
+    const previous = earlier.at(-1)
+    callSupervisor(
+        supervision,
+        report,
+        failure,
+        previous && findAgentRun(previous.agentRunId)?.sessionId
+            ? previous
+            : null,
+    )
+}
+
+/** The supervisors that count as having been called in on a check. */
+function attemptsOn(supervision: Supervision, check: string): Attempt[] {
+    return supervision.attempts.filter(
+        (attempt) => attempt.check === check && !attempt.replaced,
+    )
+}
+
+/**
+ * Put a supervisor to work on a failure: carry on `previous`'s session when
+ * given one, or start a fresh agent with the reports so far. A resume that
+ * cannot be launched falls back to a fresh agent.
+ */
+function callSupervisor(
+    supervision: Supervision,
+    report: ChecksReport,
+    failure: CheckRun,
+    previous: Attempt | null,
+    /** Set when this replaces a resume that failed, to say so in the UI. */
+    replacing = false,
+): void {
+    const { supervisor } = supervision
+    let run: AgentRun | null = null
+    let continued = false
+    if (previous) {
+        try {
+            run = continueRun({
+                runId: previous.agentRunId,
+                model: supervisor.model,
+                permissionMode: supervisor.permissionMode,
+                prompt: followUp(report, failure),
+            })
+            continued = true
+        } catch (caught) {
+            // Logged rather than shown: the fresh supervisor carries on.
+            console.error(
+                `could not resume supervisor ${previous.agentRunId} on '${supervision.branch}', starting a fresh one:`,
+                caught,
+            )
+        }
+    }
     try {
-        const { supervisor } = supervision
-        const run = startRun({
+        run ??= startRun({
             harness: supervisor.harness,
             model: supervisor.model,
             mode: "print",
@@ -241,23 +324,36 @@ function checked(supervision: Supervision, report: ChecksReport | null): void {
             subjectKind: "branch",
             subjectRef: supervision.branch,
             permissionMode: supervisor.permissionMode,
-            handoff: brief(report, failure, earlier),
+            handoff: brief(
+                report,
+                failure,
+                attemptsOn(supervision, failure.name),
+            ),
         })
-        supervision.attempts.push({
-            check: failure.name,
-            calledFor: describeFailure(failure),
-            agentRunId: run.id,
-        })
-        supervision.currentAgentId = run.id
-        supervision.status = "fixing"
-        announceChange("tasks")
     } catch (caught) {
         settle(
             supervision,
             "failed",
             caught instanceof Error ? caught.message : String(caught),
         )
+        return
     }
+    supervision.attempts.push({
+        check: failure.name,
+        calledFor: continued
+            ? `${describeFailure(failure)} Still failing after its fix, so its session carried on.`
+            : replacing
+              ? `${describeFailure(failure)} Resuming the last supervisor failed, so a fresh one took over.`
+              : describeFailure(failure),
+        agentRunId: run.id,
+        report,
+        failure,
+        continued,
+        replaced: false,
+    })
+    supervision.currentAgentId = run.id
+    supervision.status = "fixing"
+    announceChange("tasks")
 }
 
 /** Why the supervisor was called in, in a line. */
@@ -276,10 +372,6 @@ function brief(
     failure: CheckRun,
     earlier: Supervision["attempts"],
 ): string {
-    const output =
-        failure.output.length > BRIEF_OUTPUT_CHARS
-            ? `… earlier output omitted …\n${failure.output.slice(-BRIEF_OUTPUT_CHARS)}`
-            : failure.output
     const lines = [
         "## The brief",
         "",
@@ -290,17 +382,8 @@ function brief(
         "",
         `### The failing check: ${failure.name}`,
         "",
-        `- Command: \`${failure.command.join(" ")}\``,
-        `- Working directory (from the repository root): \`${failure.cwd}\``,
-        `- Result: ${failure.status}${failure.exitCode !== null ? ` (exit code ${failure.exitCode})` : ""}`,
+        ...failureDetails(failure),
     ]
-    if (failure.reason) lines.push(`- Reason: ${failure.reason}`)
-    lines.push(
-        "",
-        output.trim()
-            ? ["Its output:", "", "````text", output, "````"].join("\n")
-            : "It wrote no output.",
-    )
     for (const [index, attempt] of earlier.entries()) {
         lines.push(
             "",
@@ -312,6 +395,42 @@ function brief(
         )
     }
     return lines.join("\n")
+}
+
+/** The message that carries a supervisor's session on when the check it
+ *  fixed still fails. It has the instructions already; this is the result. */
+function followUp(report: ChecksReport, failure: CheckRun): string {
+    return [
+        `The checks run re-ran \`${failure.name}\` against commit ` +
+            `${report.headSha ?? "(unknown)"} after your fix, and it still fails.`,
+        "",
+        ...failureDetails(failure),
+        "",
+        "Carry on under the same instructions: find out why, commit a fix on the " +
+            "branch, and end with your report. Its last line must be `RESOLVED` " +
+            "for the check to be run again, or `UNRESOLVED` if it needs a person.",
+    ].join("\n")
+}
+
+/** The failing check's command, result and output, as the supervisor reads them. */
+function failureDetails(failure: CheckRun): string[] {
+    const output =
+        failure.output.length > BRIEF_OUTPUT_CHARS
+            ? `… earlier output omitted …\n${failure.output.slice(-BRIEF_OUTPUT_CHARS)}`
+            : failure.output
+    const lines = [
+        `- Command: \`${failure.command.join(" ")}\``,
+        `- Working directory (from the repository root): \`${failure.cwd}\``,
+        `- Result: ${failure.status}${failure.exitCode !== null ? ` (exit code ${failure.exitCode})` : ""}`,
+    ]
+    if (failure.reason) lines.push(`- Reason: ${failure.reason}`)
+    lines.push(
+        "",
+        output.trim()
+            ? ["Its output:", "", "````text", output, "````"].join("\n")
+            : "It wrote no output.",
+    )
+    return lines
 }
 
 /** Whether tracked files have uncommitted changes. Untracked files are left
@@ -338,15 +457,24 @@ function supervisorSettled(agentRunId: number, status: AgentRunStatus): void {
     supervision.currentAgentId = null
     if (supervision.status !== "fixing") return
 
-    const check =
-        supervision.attempts.find((one) => one.agentRunId === agentRunId)
-            ?.check ?? "the check"
+    const attempt = supervision.attempts.find(
+        (one) => one.agentRunId === agentRunId,
+    )
+    const check = attempt?.check ?? "the check"
     if (status === "stopped") {
         settle(
             supervision,
             "stopped",
             `The supervisor on ${check} was stopped, so the checks stopped with it.`,
         )
+        return
+    }
+    // A resume that errored most likely never got going: the session could
+    // not be found, or the harness would not take it headless. A fresh
+    // supervisor gets the same failure instead of the run stopping.
+    if (status === "failed" && attempt?.continued) {
+        attempt.replaced = true
+        callSupervisor(supervision, attempt.report, attempt.failure, null, true)
         return
     }
     if (status !== "succeeded") {
@@ -357,8 +485,19 @@ function supervisorSettled(agentRunId: number, status: AgentRunStatus): void {
         )
         return
     }
-    // No verdict counts as unresolved.
-    if (supervisorVerdict(agentRunId) !== "resolved") {
+    // No verdict counts as unresolved, but says so: an agent that stopped
+    // mid-job is not one that tried and gave up.
+    const verdict = supervisorVerdict(agentRunId)
+    if (verdict === null) {
+        settle(
+            supervision,
+            "blocked",
+            `The supervisor on ${check} ended without a verdict, so it may have stopped before ` +
+                "finishing. Check its output and the working tree, then resume the checks.",
+        )
+        return
+    }
+    if (verdict !== "resolved") {
         settle(
             supervision,
             "blocked",
@@ -378,17 +517,34 @@ function supervisorSettled(agentRunId: number, status: AgentRunStatus): void {
         return
     }
 
+    // The supervisor was told not to run the check itself to prove the fix:
+    // this run is the one that counts. Just that check first, so a fix that
+    // did not take goes straight back to it rather than after the whole suite.
+    const previous = findCombinedBranch(supervision.branch)?.checks ?? null
+    if (attempt) {
+        supervision.recheck = attempt.check
+        runAgain(supervision, { check: attempt.check, previous })
+    } else {
+        runAgain(supervision, { resume: true, previous })
+    }
+}
+
+/** Start the next pass of the checks under this supervision. */
+function runAgain(
+    supervision: Supervision,
+    pass: { check?: string; resume?: boolean; previous: ChecksReport | null },
+): void {
     supervision.status = "checking"
     try {
         startChecks({
             branch: supervision.branch,
             base: supervision.base,
-            resume: true,
-            previous: findCombinedBranch(supervision.branch)?.checks ?? null,
+            ...pass,
             onFinished: (report) => checked(supervision, report),
         })
         announceChange("tasks")
     } catch (caught) {
+        supervision.recheck = null
         settle(
             supervision,
             "failed",

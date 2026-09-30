@@ -9,6 +9,7 @@ import {
 import { For, Show } from "solid-js"
 import { api, taskAssetUrl } from "../api"
 import { InfoCard } from "../components/InfoCard"
+import { TranscriptAttachments } from "../components/TranscriptAttachments"
 import { StatusBadge } from "../components/StatusBadge"
 import { ComparisonViewer } from "./ComparisonViewer"
 
@@ -28,6 +29,7 @@ export function TaskDetailPanel(props: {
         onSuccess?: () => void,
     ) => Promise<void>
     openAgent: () => void
+    revision: number
 }) {
     let title!: HTMLInputElement
     let description!: HTMLTextAreaElement
@@ -147,6 +149,12 @@ export function TaskDetailPanel(props: {
                     </button>
                 </article>
             </Show>
+
+            <TranscriptAttachments
+                kind="task"
+                ref={props.task.ref}
+                revision={props.revision}
+            />
 
             <section class="mt-8">
                 <h2 class="title mb-4">Workflow</h2>

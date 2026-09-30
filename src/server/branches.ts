@@ -56,6 +56,35 @@ function runSync(command: string[], timeoutMs?: number): Ran {
     }
 }
 
+/**
+ * `runSync` without holding up the server. For commands that take long enough
+ * to matter — an agent writing a description, a push, `gh` — so the server
+ * keeps answering requests and settling agent runs while they work.
+ */
+async function run(command: string[], timeoutMs?: number): Promise<Ran> {
+    const child = Bun.spawn(command, {
+        cwd: ws.repoRoot,
+        // Never inherit stdio: an interactive prompt would hang the request.
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+        ...(timeoutMs ? { timeout: timeoutMs } : {}),
+    })
+    const [stdout, stderr, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+    ])
+    return {
+        code,
+        stdout,
+        stderr,
+        // Bun reports a timeout kill as a signal rather than an exit code.
+        timedOut:
+            child.signalCode === "SIGTERM" || child.signalCode === "SIGKILL",
+    }
+}
+
 const git = (args: string[]) => runSync(["git", ...args])
 
 export function currentBranch(): string | null {
@@ -804,10 +833,10 @@ function truncate(text: string, limit: number, what: string): string {
  * configured in its place wants the equivalent flag. The trade-off is that the
  * agent sees exactly what we send — hence the generous caps above.
  */
-export function generatePrDescription(
+export async function generatePrDescription(
     branch: string,
     base: string,
-): { title: string; body: string; raw: string } {
+): Promise<{ title: string; body: string; raw: string }> {
     const command = ws.config.prAgent
     if (!command) {
         throw new Error(
@@ -870,7 +899,7 @@ export function generatePrDescription(
 
     // The prompt is the final argument, so a configured command supplies only
     // its own flags and never has to know where the prompt goes.
-    const result = runSync([...command, prompt], AGENT_TIMEOUT_MS)
+    const result = await run([...command, prompt], AGENT_TIMEOUT_MS)
     const agent = command[0]!
 
     if (result.timedOut) {
@@ -934,11 +963,11 @@ export function splitTitleAndBody(raw: string): {
  * `--force-with-lease`, which still refuses to clobber commits someone else
  * pushed in the meantime.
  */
-export function pushBranch(input: {
+export async function pushBranch(input: {
     branch: string
     remoteBranch?: string | null
     force: boolean
-}): void {
+}): Promise<void> {
     const { branch, force } = input
     const remoteBranch = input.remoteBranch?.trim() || branch
 
@@ -949,7 +978,7 @@ export function pushBranch(input: {
     if (force) args.push("--force-with-lease")
     args.push("origin", `${branch}:${remoteBranch}`)
 
-    const push = runSync(args, GH_TIMEOUT_MS)
+    const push = await run(args, GH_TIMEOUT_MS)
     if (push.timedOut) throw new Error(`Pushing '${branch}' timed out.`)
     if (push.code !== 0)
         throw new Error(push.stderr.trim() || `Could not push '${branch}'.`)
@@ -984,7 +1013,7 @@ export async function createPullRequest(input: {
         throw new Error(`Branch '${branch}' does not exist locally.`)
     if (!title.trim()) throw new Error("A pull request needs a title.")
 
-    const existing = runSync(
+    const existing = await run(
         ["gh", "pr", "view", remoteBranch, "--json", "url", "-q", ".url"],
         30_000,
     )
@@ -1009,7 +1038,7 @@ export async function createPullRequest(input: {
 
     let pushed = false
     if (!hasRequestedUpstream) {
-        const push = runSync(
+        const push = await run(
             ["git", "push", "-u", "origin", `${branch}:${remoteBranch}`],
             GH_TIMEOUT_MS,
         )
@@ -1038,7 +1067,7 @@ export async function createPullRequest(input: {
         ]
         if (draft) args.push("--draft")
 
-        const created = runSync(args, GH_TIMEOUT_MS)
+        const created = await run(args, GH_TIMEOUT_MS)
         if (created.timedOut) throw new Error("gh pr create timed out.")
         if (created.code !== 0) {
             throw new Error(

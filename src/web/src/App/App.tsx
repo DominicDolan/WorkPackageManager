@@ -11,6 +11,7 @@ import { CreateWorkPackage } from "../CreateWorkPackage/CreateWorkPackage"
 import { WorkPackageHome } from "../WorkPackageHome/WorkPackageHome"
 import { WorkPackageWorkspace } from "../WorkPackageWorkspace/WorkPackageWorkspace"
 import { NotesWorkspace } from "../NotesWorkspace/NotesWorkspace"
+import { TranscriptsWorkspace } from "../TranscriptsWorkspace/TranscriptsWorkspace"
 import { TaskWorkspace } from "../TaskWorkspace/TaskWorkspace"
 import { PageSkeleton } from "../components/PageSkeleton"
 import type { MainView } from "../types/navigation"
@@ -18,6 +19,7 @@ import { loadWorkspace } from "./loadWorkspace"
 
 /** Issues share the Notes page now; `/issues` links from before still land there. */
 function viewAt(pathname: string): MainView {
+    if (pathname === "/transcripts") return "transcripts"
     return pathname === "/notes" || pathname === "/issues"
         ? "notes"
         : "work-packages"
@@ -42,6 +44,9 @@ export function App() {
     const [issueId, setIssueId] = createSignal(
         new URLSearchParams(location.search).get("issue") ?? "",
     )
+    const [transcriptPath, setTranscriptPath] = createSignal(
+        new URLSearchParams(location.search).get("transcript") ?? "",
+    )
     const [creating, setCreating] = createSignal(false)
     const [workspaceRevision, setWorkspaceRevision] = createSignal(0)
 
@@ -57,6 +62,9 @@ export function App() {
             setTaskRef(match?.[2] ? decodeURIComponent(match[2]) : null)
             setNotePath(new URLSearchParams(location.search).get("note") ?? "")
             setIssueId(new URLSearchParams(location.search).get("issue") ?? "")
+            setTranscriptPath(
+                new URLSearchParams(location.search).get("transcript") ?? "",
+            )
             setView(viewAt(location.pathname))
         }
         addEventListener("popstate", restoreLocation)
@@ -108,6 +116,7 @@ export function App() {
         setTaskRef(null)
         setNotePath("")
         setIssueId("")
+        setTranscriptPath("")
         history.pushState(null, "", next === "work-packages" ? "/" : `/${next}`)
     }
     const reload = () => refresh(snapshot)
@@ -136,6 +145,14 @@ export function App() {
                         openWorkPackage={openWorkPackage}
                         initialPath={notePath()}
                         initialIssueId={issueId()}
+                        revision={workspaceRevision()}
+                    />
+                </Show>
+                <Show when={view() === "transcripts" && snapshot.value}>
+                    <TranscriptsWorkspace
+                        select={selectView}
+                        snapshot={snapshot.value!}
+                        initialPath={transcriptPath()}
                         revision={workspaceRevision()}
                     />
                 </Show>

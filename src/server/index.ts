@@ -63,6 +63,12 @@ import {
     type CreateWorkPackageBranchInput,
 } from "./repo"
 import { issueFacets, listIssuesWithBodies, readIssue } from "./issues"
+import {
+    addTranscriptLink,
+    listTranscripts,
+    readTranscript,
+    removeTranscriptLink,
+} from "./transcripts"
 import { openPullRequest } from "./pullRequests"
 import { reconcilePipelines } from "./workPackagePipeline"
 import {
@@ -149,7 +155,6 @@ import {
     type AgentRunMode,
     type GitConflict,
     type PipelinePlan,
-    type PipelineTaskRun,
     type RunSupervisor,
     type WorkRunKind,
     type CombinedBranchDetail,
@@ -261,24 +266,22 @@ function parsePipelinePlan(raw: unknown): PipelinePlan | string {
         !value.branches.every((one) => Number.isInteger(one))
     )
         return "plan.branches must be an array of branch ids."
+    // Absent or null leaves the tasks alone.
+    const taskRun = (value.taskRun ?? null) as Record<string, unknown> | null
     if (
-        !Array.isArray(value.taskRuns) ||
-        !value.taskRuns.every(
-            (one) =>
-                one &&
-                typeof one === "object" &&
-                typeof (one as { model?: unknown }).model === "string" &&
-                typeof (one as { extra?: unknown }).extra === "string",
-        )
+        taskRun !== null &&
+        (typeof taskRun !== "object" ||
+            typeof taskRun.model !== "string" ||
+            typeof taskRun.extra !== "string")
     )
-        return "plan.taskRuns must be an array of { model, extra }."
+        return "plan.taskRun must be { model, extra }, or null to leave the tasks alone."
     return {
         agent,
         investigations: value.investigations as string[],
-        taskRuns: (value.taskRuns as PipelineTaskRun[]).map((one) => ({
-            model: one.model,
-            extra: one.extra,
-        })),
+        taskRun: taskRun && {
+            model: taskRun.model as string,
+            extra: taskRun.extra as string,
+        },
         branches: value.branches as number[],
     }
 }
@@ -800,7 +803,7 @@ async function handleBranches(
     if (action === "describe") {
         const branch = requireCombinedBranch(name)
         const base = branch.baseBranch ?? defaultBaseBranch()
-        const { title, body: prBody } = generatePrDescription(
+        const { title, body: prBody } = await generatePrDescription(
             branch.branchName,
             base,
         )
@@ -883,7 +886,7 @@ async function handleBranches(
             () => ({}) as { force?: boolean },
         )
         const branch = requireCombinedBranch(name)
-        pushBranch({
+        await pushBranch({
             branch: branch.branchName,
             remoteBranch: branch.remoteBranch,
             force: input.force ?? false,
@@ -986,6 +989,57 @@ async function handleInvestigations(
         return json({ investigation: getInvestigationDetail(ref) })
     }
 
+    return fail("Unknown endpoint.", 404)
+}
+
+async function handleTranscripts(
+    request: Request,
+    rest: string[],
+): Promise<Response> {
+    const [rawPath, action] = rest
+    if (rest.length > 2) return fail("Unknown endpoint.", 404)
+    if (!rawPath) {
+        if (request.method !== "GET") return fail("Method not allowed.", 405)
+        return json({ transcripts: listTranscripts() })
+    }
+    const path = decodeURIComponent(rawPath)
+    if (!action) {
+        if (request.method !== "GET") return fail("Method not allowed.", 405)
+        return json({ transcript: readTranscript(path) })
+    }
+    if (action === "links") {
+        if (request.method === "POST") {
+            const input = await body<{
+                kind?: "task" | "investigation"
+                ref?: string
+            }>(request)
+            if (!input.kind || !input.ref?.trim())
+                return fail("Choose a task or investigation.")
+            return json({
+                transcript: addTranscriptLink(
+                    path,
+                    input.kind,
+                    input.ref.trim(),
+                ),
+            })
+        }
+        if (request.method === "DELETE") {
+            const input = await body<{
+                kind?: "task" | "investigation"
+                ref?: string
+            }>(request)
+            if (!input.kind || !input.ref?.trim())
+                return fail("Choose a task or investigation.")
+            return json({
+                transcript: removeTranscriptLink(
+                    path,
+                    input.kind,
+                    input.ref.trim(),
+                ),
+            })
+        }
+        return fail("Method not allowed.", 405)
+    }
     return fail("Unknown endpoint.", 404)
 }
 
@@ -1973,6 +2027,8 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
     if (head === "notes") return handleNotes(request, url, rest)
 
     if (head === "issues") return handleIssues(request, url, rest)
+
+    if (head === "transcripts") return handleTranscripts(request, rest)
 
     if (head === "investigations")
         return handleInvestigations(request, url, rest)

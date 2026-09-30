@@ -712,6 +712,11 @@ export function deleteTask(ref: string): void {
     const task = requireTask(ref)
     getDb().transaction(() => {
         getDb()
+            .query(
+                "DELETE FROM transcript_links WHERE target_kind = 'task' AND target_ref = $ref",
+            )
+            .run({ $ref: task.ref })
+        getDb()
             .query("DELETE FROM branch_tasks WHERE task_ref = $ref")
             .run({ $ref: task.ref })
         getDb().query("DELETE FROM tasks WHERE id = $id").run({ $id: task.id })
@@ -1921,6 +1926,9 @@ export function setInvestigationStatus(
 export function deleteInvestigation(ref: string): void {
     const investigation = requireInvestigation(ref)
     const db = getDb()
+    db.query(
+        "DELETE FROM transcript_links WHERE target_kind = 'investigation' AND target_ref = $ref",
+    ).run({ $ref: investigation.ref })
     db.query(
         "UPDATE tasks SET investigation_ref = NULL WHERE investigation_ref = $ref",
     ).run({ $ref: investigation.ref })
