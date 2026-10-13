@@ -505,6 +505,29 @@ export function rebaseOnto(branch: string, onto: string): RebaseOutcome {
 }
 
 /**
+ * Rebase only `from..branch` onto `onto`, leaving `branch` there. Unlike
+ * `rebaseOnto`, which replays everything `onto` lacks, this moves just the
+ * commits after `from` — a branch cut from somewhere other than `onto` does not
+ * drag that somewhere's history along with it.
+ */
+export function rebaseRangeOnto(
+    from: string,
+    branch: string,
+    onto: string,
+): RebaseOutcome {
+    const rebased = git(["rebase", "--onto", onto, from, branch])
+    if (rebased.code === 0) return { rebased: true, conflict: "", files: [] }
+
+    const detail =
+        rebased.stdout.trim() ||
+        rebased.stderr.trim() ||
+        `Rebasing '${branch}' onto '${onto}' failed.`
+    const files = conflictedFiles()
+    git(["rebase", "--abort"])
+    return { rebased: false, conflict: detail, files }
+}
+
+/**
  * Whether every commit in `from..branch` already has an equivalent on `onto` —
  * the same change, whatever its hash. How a cherry-picked copy is recognised.
  */

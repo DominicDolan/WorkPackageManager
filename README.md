@@ -752,8 +752,10 @@ the dialog. The run then goes in this order:
 
 1. Each investigation, as a headless `/plan-tasks` told that nobody is there
    to answer questions.
-2. The task run: an unattended loop over every task still open. Task agents
-   use their own model setting, **Recommended for each task** by default.
+2. The task run: choose **All open tasks** to include newly added tasks,
+   including tasks filed by investigations, or **Selected tasks** to work only
+   the tasks chosen in the dialog. A selected list stays fixed when resuming.
+   Task agents use their own model setting, **Recommended for each task** by default.
 3. Each branch: rebase on its base, generate the PR description, run all
    checks, then open the pull request. A branch that was rebased after it was
    pushed is force-pushed with lease first.
@@ -1129,6 +1131,51 @@ surprise.
 
 Fetching and pushing are the only operations here that talk to a network, and
 neither is automatic.
+
+### Sync a task's VR evidence
+
+Use **Sync VR to notes** beside the capture buttons in a task's **Visual
+checkpoints** section, or run:
+
+```bash
+tasks checkpoint sync T-1
+tasks checkpoint sync T-1 --json
+```
+
+The Notes page keeps these exports in a separate **VR notes** category, hidden
+from the default All and Notes lists. Select **VR notes** to browse the reports
+and filter by repository/task folder. **Open report** on a task opens its report
+directly; returning to the library keeps the VR category selected.
+
+Initialize the configured notes repository with `tasks notes init` first. Each
+sync exports and commits just that task's evidence locally; the Notes **Push**
+button or `tasks notes sync --push` publishes the commits to your remote.
+
+```text
+.notes/visual-regression/<repository-name-and-hash>/T-1/
+  README.md         # comparison tables and relative screenshot links
+  manifest.json     # task details, history, all runs and original raw results
+  artifacts/
+    checkpoints/<checkpoint-name>/  # screenshots, metadata, results and logs
+    scenarios/                     # referenced scenario definitions
+```
+
+The repository namespace keeps task references from different repositories
+separate when they share a notes repo. The report includes per-scenario percent
+changed, changed and total pixel counts, browser log changes, capture times,
+Git state, and links to before, after and diff images. The manifest includes
+an overall percent changed weighted by pixel counts (when all pixel counts are
+available), scenario filters, raw run data, source-to-export path mappings, file sizes and
+SHA-256 checksums. Paths in the report are relative so the export can be read
+from another clone without the task database or aio-vr workspace.
+
+aio-vr reuses screenshot paths between captures. Exported files contain the
+current evidence on disk, while the manifest preserves every recorded run's
+metadata. Earlier synced screenshots are retained in the notes Git history.
+Missing source files are listed in the report and sync result. If all screenshots
+have been cleaned away, syncing fails and keeps any previous export. Repeating
+an unchanged sync creates no new commit. Unrelated note edits, including staged
+edits, stay out of the task's commit.
 
 ### CLI
 

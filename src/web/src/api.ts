@@ -28,6 +28,7 @@ import type {
     Task,
     TaskAttachment,
     TaskDetail,
+    TaskVisualSync,
     TranscriptDetail,
     TranscriptSummary,
     TranscriptLink,
@@ -38,6 +39,7 @@ import type {
     WorkPackageDetail,
     RebaseSupervision,
     PipelinePlan,
+    PipelineResumeSettings,
     RunSupervisor,
     WorkRunDetail,
     WorkRunKind,
@@ -296,10 +298,17 @@ export const api = {
         ),
 
     /** Set a stopped unattended run going again from where it got to. */
-    resumeWorkRun: (ref: string, id: number) =>
+    resumeWorkRun: (
+        ref: string,
+        id: number,
+        settings?: PipelineResumeSettings,
+    ) =>
         request<{ workPackage: WorkPackageDetail }>(
             `/work-packages/${encodeURIComponent(ref)}/work-runs/${id}/resume`,
-            { method: "POST" },
+            {
+                method: "POST",
+                body: settings ? JSON.stringify(settings) : undefined,
+            },
         ),
 
     /** Forget a Run tab. Its agent's own record is kept. */
@@ -586,6 +595,11 @@ export const api = {
             body: JSON.stringify({}),
         }).then((r) => r.task),
 
+    syncTaskVisuals: (ref: string) =>
+        request<{ sync: TaskVisualSync }>(`/tasks/${ref}/checkpoint/sync`, {
+            method: "POST",
+        }).then((r) => r.sync),
+
     /* ------------------------------------------------------ investigations */
 
     listInvestigations: () =>
@@ -841,6 +855,13 @@ export const api = {
 
     /** Which harnesses are installed, and whether a terminal window can be opened. */
     agentEnvironment: () => request<AgentEnvironment>("/agents"),
+
+    configFile: () => request<{ content: string }>("/config"),
+    saveConfigFile: (content: string) =>
+        request<{ content: string }>("/config", {
+            method: "PUT",
+            body: JSON.stringify({ content }),
+        }),
 
     /** Fetched when a harness is chosen — pi's catalogue is large and slow. */
     agentModels: (harness: string) =>

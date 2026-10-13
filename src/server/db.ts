@@ -335,6 +335,16 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
     // when it is merged there. What lets the same commits be replayed onto its
     // other target branches later, after the first merge has rebased them.
     { table: "tasks", column: "own_commits_from", definition: "TEXT" },
+    // The commit `tasks branch` cut the task branch from. Its own commits are
+    // everything after it, whichever branch that was — a --from branch, a
+    // dependency's, or a target that is not the first. Null on branches cut
+    // before it was recorded, which fall back to the fork point.
+    { table: "tasks", column: "branched_from", definition: "TEXT" },
+    // The last Git operation on the task's behalf that failed (a merge into a
+    // target branch), so the web app can say so rather than leave it in a
+    // terminal nobody is watching. Cleared when the next one succeeds.
+    { table: "tasks", column: "git_error", definition: "TEXT" },
+    { table: "tasks", column: "git_error_at", definition: "TEXT" },
     // Runs launched before sessions were tracked have none, and cannot be
     // resumed — the id was the harness's to pick and it was never recorded.
     { table: "agent_runs", column: "session_id", definition: "TEXT" },
@@ -376,6 +386,8 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
         column: "excluded_json",
         definition: "TEXT NOT NULL DEFAULT '[]'",
     },
+    // Null preserves the open queue used by older runs.
+    { table: "work_package_runs", column: "selected_json", definition: "TEXT" },
     // Every agent the loop launched, so each task's output can be found again.
     // Older runs only remembered the one in flight.
     {

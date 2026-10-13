@@ -118,6 +118,9 @@ export interface Task {
     devCompletedAt: string | null
     verifiedAt: string | null
     closedAt: string | null
+    /** The last Git operation done for this task that failed — a merge into a
+     *  target branch — and when. Null once one succeeds. */
+    gitError: { message: string; at: string } | null
 }
 
 /**
@@ -274,6 +277,20 @@ export interface CheckpointRun {
     selection: { scenarios?: string[]; folders?: string[] } | null
     createdAt: string
     comparisons: Comparison[]
+}
+
+/** Folder shared by task visual exports and the Notes page's VR category. */
+export const VISUAL_NOTES_FOLDER = "visual-regression"
+
+/** A per-task visual export, committed locally to the notes repository. */
+export interface TaskVisualSync {
+    ref: string
+    /** Notes-relative directory and readable report. */
+    path: string
+    reportPath: string
+    fileCount: number
+    missingArtifacts: string[]
+    committed: string | null
 }
 
 /**
@@ -1308,6 +1325,8 @@ export interface WorkPackageRun {
     worked: string[]
     /** Tasks deliberately left out when this run was started. */
     excluded: string[]
+    /** Fixed task selection. Absent or null keeps the queue open to new tasks. */
+    selected?: string[] | null
     /** Every `agent_runs` row this loop launched, oldest first. Empty for
      *  loops from before this was recorded. */
     runIds: number[]
@@ -1432,6 +1451,11 @@ export interface PipelineTaskRun {
     model: string
     /** Extra prompt text for every task's agent in this run. */
     extra: string
+    /** Fixed task selection, including only these refs even when new tasks are added.
+     *  Absent works all open tasks, including newly added tasks. */
+    selected?: string[]
+    /** Exclusions from older plans that worked an open queue. */
+    excluded?: string[]
 }
 
 export interface PipelinePlan {
@@ -1439,12 +1463,19 @@ export interface PipelinePlan {
     agent: RunSupervisor
     /** Investigation refs, run in this order. */
     investigations: string[]
-    /** Works every task still open once the investigations are done. Null
+    /** Works the included tasks still open once the investigations are done. Null
      *  leaves the tasks alone, for a run that only investigates or only
      *  delivers branches. */
     taskRun: PipelineTaskRun | null
     /** Work package branch ids, delivered in this order. */
     branches: number[]
+}
+
+/** Settings that can change when a start-to-finish run resumes. Its stages
+ *  and task selection stay as saved in the plan. */
+export interface PipelineResumeSettings {
+    agent: RunSupervisor
+    taskRun?: Pick<PipelineTaskRun, "model" | "extra">
 }
 
 export const BRANCH_STEPS = ["rebase", "describe", "checks", "pr"] as const

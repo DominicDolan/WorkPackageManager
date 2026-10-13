@@ -1,7 +1,8 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { packageRoot } from "../config/paths"
 import { resolveArtifact, workspace } from "../config/paths"
+import { CONFIG_FILENAME, merge } from "../config/config"
 import {
     aioVrAvailable,
     captureAfter,
@@ -70,6 +71,7 @@ import {
     removeTranscriptLink,
 } from "./transcripts"
 import { openPullRequest } from "./pullRequests"
+import { syncTaskVisuals } from "./visualSync"
 import { reconcilePipelines } from "./workPackagePipeline"
 import {
     reconcileWorkPackageRuns,
@@ -275,12 +277,18 @@ function parsePipelinePlan(raw: unknown): PipelinePlan | string {
             typeof taskRun.extra !== "string")
     )
         return "plan.taskRun must be { model, extra }, or null to leave the tasks alone."
+    if (taskRun?.excluded !== undefined && !strings(taskRun.excluded))
+        return "plan.taskRun.excluded must be an array of task refs."
+    if (taskRun?.selected !== undefined && !strings(taskRun.selected))
+        return "plan.taskRun.selected must be an array of task refs."
     return {
         agent,
         investigations: value.investigations as string[],
         taskRun: taskRun && {
             model: taskRun.model as string,
             extra: taskRun.extra as string,
+            excluded: taskRun.excluded as string[] | undefined,
+            selected: taskRun.selected as string[] | undefined,
         },
         branches: value.branches as number[],
     }
@@ -1700,7 +1708,40 @@ async function handleWorkPackages(
         } else if (verb === "resume") {
             if (request.method !== "POST")
                 return fail("Method not allowed.", 405)
-            resumeWorkRun(runId)
+            const payload = await request.text()
+            let input: unknown
+            try {
+                input = payload.trim() ? JSON.parse(payload) : undefined
+            } catch {
+                return fail("Request body must be valid JSON.")
+            }
+            if (input === undefined) {
+                resumeWorkRun(runId)
+            } else {
+                if (!input || typeof input !== "object")
+                    return fail("Resume settings must be an object.")
+                const value = input as Record<string, unknown>
+                if (value.taskRun === null)
+                    return fail(
+                        "The task stage cannot be removed when resuming.",
+                    )
+                const plan = parsePipelinePlan({
+                    agent: value.agent,
+                    taskRun: value.taskRun,
+                    investigations: [],
+                    branches: [],
+                })
+                if (typeof plan === "string") return fail(plan)
+                if (
+                    typeof plan.agent.model !== "string" ||
+                    typeof plan.agent.extra !== "string"
+                )
+                    return fail("Agent model and instructions must be strings.")
+                resumeWorkRun(runId, {
+                    agent: plan.agent,
+                    taskRun: plan.taskRun ?? undefined,
+                })
+            }
         } else if (request.method === "PATCH") {
             const input = await body<{ label?: string }>(request)
             renameWorkRun(runId, input.label ?? "")
@@ -2019,6 +2060,34 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
     }
 
     if (head === "events") return handleEvents(request)
+
+    if (head === "config") {
+        const configPath = join(ws.tasksDir, CONFIG_FILENAME)
+        if (request.method === "GET") {
+            return json({
+                content: existsSync(configPath)
+                    ? readFileSync(configPath, "utf8")
+                    : "{}",
+            })
+        }
+        if (request.method !== "PUT") return fail("Method not allowed.", 405)
+        const input = await body<{ content?: string }>(request)
+        if (typeof input.content !== "string")
+            return fail("Config content must be a string.")
+        let raw: unknown
+        try {
+            raw = JSON.parse(input.content)
+        } catch (error) {
+            return fail(`Config must be valid JSON: ${String(error)}`)
+        }
+        if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+            return fail("Config must contain a JSON object.")
+        const effective = merge(raw as Record<string, unknown>)
+        writeFileSync(configPath, `${JSON.stringify(raw, null, 4)}\n`)
+        Object.assign(ws.config, effective)
+        announceChange("tasks")
+        return json({ content: `${JSON.stringify(raw, null, 4)}\n` })
+    }
 
     if (head === "agents") return handleAgents(request, url, rest)
 
@@ -2489,8 +2558,15 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
 
     // /api/tasks/:ref/checkpoint/:phase
     if (action === "checkpoint") {
+        if (phase === "sync") {
+            const sync = syncTaskVisuals(ref!)
+            announceChange("notes")
+            return json({ sync })
+        }
         if (phase !== "before" && phase !== "after") {
-            return fail("Checkpoint phase must be 'before' or 'after'.")
+            return fail(
+                "Checkpoint action must be 'before', 'after' or 'sync'.",
+            )
         }
 
         const input = await body<{

@@ -1,4 +1,4 @@
-import type { Note } from "@shared/types"
+import { VISUAL_NOTES_FOLDER, type Note } from "@shared/types"
 import { action, createOptimistic, Show, createSignal } from "solid-js"
 import { api, noteAssetUrl } from "../api"
 import {
@@ -128,7 +128,9 @@ export function NoteEditor(props: {
                     class="back inline-flex items-center gap-[0.35rem]"
                     onClick={props.close}>
                     <BackIcon />
-                    All notes & issues
+                    {props.note.path.startsWith(`${VISUAL_NOTES_FOLDER}/`)
+                        ? "VR notes"
+                        : "All notes & issues"}
                 </button>
                 <AddToWorkPackageButtons add={props.add} />
             </div>

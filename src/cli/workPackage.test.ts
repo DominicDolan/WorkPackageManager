@@ -192,3 +192,99 @@ test("a task on two branches is cut from the first and merged into both", () => 
         dispose()
     }
 })
+
+test("a task cut from its second target replays only its own commits onto the first", () => {
+    const { directory, git, cli, run, dispose } = sandbox()
+    try {
+        const pkg = cli(
+            "work-package",
+            "new",
+            "Planner",
+            "--with-branch",
+        ).workPackage
+        const first = pkg.branches[0].branchName
+        // The first target is stale: cut before main moved on.
+        git("branch", first)
+        const staleTip = git("rev-parse", first)
+
+        // Main moves on, including a merge commit, which a plain rebase flattens.
+        git("switch", "-c", "side")
+        writeFileSync(join(directory, "side.txt"), "side\n")
+        git("add", "side.txt")
+        git("commit", "-m", "Side work")
+        git("switch", "main")
+        git("merge", "--no-ff", "side", "-m", "Merge side")
+        git("branch", "next")
+
+        const task = cli("new", "Workload", "--work-package", pkg.ref).task
+        cli(
+            "work-package",
+            "branch",
+            "add",
+            pkg.ref,
+            "--existing",
+            "next",
+            "--label",
+            "Next",
+        )
+        expect(cli("show", task.ref).task.targetBranches).toEqual([
+            first,
+            "next",
+        ])
+
+        run("branch", task.ref, "--from", "next")
+        cli("start", task.ref)
+        writeFileSync(join(directory, "workload.txt"), "workload\n")
+        git("add", "workload.txt")
+        git("commit", "-m", "The workload")
+
+        const done = cli("done", task.ref)
+        expect(done.mergeError).toBeNull()
+        expect(cli("show", task.ref).task.gitError).toBeNull()
+
+        // The stale branch gained the task's one commit, not copies of main's.
+        expect(git("log", "--format=%s", `${staleTip}..${first}`)).toBe(
+            "The workload",
+        )
+        // And the second target got it too, on top of main's real history.
+        expect(git("log", "--format=%s", "main..next")).toBe("The workload")
+        expect(git("rev-list", "--merges", "main", "-1")).not.toBe("")
+    } finally {
+        dispose()
+    }
+})
+
+test("a failed merge into a target branch is recorded on the task", () => {
+    const { directory, git, cli, run, dispose } = sandbox()
+    try {
+        writeFileSync(join(directory, "shared.txt"), "base\n")
+        git("add", "shared.txt")
+        git("commit", "-m", "Base")
+        const pkg = cli(
+            "work-package",
+            "new",
+            "Clash",
+            "--with-branch",
+        ).workPackage
+        const first = pkg.branches[0].branchName
+        const task = cli("new", "Edit shared", "--work-package", pkg.ref).task
+        run("branch", task.ref)
+        cli("start", task.ref)
+        writeFileSync(join(directory, "shared.txt"), "from the task\n")
+        git("commit", "-am", "Task edit")
+
+        // Someone else changes the same line on the target meanwhile.
+        git("switch", first)
+        writeFileSync(join(directory, "shared.txt"), "from elsewhere\n")
+        git("commit", "-am", "Other edit")
+        git("switch", task.branchName ?? cli("show", task.ref).task.branchName)
+
+        const done = cli("done", task.ref)
+        expect(done.mergeError).toContain(first)
+        const recorded = cli("show", task.ref).task.gitError
+        expect(recorded.message).toContain(first)
+        expect(typeof recorded.at).toBe("string")
+    } finally {
+        dispose()
+    }
+})

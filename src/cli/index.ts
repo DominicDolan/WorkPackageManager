@@ -10,6 +10,7 @@ import {
     checkpointExists,
 } from "../server/aiovr"
 import { captureBeforeRetro, resolveRetroTarget } from "../server/retro"
+import { syncTaskVisuals } from "../server/visualSync"
 import {
     addDependency,
     addNote,
@@ -48,6 +49,7 @@ import {
     createWorkPackageBranch,
     deleteWorkPackageBranch,
     listWorkPackageBranches,
+    recordBranchedFrom,
     resolveWorkPackageBranch,
     updateWorkPackageBranch,
     type MoveTarget,
@@ -2418,11 +2420,36 @@ async function commandCheckpoint(args: Args): Promise<void> {
     const ref = args.positional[2]
 
     if (!phase || !ref) {
-        throw new Error("Usage: tasks checkpoint <before|after|status> <ref>")
+        throw new Error(
+            "Usage: tasks checkpoint <before|after|status|sync> <ref>",
+        )
     }
 
     const task = requireTask(ref)
     const asJson = flagBool(args, "json")
+
+    if (phase === "sync") {
+        const sync = syncTaskVisuals(task.ref)
+        if (asJson) emitJson({ sync })
+        else {
+            print(
+                `${green("synced")} ${bold(sync.ref)} — ${sync.fileCount} VR files`,
+            )
+            print(join(workspace().notesDir, sync.reportPath))
+            print(
+                sync.committed
+                    ? `Committed ${sync.committed}.`
+                    : "Already up to date.",
+            )
+            if (sync.missingArtifacts.length)
+                print(
+                    yellow(
+                        `${sync.missingArtifacts.length} source files are missing; see the report.`,
+                    ),
+                )
+        }
+        return
+    }
 
     if (phase === "status") {
         const detail = getTaskDetail(task.ref)
@@ -2457,7 +2484,7 @@ async function commandCheckpoint(args: Args): Promise<void> {
 
     if (phase !== "before" && phase !== "after") {
         throw new Error(
-            "Checkpoint phase must be 'before', 'after' or 'status'.",
+            "Checkpoint action must be 'before', 'after', 'status' or 'sync'.",
         )
     }
 
@@ -2722,6 +2749,19 @@ function commandBranch(args: Args): void {
     )
     if (result.exitCode !== 0)
         throw new Error(`Could not switch to '${task.branchName}'.`)
+
+    // Where the task's own commits start, whichever branch that was. `tasks
+    // done` replays only what follows it onto the target branches.
+    if (from) {
+        const cut = Bun.spawnSync(
+            ["git", "rev-parse", "--verify", `${from.start}^{commit}`],
+            {
+                cwd,
+            },
+        )
+        if (cut.exitCode === 0)
+            recordBranchedFrom(task.ref, cut.stdout.toString().trim())
+    }
 
     print(`${green("on branch")}  ${task.branchName}`)
     if (from) print(dim(`branched from '${from.start}' — ${from.reason}`))
@@ -3084,6 +3124,7 @@ ${bold("Visual checkpoints")} (wraps aio-vr)
   tasks checkpoint before <ref>  capture the current state, before you change anything
   tasks checkpoint after <ref>   re-run and diff against it; repeatable
   tasks checkpoint status <ref>  what has been captured so far
+  tasks checkpoint sync <ref>    export screenshots and metadata to the notes Git repo
     --scenario <name>            limit to a scenario (repeatable)
     --folder <name>              limit to a folder (repeatable)
     --min-percent <n>            'after': treat diffs at or below n% as unchanged

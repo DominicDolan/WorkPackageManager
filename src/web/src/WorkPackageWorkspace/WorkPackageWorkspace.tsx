@@ -44,6 +44,7 @@ import { InvestigationPanel } from "./InvestigationPanel"
 import { LegacyWorkPackage } from "./LegacyWorkPackage"
 import { PipelineDialog } from "./PipelineDialog"
 import { RunPanel } from "./RunPanel"
+import { ResumePipelineDialog } from "./ResumePipelineDialog"
 import { SupervisorDialog } from "./SupervisorDialog"
 import { WorkPackageOverview } from "./WorkPackageOverview"
 import {
@@ -173,6 +174,18 @@ export function WorkPackageWorkspace(props: {
         </Show>
     ))
     // Keep the dialog open even if its originating Run tab is removed.
+    let resumedRun: WorkRunDetail | undefined
+    const { openDialog: openResumeDialog } = useDialog(({ closeDialog }) => (
+        <ResumePipelineDialog
+            run={resumedRun!}
+            close={closeDialog}
+            changed={changed}
+        />
+    ))
+    const resumePipeline = (run: WorkRunDetail) => {
+        resumedRun = run
+        openResumeDialog()
+    }
     let supervisedRun: WorkRunDetail | undefined
     const { openDialog: openSupervisorDialog } = useDialog(
         ({ closeDialog }) => (
@@ -520,6 +533,9 @@ export function WorkPackageWorkspace(props: {
                                                         changed={changed}
                                                         editSupervisor={
                                                             editSupervisor
+                                                        }
+                                                        resumePipeline={
+                                                            resumePipeline
                                                         }
                                                     />
                                                 )}

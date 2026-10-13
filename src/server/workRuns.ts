@@ -28,6 +28,7 @@ import {
     type AgentRun,
     type AgentRunMode,
     type PipelinePlan,
+    type PipelineResumeSettings,
     type RunSupervisor,
     type WorkPackageRun,
     type WorkRun,
@@ -258,12 +259,19 @@ export function stopWorkRun(id: number): WorkRunDetail {
  * work package since it started join the end of the tab's list, since the loop
  * will work them too.
  */
-export function resumeWorkRun(id: number): WorkRunDetail {
+export function resumeWorkRun(
+    id: number,
+    settings?: PipelineResumeSettings,
+): WorkRunDetail {
     const run = requireWorkRun(id)
     if (run.kind === "pipeline") {
-        resumePipeline(run.id)
+        resumePipeline(run.id, settings)
         return workRunDetail(requireWorkRun(id))
     }
+    if (settings)
+        throw new Error(
+            "Only a start-to-finish run can change settings when resuming.",
+        )
     const loop =
         run.workPackageRunId !== null
             ? findWorkPackageRun(run.workPackageRunId)
@@ -361,6 +369,21 @@ function pipelineRunDetail(run: WorkRun): WorkRunDetail {
         working?.status === "running" ? working.currentRef?.toLowerCase() : null
     const agents = headlessAgentsFor(loops.flatMap((loop) => loop.runIds))
     const pipeline = pipelineDetail(run.id)
+    // An open queue can gain tasks after the stage starts. Include every task
+    // the loop actually launched so its progress and output appear in the tab.
+    const taskRefs = [...run.taskRefs]
+    const known = new Set(taskRefs.map((ref) => ref.toLowerCase()))
+    for (const loop of loops) {
+        for (const ref of [
+            ...loop.worked,
+            ...(loop.currentRef ? [loop.currentRef] : []),
+        ]) {
+            if (!known.has(ref.toLowerCase())) {
+                known.add(ref.toLowerCase())
+                taskRefs.push(ref)
+            }
+        }
+    }
 
     return {
         ...run,
@@ -368,7 +391,8 @@ function pipelineRunDetail(run: WorkRun): WorkRunDetail {
         statusDetail: settled
             ? settled.stopReason
             : "The run's pipeline record is missing.",
-        items: run.taskRefs.map((ref) => workRunItem(ref, current, agents)),
+        taskRefs,
+        items: taskRefs.map((ref) => workRunItem(ref, current, agents)),
         supervisor: pipeline?.plan.agent ?? null,
         agentRun: findAgentRun(pipelineAgentRunId(run.id) ?? -1),
         pipeline,

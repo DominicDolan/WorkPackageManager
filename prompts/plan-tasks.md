@@ -186,14 +186,22 @@ later sees your recommendation and can accept or override it. Judge it by the
 _shape_ of the work, not by how important it is — a `high`-priority task can
 still be mechanical, and a `low`-priority one can still be genuinely hard.
 
-|            |                                                                                                                                                     |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `frontier` | Ambiguous, architectural, or spans many files with subtle interactions — the kind of task where a weaker model would confidently do the wrong thing |
-| `standard` | A normal, well-scoped change — most tasks land here                                                                                                 |
-| `fast`     | Mechanical: a rename, a config tweak, a copy-paste with variations, something you could describe in one sentence and trust any model to get right   |
+Prefer `fast` whenever the work can reasonably start with a fast model. This
+workspace's task workflow can escalate a fast run to a more capable model when
+the fast model cannot complete the work, so do not predictively choose
+`frontier` just because the task might be difficult. Use `standard` or
+`frontier` only when the task's known requirements justify starting at that
+capability level and the escalation path would be inadequate or wasteful.
+
+|            |                                                                                                                                                                             |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fast`     | Default when the task is bounded and can reasonably be attempted by a fast model; this includes most normal, well-scoped changes, since the workflow can escalate if needed |
+| `standard` | Start here only when the task's known complexity makes a fast attempt likely to waste time and escalation would not handle that efficiently                                 |
+| `frontier` | Reserve for work with clear, substantial ambiguity or subtle cross-system interactions where starting with a fast model and escalating would be inadequate                  |
 
 Leave it unset (omit `--tier`) only when you genuinely cannot judge — not as a
-default. Guessing `standard` when unsure is better than omitting it.
+default. When unsure, choose `fast` so the escalation path can handle a task
+that proves more demanding than expected.
 
 **Tags** — reuse what is already in `tasks list --json` before inventing new
 ones. `--tag` repeats: `--tag frontend --tag gantt`.

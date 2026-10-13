@@ -1,1 +1,2 @@
-export type MainView = "work-packages" | "notes" | "transcripts"
+export type MainView =
+    "work-packages" | "notes" | "transcripts" | "configuration"

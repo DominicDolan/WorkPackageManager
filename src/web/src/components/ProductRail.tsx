@@ -45,6 +45,17 @@ export function ProductRail(props: {
                     </Show>
                     Transcripts
                 </button>
+                <button
+                    class="relative flex min-h-[2.8rem] items-center gap-[0.75rem] p-[0_1.5rem] w-full max-[820px]:min-h-[2rem] max-[820px]:p-[0_0_0_1rem] max-[560px]:w-auto max-[560px]:flex-1 max-[560px]:justify-center max-[560px]:p-0 max-[560px]:text-xs"
+                    aria-current={
+                        props.active === "configuration" ? "page" : undefined
+                    }
+                    onClick={() => props.select("configuration")}>
+                    <Show when={props.active === "configuration"}>
+                        <span class="rail-indicator absolute [inset-block:0] left-0 w-[3px]" />
+                    </Show>
+                    Configuration
+                </button>
             </nav>
             <div class="rail-note relative z-[1] mt-auto pt-[1rem] max-[820px]:hidden">
                 <span>Workspace flow</span>

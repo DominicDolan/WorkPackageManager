@@ -12,6 +12,7 @@ import { WorkPackageHome } from "../WorkPackageHome/WorkPackageHome"
 import { WorkPackageWorkspace } from "../WorkPackageWorkspace/WorkPackageWorkspace"
 import { NotesWorkspace } from "../NotesWorkspace/NotesWorkspace"
 import { TranscriptsWorkspace } from "../TranscriptsWorkspace/TranscriptsWorkspace"
+import { ConfigurationWorkspace } from "../ConfigurationWorkspace/ConfigurationWorkspace"
 import { TaskWorkspace } from "../TaskWorkspace/TaskWorkspace"
 import { PageSkeleton } from "../components/PageSkeleton"
 import type { MainView } from "../types/navigation"
@@ -20,6 +21,7 @@ import { loadWorkspace } from "./loadWorkspace"
 /** Issues share the Notes page now; `/issues` links from before still land there. */
 function viewAt(pathname: string): MainView {
     if (pathname === "/transcripts") return "transcripts"
+    if (pathname === "/configuration") return "configuration"
     return pathname === "/notes" || pathname === "/issues"
         ? "notes"
         : "work-packages"
@@ -139,6 +141,9 @@ export function App() {
                 </main>
             )}>
             <Loading fallback={<PageSkeleton />}>
+                <Show when={view() === "configuration"}>
+                    <ConfigurationWorkspace select={selectView} />
+                </Show>
                 <Show when={view() === "notes"}>
                     <NotesWorkspace
                         select={selectView}

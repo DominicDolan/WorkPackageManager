@@ -1,8 +1,10 @@
 import {
     STATUSES,
     STATUS_LABELS,
+    MODEL_TIER_LABELS,
     type Priority,
     type TaskDetail,
+    type TaskVisualSync,
     type WorkPackageDetail,
     type WorkPackageSummary,
 } from "@shared/types"
@@ -30,6 +32,8 @@ export function TaskDetailPanel(props: {
     ) => Promise<void>
     openAgent: () => void
     revision: number
+    visualSync: TaskVisualSync | null
+    syncVisuals: () => void
 }) {
     let title!: HTMLInputElement
     let description!: HTMLTextAreaElement
@@ -45,6 +49,13 @@ export function TaskDetailPanel(props: {
                     <div class="flex items-center gap-2">
                         <span class="reference">{props.task.ref}</span>
                         <StatusBadge status={props.task.status} />
+                        <span
+                            class={`badge inline-flex items-center p-[0.16rem_0.48rem] ${props.task.recommendedTier === "frontier" ? "accent" : ""}`}
+                            title="Recommended model tier">
+                            {props.task.recommendedTier
+                                ? MODEL_TIER_LABELS[props.task.recommendedTier]
+                                : "No model tier"}
+                        </span>
                     </div>
                     <h1 class="max-w-[25ch] m-[0.65rem_0_0]">
                         {props.task.title}
@@ -63,6 +74,43 @@ export function TaskDetailPanel(props: {
                     </button>
                 </div>
             </header>
+            <Show when={props.task.gitError}>
+                {(failure) => (
+                    <aside
+                        class="notice error mt-4"
+                        role="alert"
+                        data-testid="task-git-error">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                            <strong>
+                                A Git operation for this task failed —{" "}
+                                {new Date(failure().at).toLocaleString()}
+                            </strong>
+                            <button
+                                class="outlined"
+                                disabled={!!props.busy}
+                                aria-busy={
+                                    props.busy === "merge" ? "true" : "false"
+                                }
+                                onClick={() =>
+                                    props.mutate("merge", () =>
+                                        api.mergeIntoWorkPackageBranch(
+                                            props.task.ref,
+                                        ),
+                                    )
+                                }>
+                                Retry merge
+                            </button>
+                        </div>
+                        <p class="mt-2 mb-0">
+                            Nothing was changed on the branch it failed on.
+                            Resolve it by hand (or ask an agent), then retry.
+                        </p>
+                        <pre class="mt-2 max-h-60 overflow-auto p-3">
+                            {failure().message}
+                        </pre>
+                    </aside>
+                )}
+            </Show>
             <Show
                 when={props.editing}
                 fallback={
@@ -93,7 +141,7 @@ export function TaskDetailPanel(props: {
                             </select>
                         </label>
                         <label class="field">
-                            <span>Recommended model</span>
+                            <span>Recommended model tier</span>
                             <select
                                 ref={recommendedTier}
                                 value={props.task.recommendedTier ?? ""}>
@@ -200,9 +248,13 @@ export function TaskDetailPanel(props: {
                     <dl class="space-y-3 text-sm">
                         <Detail label="Priority" value={props.task.priority} />
                         <Detail
-                            label="Recommended model"
+                            label="Recommended model tier"
                             value={
-                                props.task.recommendedTier ?? "No preference"
+                                props.task.recommendedTier
+                                    ? MODEL_TIER_LABELS[
+                                          props.task.recommendedTier
+                                      ]
+                                    : "No preference"
                             }
                         />
                         <Detail
@@ -265,7 +317,7 @@ export function TaskDetailPanel(props: {
                             detail-column width.
                         </p>
                     </div>
-                    <div class="flex gap-2">
+                    <div class="flex flex-wrap gap-2">
                         <button
                             aria-busy={
                                 props.busy === "before" ? "true" : "false"
@@ -292,8 +344,40 @@ export function TaskDetailPanel(props: {
                             }>
                             Capture after
                         </button>
+                        <button
+                            class="outlined"
+                            disabled={!!props.busy || !props.task.runs.length}
+                            aria-busy={
+                                props.busy === "sync-visuals" ? "true" : "false"
+                            }
+                            title="Copy this task's VR screenshots and metadata to the notes repository and commit them locally"
+                            onClick={props.syncVisuals}>
+                            {props.busy === "sync-visuals"
+                                ? "Syncing…"
+                                : "Sync VR to notes"}
+                        </button>
                     </div>
                 </div>
+                <Show when={props.visualSync}>
+                    {(sync) => (
+                        <p class="notice mb-4" role="status">
+                            {sync().fileCount} VR files synced to notes at{" "}
+                            {sync().path}.{" "}
+                            {sync().committed
+                                ? `Committed ${sync().committed}.`
+                                : "Already up to date."}{" "}
+                            <a
+                                href={`/notes?note=${encodeURIComponent(sync().reportPath)}`}>
+                                Open report
+                            </a>
+                            <Show when={sync().missingArtifacts.length}>
+                                {" "}
+                                {sync().missingArtifacts.length} source files
+                                are missing; see README.md in the export.
+                            </Show>
+                        </p>
+                    )}
+                </Show>
                 <Show
                     when={props.task.runs.at(-1)}
                     fallback={

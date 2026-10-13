@@ -15,6 +15,7 @@ import {
     patchIds,
     rebaseInProgress,
     rebaseOnto,
+    rebaseRangeOnto,
     readBranch,
     rebuildBranch,
     refExists,
@@ -32,8 +33,10 @@ import {
     listWorkPackageBranches,
     listWorkPackages,
     listTasks,
+    branchedFrom,
     ownCommitsFrom,
     recordCombine,
+    recordGitError,
     recordOwnCommitsFrom,
     registerTaskOnBranch,
     requireWorkPackage,
@@ -167,7 +170,37 @@ export interface TaskMergeResult {
  * the user has resolved it themselves, running this again finds the work
  * already there and simply registers it.
  */
+/**
+ * Merge a task into every one of its target branches, and record on the task
+ * whether that worked — so a failure shows in the web app, not only in the
+ * terminal (or agent transcript) that ran `tasks done`.
+ */
 export function mergeTaskIntoTargetBranches(ref: string): TaskMergeResult {
+    let result: TaskMergeResult
+    try {
+        result = mergeTaskIntoTargetBranchesUnrecorded(ref)
+    } catch (error) {
+        recordGitError(
+            ref,
+            error instanceof Error ? error.message : String(error),
+        )
+        throw error
+    }
+    const failed = result.targets.filter((one) => !one.merged)
+    recordGitError(
+        ref,
+        failed.length
+            ? failed
+                  .map((one) =>
+                      `Could not merge into '${one.branch}'.\n${one.conflict}`.trim(),
+                  )
+                  .join("\n\n")
+            : null,
+    )
+    return result
+}
+
+function mergeTaskIntoTargetBranchesUnrecorded(ref: string): TaskMergeResult {
     const task = requireTask(ref)
     const targets = targetBranchesOf(task)
     if (!targets.length) {
@@ -269,7 +302,17 @@ function mergeIntoPrimary(
 
     // Replay first, fast-forward second. The rebase is what makes the branch
     // a straight list rather than a chain of merge commits.
-    const replayed = rebaseOnto(taskBranch, branch)
+    //
+    // Only the task's own commits are replayed: those after the point it was
+    // cut from. A plain `git rebase <target> <task>` replays everything the
+    // target lacks, so a task cut from somewhere else — a --from branch, a
+    // dependency, a target that is not the first — carried that branch's whole
+    // history onto the target as flattened copies (T-197: 63 rewritten master
+    // commits fast-forwarded onto a stale work package branch).
+    const start = ownCommitsStart(ref, taskBranch, target)
+    const replayed = start
+        ? rebaseRangeOnto(start, taskBranch, branch)
+        : rebaseOnto(taskBranch, branch)
     if (!replayed.rebased) return { ...outcome, conflict: replayed.conflict }
 
     switchBranch(branch)
@@ -283,6 +326,23 @@ function mergeIntoPrimary(
         merged: true,
         alreadyMerged: forwarded.alreadyMerged,
     }
+}
+
+/**
+ * Where the task's own commits start: the commit `tasks branch` cut it from,
+ * when that was recorded and is still in its history, otherwise its fork point
+ * from the base and the work package's other branches. Null when neither can
+ * be found, which leaves the plain rebase as the only option.
+ */
+export function ownCommitsStart(
+    ref: string,
+    taskBranch: string,
+    target: WorkPackageBranch,
+): string | null {
+    const recorded = branchedFrom(ref)
+    if (recorded && refExists(recorded) && isAncestor(recorded, taskBranch))
+        return recorded
+    return forkPointOf(taskBranch, target)
 }
 
 function mergeIntoSecondary(

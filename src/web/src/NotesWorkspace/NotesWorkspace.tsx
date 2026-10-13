@@ -1,6 +1,7 @@
 import { createQuery } from "../hooks/createQuery"
 import {
     ISSUE_SOURCE_LABELS,
+    VISUAL_NOTES_FOLDER,
     type GitConflict,
     type IssueDetail,
     type IssueState,
@@ -34,7 +35,10 @@ import { LibraryCard, type LibraryEntry } from "./LibraryCard"
 import { NoteEditor } from "./NoteEditor"
 import { NotesStatus } from "./NotesStatus"
 
-type Shown = "all" | "notes" | "issues"
+type Shown = "all" | "notes" | "issues" | "vr"
+
+const isVisualNote = (path: string) =>
+    path === VISUAL_NOTES_FOLDER || path.startsWith(`${VISUAL_NOTES_FOLDER}/`)
 
 /** Which record an Add as task / Add as investigation dialog was opened for. */
 type AddRequest =
@@ -53,7 +57,9 @@ export function NotesWorkspace(props: {
     revision: number
 }) {
     const [query, setQuery] = createSignal("")
-    const [shown, setShown] = createSignal<Shown>("all")
+    const [shown, setShown] = createSignal<Shown>(
+        isVisualNote(props.initialPath ?? "") ? "vr" : "all",
+    )
     const [folder, setFolder] = createSignal("")
     const [tag, setTag] = createSignal("")
     const [state, setState] = createSignal<IssueState | "all">("all")
@@ -117,14 +123,20 @@ export function NotesWorkspace(props: {
         const noteEntries: LibraryEntry[] =
             shown() === "issues"
                 ? []
-                : notes.value.notes.map((note) => ({
-                      kind: "note",
-                      key: `note:${note.path}`,
-                      updatedAt: note.updatedAt,
-                      note,
-                  }))
+                : notes.value.notes
+                      .filter((note) =>
+                          shown() === "vr"
+                              ? isVisualNote(note.path)
+                              : !isVisualNote(note.path),
+                      )
+                      .map((note) => ({
+                          kind: "note",
+                          key: `note:${note.path}`,
+                          updatedAt: note.updatedAt,
+                          note,
+                      }))
         const issueEntries: LibraryEntry[] =
-            shown() === "notes"
+            shown() === "notes" || shown() === "vr"
                 ? []
                 : issues.value.issues.map((issue) => ({
                       kind: "issue",
@@ -146,11 +158,10 @@ export function NotesWorkspace(props: {
     // Filters that only mean something for one kind are cleared when that kind
     // is hidden, so nothing stays filtered by a control that is not shown.
     const show = (next: Shown) => {
+        if (next === shown()) return
         setShown(next)
-        if (next !== "notes") {
-            setFolder("")
-            setTag("")
-        }
+        setFolder("")
+        setTag("")
         if (next !== "issues") {
             setState("all")
             setSource("")
@@ -303,16 +314,18 @@ export function NotesWorkspace(props: {
                                         Push
                                     </button>
                                 </Show>
-                                <button
-                                    class="primary"
-                                    disabled={
-                                        !notes.value.workspace.exists ||
-                                        !!busy()
-                                    }
-                                    onClick={() => setCreating(true)}>
-                                    <PlusIcon />
-                                    New note
-                                </button>
+                                <Show when={shown() !== "vr"}>
+                                    <button
+                                        class="primary"
+                                        disabled={
+                                            !notes.value.workspace.exists ||
+                                            !!busy()
+                                        }
+                                        onClick={() => setCreating(true)}>
+                                        <PlusIcon />
+                                        New note
+                                    </button>
+                                </Show>
                             </div>
                         </header>
                         <Banner />
@@ -625,6 +638,11 @@ function Library(props: {
     initialising: boolean
     initialise: () => Promise<void>
 }) {
+    const folders = createMemo(() =>
+        props.notes.folders.filter((item) =>
+            props.shown === "vr" ? isVisualNote(item) : !isVisualNote(item),
+        ),
+    )
     return (
         <>
             <section class="library flex max-w-[1500px] flex-wrap items-center gap-[0.75rem] m-[0_auto_1.25rem] p-[0.85rem_1rem]">
@@ -639,7 +657,7 @@ function Library(props: {
                     type="search"
                 />
                 <div role="group" class="segmented flex" aria-label="Show">
-                    <For each={["all", "notes", "issues"] as const}>
+                    <For each={["all", "notes", "issues", "vr"] as const}>
                         {(value) => (
                             <button
                                 class="p-[0.5rem_0.8rem]"
@@ -651,14 +669,17 @@ function Library(props: {
                                     ? "All"
                                     : value === "notes"
                                       ? "Notes"
-                                      : "Issues"}
+                                      : value === "issues"
+                                        ? "Issues"
+                                        : "VR notes"}
                             </button>
                         )}
                     </For>
                 </div>
                 <Show
                     when={
-                        props.shown === "notes" && props.notes.folders.length
+                        (props.shown === "notes" || props.shown === "vr") &&
+                        folders().length
                     }>
                     <select
                         class="p-[0.58rem_0.65rem]"
@@ -667,9 +688,21 @@ function Library(props: {
                         onChange={(event) =>
                             props.setFolder(event.currentTarget.value)
                         }>
-                        <option value="">All folders</option>
-                        <For each={props.notes.folders}>
-                            {(item) => <option value={item}>{item}</option>}
+                        <option value="">
+                            {props.shown === "vr"
+                                ? "All VR folders"
+                                : "All folders"}
+                        </option>
+                        <For each={folders()}>
+                            {(item) => (
+                                <option value={item}>
+                                    {props.shown === "vr"
+                                        ? item.slice(
+                                              VISUAL_NOTES_FOLDER.length + 1,
+                                          )
+                                        : item}
+                                </option>
+                            )}
                         </For>
                     </select>
                 </Show>
@@ -752,7 +785,9 @@ function Library(props: {
                             </h2>
                             <p class="m-[0.75rem_0_0]">
                                 {props.notes.workspace.exists
-                                    ? "Nothing matches these filters. Notes are Markdown files in the shared folder, and issues are provider JSON files beside them."
+                                    ? props.shown === "vr"
+                                        ? "No VR notes match these filters. Use Sync VR to notes on a task to add its visual report."
+                                        : "Nothing matches these filters. Notes are Markdown files in the shared folder, and issues are provider JSON files beside them."
                                     : "Create the notes folder to keep research, decisions and evidence beside the work."}
                             </p>
                         </section>

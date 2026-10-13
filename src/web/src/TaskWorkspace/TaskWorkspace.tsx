@@ -1,5 +1,9 @@
 import { createQuery } from "../hooks/createQuery"
-import { workPackageQueueBlockers, type Task } from "@shared/types"
+import {
+    workPackageQueueBlockers,
+    type Task,
+    type TaskVisualSync,
+} from "@shared/types"
 import {
     action,
     createOptimistic,
@@ -46,6 +50,9 @@ export function TaskWorkspace(props: {
     const [busy, setBusy] = createOptimistic("")
     const { capture, clear, message } = useError()
     const [note, setNote] = createSignal("")
+    const [visualSync, setVisualSync] = createSignal<TaskVisualSync | null>(
+        null,
+    )
     const blockers = createMemo(() => {
         const detail = workPackage.value
         return detail
@@ -75,6 +82,8 @@ export function TaskWorkspace(props: {
 
         setBusy(label)
         clear()
+        if (label === "before" || label === "after" || label === "sync-visuals")
+            setVisualSync(null)
         try {
             yield request()
 
@@ -86,6 +95,19 @@ export function TaskWorkspace(props: {
             capture(caught)
         }
     })
+
+    const syncVisuals = () => {
+        const ref = task.value.ref
+        let result: TaskVisualSync
+        return mutate(
+            "sync-visuals",
+            () =>
+                api.syncTaskVisuals(ref).then((sync) => {
+                    result = sync
+                }),
+            () => setVisualSync(result),
+        )
+    }
 
     return (
         <main class={`${styles.scope} task-workspace min-h-screen`}>
@@ -204,6 +226,12 @@ export function TaskWorkspace(props: {
                                 mutate={mutate}
                                 openAgent={() => setAgentOpen(true)}
                                 revision={props.revision}
+                                visualSync={
+                                    visualSync()?.ref === task.value.ref
+                                        ? visualSync()
+                                        : null
+                                }
+                                syncVisuals={syncVisuals}
                             />
                         </div>
                     </div>

@@ -254,7 +254,7 @@ function modelTierMap(
 }
 
 /** Validate and coerce one raw JSON object into a full config. */
-function merge(raw: Record<string, unknown>): TasksConfig {
+export function merge(raw: Record<string, unknown>): TasksConfig {
     // Existing workspaces may still configure the former group branch prefix.
     raw = {
         ...raw,

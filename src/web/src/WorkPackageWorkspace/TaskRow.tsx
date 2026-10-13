@@ -1,4 +1,5 @@
-import { type Task } from "@shared/types"
+import { MODEL_TIER_LABELS, type Task } from "@shared/types"
+import { Show } from "solid-js"
 import { StatusBadge } from "../components/StatusBadge"
 
 export function TaskRow(props: {
@@ -19,14 +20,31 @@ export function TaskRow(props: {
                         {props.task.ref}
                     </span>
                     <StatusBadge status={props.task.status} />
+                    <Show when={props.task.gitError}>
+                        <span
+                            class="badge inline-flex items-center p-[0.16rem_0.48rem] text-red-700"
+                            title={props.task.gitError?.message}
+                            data-testid="task-row-git-error">
+                            ⚠ Git failed
+                        </span>
+                    </Show>
                 </div>
                 <p class="mt-1.5 truncate text-sm font-medium text-slate-800">
                     {props.task.title}
                 </p>
             </div>
-            <span class="mt-2 text-xs capitalize text-slate-400">
-                {props.task.priority}
-            </span>
+            <div class="mt-1 flex shrink-0 items-center gap-2">
+                <span class="text-xs capitalize text-slate-400">
+                    {props.task.priority}
+                </span>
+                <span
+                    class={`badge inline-flex items-center p-[0.16rem_0.48rem] ${props.task.recommendedTier === "frontier" ? "accent" : ""}`}
+                    title="Recommended model tier">
+                    {props.task.recommendedTier
+                        ? MODEL_TIER_LABELS[props.task.recommendedTier]
+                        : "No tier"}
+                </span>
+            </div>
         </button>
     )
 }

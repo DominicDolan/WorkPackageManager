@@ -3,6 +3,7 @@ import {
     BRANCH_STEPS,
     INVESTIGATION_STATUS_LABELS,
     RECOMMENDED_MODEL,
+    STATUS_LABELS,
     type AgentHarnessId,
     type AgentPermissionMode,
     type WorkPackageDetail,
@@ -81,6 +82,14 @@ export function PipelineDialog(props: {
     )
     const [taskModel, setTaskModel] = createSignal(RECOMMENDED_MODEL)
     const [taskExtra, setTaskExtra] = createSignal("")
+    const [taskMode, setTaskMode] = createSignal<"all" | "selected">("all")
+    const [taskSelection, setTaskSelection] = createSignal<ReadonlySet<string>>(
+        new Set(untrack(() => props.workPackage.queue.map((task) => task.ref))),
+    )
+    const selectedTasks = () =>
+        props.workPackage.queue.filter((task) => taskSelection().has(task.ref))
+    const hasTaskRun = () =>
+        working() && (taskMode() === "all" || selectedTasks().length > 0)
     const [branches, setBranches] = createSignal<ReadonlySet<number>>(
         new Set(
             untrack(() =>
@@ -133,7 +142,7 @@ export function PipelineDialog(props: {
         return next
     }
     const nothingChosen = () =>
-        !investigations().size && !working() && !branches().size
+        !investigations().size && !hasTaskRun() && !branches().size
 
     const start = action(async function* () {
         if (busy() || isPending(harness) || nothingChosen()) return
@@ -163,8 +172,15 @@ export function PipelineDialog(props: {
                     investigations: props.workPackage.investigations
                         .filter((item) => investigations().has(item.ref))
                         .map((item) => item.ref),
-                    taskRun: working()
-                        ? { model: taskModel(), extra: taskExtra() }
+                    taskRun: hasTaskRun()
+                        ? {
+                              model: taskModel(),
+                              extra: taskExtra(),
+                              selected:
+                                  taskMode() === "selected"
+                                      ? selectedTasks().map((task) => task.ref)
+                                      : undefined,
+                          }
                         : null,
                     branches: props.workPackage.branches
                         .filter((branch) => branches().has(branch.id))
@@ -185,8 +201,8 @@ export function PipelineDialog(props: {
         <Modal title="Work with an agent" close={props.close}>
             <p class="description m-[0_0_1rem]">
                 Works this package from start to finish: the investigations,
-                then the tasks they file, then each branch through to a pull
-                request. It gets a Run tab of its own.
+                then tasks according to your chosen mode, then each branch
+                through to a pull request. It gets a Run tab of its own.
             </p>
 
             <section>
@@ -246,7 +262,7 @@ export function PipelineDialog(props: {
             <Stage
                 number={2}
                 title="Task Run"
-                hint="Works every task still open once the investigations are done: a fresh headless agent per task, in dependency order, with the agent above as supervisor.">
+                hint="A fresh headless agent per task, in dependency order, with the agent above as supervisor.">
                 <label class="choice flex items-center gap-[0.75rem] p-[0.7rem]">
                     <input
                         type="checkbox"
@@ -255,45 +271,179 @@ export function PipelineDialog(props: {
                             setWorking(event.currentTarget.checked)
                         }
                     />
-                    <span class="min-w-0 flex-1">Work the open tasks</span>
+                    <span class="min-w-0 flex-1">Work tasks</span>
                     <span class="caption muted">
                         {props.workPackage.queue.length} open now
                     </span>
                 </label>
                 <Show when={working()}>
                     <div class="mt-3">
-                        <Loading
-                            fallback={
+                        <fieldset class="m-0 grid gap-2 border-0 p-0">
+                            <legend class="caption mb-2">Tasks to work</legend>
+                            <label class="choice flex items-start gap-3 p-[0.7rem]">
+                                <input
+                                    type="radio"
+                                    name="pipeline-task-mode"
+                                    checked={taskMode() === "all"}
+                                    onChange={() => setTaskMode("all")}
+                                />
+                                <span>
+                                    <span class="block">All open tasks</span>
+                                    <span class="caption muted">
+                                        Works all open tasks, including those
+                                        filed by investigations and any added
+                                        while the task stage is running.
+                                    </span>
+                                </span>
+                            </label>
+                            <label class="choice flex items-start gap-3 p-[0.7rem]">
+                                <input
+                                    type="radio"
+                                    name="pipeline-task-mode"
+                                    checked={taskMode() === "selected"}
+                                    onChange={() => setTaskMode("selected")}
+                                />
+                                <span>
+                                    <span class="block">Selected tasks</span>
+                                    <span class="caption muted">
+                                        Only the tasks you select below. Newly
+                                        added tasks, including those filed by
+                                        investigations, are left for another
+                                        run.
+                                    </span>
+                                </span>
+                            </label>
+                        </fieldset>
+                        <Show when={taskMode() === "selected"}>
+                            <div class="mt-3 mb-2 flex items-center justify-between gap-2">
+                                <span class="caption muted" aria-live="polite">
+                                    {selectedTasks().length} of{" "}
+                                    {props.workPackage.queue.length} open tasks
+                                    selected
+                                </span>
+                                <div class="flex gap-2">
+                                    <button
+                                        class="outlined"
+                                        onClick={() =>
+                                            setTaskSelection(
+                                                new Set(
+                                                    props.workPackage.queue.map(
+                                                        (task) => task.ref,
+                                                    ),
+                                                ),
+                                            )
+                                        }>
+                                        Select all
+                                    </button>
+                                    <button
+                                        class="outlined"
+                                        onClick={() =>
+                                            setTaskSelection(new Set())
+                                        }>
+                                        Clear
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="grid max-h-64 gap-2 overflow-y-auto">
+                                <For
+                                    each={props.workPackage.queue}
+                                    fallback={
+                                        <p class="hint m-0">
+                                            No open tasks yet.
+                                        </p>
+                                    }>
+                                    {(task) => (
+                                        <label class="choice flex items-center gap-[0.75rem] p-[0.7rem]">
+                                            <input
+                                                type="checkbox"
+                                                checked={taskSelection().has(
+                                                    task.ref,
+                                                )}
+                                                onChange={(event) =>
+                                                    setTaskSelection((set) =>
+                                                        toggle(
+                                                            set,
+                                                            task.ref,
+                                                            event.currentTarget
+                                                                .checked,
+                                                        ),
+                                                    )
+                                                }
+                                            />
+                                            <span class="font-mono caption muted">
+                                                {task.ref}
+                                            </span>
+                                            <span class="min-w-0 flex-1">
+                                                <span
+                                                    class="block truncate"
+                                                    title={task.title}>
+                                                    {task.title}
+                                                </span>
+                                                <Show
+                                                    when={
+                                                        task.dependsOn.length >
+                                                        0
+                                                    }>
+                                                    <span class="caption muted">
+                                                        Depends on{" "}
+                                                        {task.dependsOn.join(
+                                                            ", ",
+                                                        )}
+                                                    </span>
+                                                </Show>
+                                            </span>
+                                            <span class="badge p-[0.12rem_0.42rem]">
+                                                {STATUS_LABELS[task.status]}
+                                            </span>
+                                        </label>
+                                    )}
+                                </For>
+                            </div>
+                            <p class="caption muted mt-2">
+                                A selected task waits if an unfinished
+                                dependency is left out.
+                            </p>
+                            <Show when={!selectedTasks().length}>
+                                <p class="hint">
+                                    Select at least one task to include the task
+                                    stage.
+                                </p>
+                            </Show>
+                        </Show>
+                        <div class="mt-3">
+                            <Loading
+                                fallback={
+                                    <ModelPicker
+                                        harness={chosenHarness()}
+                                        models={[]}
+                                        value=""
+                                        setValue={() => {}}
+                                        defaultLabel="Harness default"
+                                        recommended
+                                        busy
+                                    />
+                                }>
                                 <ModelPicker
                                     harness={chosenHarness()}
-                                    models={[]}
-                                    value=""
-                                    setValue={() => {}}
+                                    models={isPending(models) ? [] : models()}
+                                    busy={isPending(models)}
+                                    value={taskModel()}
+                                    setValue={setTaskModel}
                                     defaultLabel="Harness default"
                                     recommended
-                                    busy
                                 />
-                            }>
-                            <ModelPicker
-                                harness={chosenHarness()}
-                                models={isPending(models) ? [] : models()}
-                                busy={isPending(models)}
-                                value={taskModel()}
-                                setValue={setTaskModel}
-                                defaultLabel="Harness default"
-                                recommended
-                            />
-                        </Loading>
-                        <label class="field mt-3">
-                            <span>Instructions for task agents</span>
-                            <textarea
-                                value={taskExtra()}
-                                onInput={(event) =>
-                                    setTaskExtra(event.currentTarget.value)
-                                }
-                                placeholder="Optional context for every task…"
-                            />
-                        </label>
+                            </Loading>
+                            <label class="field mt-3">
+                                <span>Instructions for task agents</span>
+                                <textarea
+                                    value={taskExtra()}
+                                    onInput={(event) =>
+                                        setTaskExtra(event.currentTarget.value)
+                                    }
+                                    placeholder="Optional context for every task…"
+                                />
+                            </label>
+                        </div>
                     </div>
                 </Show>
             </Stage>

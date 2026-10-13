@@ -100,20 +100,37 @@ export interface StartWorkPackageRunInput {
     extra: string
     /** Unfinished tasks the user chose to leave out of this run. */
     excluded: string[]
+    /** Only work these tasks. Absent allows newly added tasks. */
+    selected?: string[]
     /** Who to call in when a task stops short, if anyone. */
     supervisor?: RunSupervisor | null
+}
+
+function includedTasks(
+    detail: WorkPackageDetail,
+    excluded: readonly string[],
+    selected?: readonly string[] | null,
+) {
+    const omitted = new Set(excluded.map((ref) => ref.toLowerCase()))
+    const allowed =
+        selected == null
+            ? null
+            : new Set(selected.map((ref) => ref.toLowerCase()))
+    return detail.queue.filter(
+        (task) =>
+            !omitted.has(task.ref.toLowerCase()) &&
+            (allowed === null || allowed.has(task.ref.toLowerCase())),
+    )
 }
 
 function nextIncludedTask(
     detail: WorkPackageDetail,
     excluded: readonly string[],
+    selected?: readonly string[] | null,
 ) {
-    const omitted = new Set(excluded.map((ref) => ref.toLowerCase()))
     const eligible = {
         ...detail,
-        queue: detail.queue.filter(
-            (task) => !omitted.has(task.ref.toLowerCase()),
-        ),
+        queue: includedTasks(detail, excluded, selected),
     }
     return nextWorkableTask(eligible)
 }
@@ -131,15 +148,13 @@ function whyNotWorkable(
     detail: WorkPackageDetail,
     allowRef: string | null,
     excluded: readonly string[] = [],
+    selected?: readonly string[] | null,
 ): string | null {
-    const omitted = new Set(excluded.map((ref) => ref.toLowerCase()))
-    const included = detail.queue.filter(
-        (task) => !omitted.has(task.ref.toLowerCase()),
-    )
+    const included = includedTasks(detail, excluded, selected)
     if (!included.length)
         return "There are no included tasks left in this work package for an agent to work."
 
-    const next = nextIncludedTask(detail, excluded)
+    const next = nextIncludedTask(detail, excluded, selected)
     if (!next) {
         return "Every included task is waiting on unfinished work this run will not do."
     }
@@ -206,10 +221,23 @@ export function startWorkPackageRun(input: StartWorkPackageRunInput): {
             )
         return canonical
     })
-    const problem = whyNotWorkable(detail, null, excluded)
+    const selected =
+        input.selected === undefined
+            ? undefined
+            : [...new Set(input.selected.map((ref) => ref.toLowerCase()))].map(
+                  (ref) => {
+                      const canonical = queued.get(ref)
+                      if (!canonical)
+                          throw new Error(
+                              `${ref} is not an unfinished task in ${workPackage.ref}.`,
+                          )
+                      return canonical
+                  },
+              )
+    const problem = whyNotWorkable(detail, null, excluded, selected)
     if (problem) throw new Error(problem)
 
-    const next = nextIncludedTask(detail, excluded)!
+    const next = nextIncludedTask(detail, excluded, selected)!
     const workPackageRun = createWorkPackageRun({
         workPackageRef: workPackage.ref,
         harness: input.harness as WorkPackageRun["harness"],
@@ -217,6 +245,7 @@ export function startWorkPackageRun(input: StartWorkPackageRunInput): {
         permissionMode: input.permissionMode,
         extra: input.extra,
         excluded,
+        selected,
         supervisor,
     })
 
@@ -306,6 +335,7 @@ const HANDOFF_TAIL_CHARS = 12_000
 export function resumeWorkPackageRun(
     id: number,
     knownRunIds: number[],
+    settings?: Parameters<typeof reopenWorkPackageRun>[2],
 ): { workPackageRun: WorkPackageRun; run: AgentRun } {
     const previous = requireWorkPackageRun(id)
     if (previous.status === "running")
@@ -340,11 +370,14 @@ export function resumeWorkPackageRun(
         detail,
         stranded?.ref ?? null,
         previous.excluded,
+        previous.selected,
     )
     if (problem) throw new Error(problem)
-    const next = stranded ?? nextIncludedTask(detail, previous.excluded)!
+    const next =
+        stranded ??
+        nextIncludedTask(detail, previous.excluded, previous.selected)!
 
-    const reopened = reopenWorkPackageRun(id, knownRunIds)
+    const reopened = reopenWorkPackageRun(id, knownRunIds, settings)
     try {
         const run = launch(reopened, next.ref, handoffFor(reopened, next))
         return { workPackageRun: requireWorkPackageRun(id), run }
@@ -687,25 +720,23 @@ function advance(agentRunId: number, status: AgentRunStatus): void {
     const current = requireWorkPackageRun(workPackageRun.id)
 
     const detail = getWorkPackageDetail(current.workPackageRef)
-    if (
-        !detail.queue.some(
-            (task) =>
-                !current.excluded.some(
-                    (ref) => ref.toLowerCase() === task.ref.toLowerCase(),
-                ),
-        )
-    ) {
+    if (!includedTasks(detail, current.excluded, current.selected).length) {
         settleWorkPackageRun(current.id, "finished", "")
         return
     }
 
-    const problem = whyNotWorkable(detail, null, current.excluded)
+    const problem = whyNotWorkable(
+        detail,
+        null,
+        current.excluded,
+        current.selected,
+    )
     if (problem) {
         settleWorkPackageRun(current.id, "blocked", problem)
         return
     }
 
-    const next = nextIncludedTask(detail, current.excluded)!
+    const next = nextIncludedTask(detail, current.excluded, current.selected)!
     if (current.worked.includes(next.ref)) {
         settleWorkPackageRun(
             current.id,

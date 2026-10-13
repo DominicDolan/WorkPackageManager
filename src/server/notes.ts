@@ -18,6 +18,7 @@ import {
     sep,
 } from "node:path"
 import { workspace } from "../config/paths"
+import { VISUAL_NOTES_FOLDER } from "../shared/types"
 import type {
     GitConflict,
     Note,
@@ -316,6 +317,8 @@ function summarize(
             path,
             title:
                 meta.title?.trim() ||
+                (path.startsWith(`${VISUAL_NOTES_FOLDER}/`) &&
+                    /^#\s+([^\n]+)/m.exec(body)?.[1]?.trim()) ||
                 basename(path, ".md").replace(/[-_]+/g, " "),
             tags: meta.tags ?? [],
             folder: dirname(path) === "." ? "" : dirname(path),
@@ -449,7 +452,9 @@ export function indexImageFolders(): string[] {
         for (const entry of entries) {
             if (!entry.isDirectory() || entry.name.startsWith(".")) continue
             const child = path ? `${path}/${entry.name}` : entry.name
-            if (child === ATTACHMENTS) continue
+            // Task exports already have a report linking their screenshots.
+            // Creating gallery notes inside artifacts would pollute the export.
+            if (child === ATTACHMENTS || child === VISUAL_NOTES_FOLDER) continue
             walk(join(directory, entry.name))
         }
 
@@ -1018,17 +1023,25 @@ export function notesWorkspaceInfo(): NotesWorkspaceInfo {
  * not an error: two saves in a row with no change between them, or a folder that
  * is not a repository at all.
  */
-export function commitNotes(message: string): string | null {
+export function commitNotes(message: string, paths?: string[]): string | null {
     if (!isNotesRepo()) return null
-    if (!git(["status", "--porcelain"]).stdout.trim()) return null
+    const scope = paths?.length ? ["--", ...paths] : []
+    if (!git(["status", "--porcelain", ...scope]).stdout.trim()) return null
 
-    const staged = git(["add", "-A"])
+    const staged = git(["add", "-A", ...scope])
     if (staged.code !== 0)
         throw new Error(
             staged.stderr.trim() || "Could not stage the notes changes.",
         )
 
-    const committed = git(["commit", "-m", message])
+    // --only leaves other notes (including already staged edits) out of a
+    // per-task export commit. Ordinary Notes commits still include everything.
+    const committed = git([
+        "commit",
+        "-m",
+        message,
+        ...(scope.length ? ["--only", ...scope] : []),
+    ])
     if (committed.code !== 0) {
         throw new Error(
             committed.stderr.trim() ||

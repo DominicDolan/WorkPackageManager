@@ -54,6 +54,7 @@ import {
     RECOMMENDED_MODEL,
     type PipelineDetail,
     type PipelinePlan,
+    type PipelineResumeSettings,
     type PipelineStep,
     type PipelineStepDetail,
     type WorkPackageBranch,
@@ -104,8 +105,8 @@ interface PipelineRow {
 const UNATTENDED_INVESTIGATION = `## Nobody is watching this run
 
 This investigation is the first stage of an unattended run. When it is
-complete, the run goes on to work the tasks you file, then delivers them as a
-pull request. Nobody is here to answer a question or approve the task list:
+complete, the run goes on to its configured task and branch stages. Nobody
+is here to answer a question or approve the task list:
 
 - Do not stop to ask. Where you would ask, decide from the brief, the code and
   the notes, and say what you decided in the findings.
@@ -207,6 +208,39 @@ export function preparePipeline(
     if (busy) throw new Error(busy)
 
     const agent = unattendedSupervisor(plan.agent, "carry the run through")
+    const queued = new Map(
+        getWorkPackageDetail(workPackage.ref).queue.map((task) => [
+            task.ref.toLowerCase(),
+            task.ref,
+        ]),
+    )
+    const excluded = [
+        ...new Set(
+            (plan.taskRun?.excluded ?? []).map((ref) => ref.toLowerCase()),
+        ),
+    ].map((ref) => {
+        const canonical = queued.get(ref)
+        if (!canonical)
+            throw new Error(
+                `${ref} is not an unfinished task in ${workPackage.ref}.`,
+            )
+        return canonical
+    })
+    const selected =
+        plan.taskRun?.selected === undefined
+            ? undefined
+            : [
+                  ...new Set(
+                      plan.taskRun.selected.map((ref) => ref.toLowerCase()),
+                  ),
+              ].map((ref) => {
+                  const canonical = queued.get(ref)
+                  if (!canonical)
+                      throw new Error(
+                          `${ref} is not an unfinished task in ${workPackage.ref}.`,
+                      )
+                  return canonical
+              })
     for (const ref of plan.investigations) {
         const investigation = findInvestigation(ref)
         if (
@@ -233,6 +267,8 @@ export function preparePipeline(
         taskRun: plan.taskRun && {
             model: plan.taskRun.model || RECOMMENDED_MODEL,
             extra: plan.taskRun.extra,
+            excluded,
+            selected,
         },
         branches: [...new Set(plan.branches)],
     }
@@ -345,17 +381,41 @@ function begin(
                 ? findWorkPackageRun(step.workPackageRunId)
                 : null
         if (previous && previous.status !== "finished") {
-            resumeWorkPackageRun(previous.id, previous.runIds)
+            const taskRun = record.plan.taskRun!
+            resumeWorkPackageRun(previous.id, previous.runIds, {
+                harness: agent.harness,
+                model: taskRun.model,
+                permissionMode: agent.permissionMode,
+                extra: taskRun.extra,
+                supervisor: agent,
+            })
             step.state = "running"
             return
         }
         const detail = getWorkPackageDetail(workPackageRef)
-        if (!detail.queue.length) {
+        // An investigation may have completed or moved an excluded task since
+        // the plan was saved. Only pass exclusions still in the open queue.
+        const omitted = new Set(
+            (record.plan.taskRun!.excluded ?? []).map((ref) =>
+                ref.toLowerCase(),
+            ),
+        )
+        const selection = record.plan.taskRun!.selected
+        const allowed =
+            selection === undefined
+                ? null
+                : new Set(selection.map((ref) => ref.toLowerCase()))
+        const included = detail.queue.filter(
+            (task) =>
+                !omitted.has(task.ref.toLowerCase()) &&
+                (allowed === null || allowed.has(task.ref.toLowerCase())),
+        )
+        if (!included.length) {
             step.state = "done"
-            step.detail = "No tasks were left to work."
+            step.detail = "No included tasks were left to work."
             return
         }
-        placeUnbranchedTasks(record, detail.queue)
+        placeUnbranchedTasks(record, included)
         // A task stage exists only when the plan has a task run.
         const taskRun = record.plan.taskRun!
         const started = startWorkPackageRun({
@@ -364,14 +424,20 @@ function begin(
             model: taskRun.model,
             permissionMode: agent.permissionMode,
             extra: taskRun.extra,
-            excluded: [],
+            excluded: detail.queue
+                .filter((task) => omitted.has(task.ref.toLowerCase()))
+                .map((task) => task.ref),
+            selected:
+                selection === undefined
+                    ? undefined
+                    : included.map((task) => task.ref),
             supervisor: agent,
         })
         step.workPackageRunId = started.workPackageRun.id
         step.state = "running"
         addTaskRefs(
             id,
-            getWorkPackageDetail(workPackageRef).queue.map((task) => task.ref),
+            included.map((task) => task.ref),
         )
         return
     }
@@ -704,7 +770,10 @@ export function stopPipeline(id: number): void {
 }
 
 /** Start a stopped or blocked pipeline again at the stage it stopped on. */
-export function resumePipeline(id: number): void {
+export function resumePipeline(
+    id: number,
+    settings?: PipelineResumeSettings,
+): void {
     const record = readRecord(id)
     if (!record) throw new Error("This run has no pipeline to resume.")
     if (record.status === "running")
@@ -714,6 +783,21 @@ export function resumePipeline(id: number): void {
     const busy = whyBusy()
     if (busy) throw new Error(busy)
 
+    if (settings) {
+        const agent = unattendedSupervisor(
+            settings.agent,
+            "carry the run through",
+        )
+        if (settings.taskRun && !record.plan.taskRun)
+            throw new Error("This run has no task stage to configure.")
+        record.plan.agent = agent
+        if (settings.taskRun && record.plan.taskRun) {
+            record.plan.taskRun.model =
+                settings.taskRun.model || RECOMMENDED_MODEL
+            record.plan.taskRun.extra = settings.taskRun.extra
+        }
+    }
+
     const index = currentIndex(record)
     if (index !== -1) {
         record.steps[index]!.state = "waiting"
@@ -721,7 +805,23 @@ export function resumePipeline(id: number): void {
     }
     record.status = "running"
     record.stopReason = ""
-    writeRecord(id, record)
+    getDb().transaction(() => {
+        writeRecord(id, record)
+        if (settings) {
+            const agent = record.plan.agent
+            getDb()
+                .query(
+                    "UPDATE work_runs SET harness = $harness, model = $model, permission_mode = $permission, extra = $extra WHERE id = $id",
+                )
+                .run({
+                    $id: id,
+                    $harness: agent.harness,
+                    $model: agent.model,
+                    $permission: agent.permissionMode,
+                    $extra: agent.extra,
+                })
+        }
+    })()
     progress(id, true)
 }
 
@@ -810,7 +910,14 @@ export function pipelineDetail(id: number): PipelineDetail | null {
                 }),
             }
         if (step.kind === "tasks")
-            return { ...step, title: "Every open task", agents: [] }
+            return {
+                ...step,
+                title:
+                    record.plan.taskRun?.selected === undefined
+                        ? "All open tasks"
+                        : "Selected tasks",
+                agents: [],
+            }
         return {
             ...step,
             title: branches.get(step.branchId)?.label ?? step.branchName,

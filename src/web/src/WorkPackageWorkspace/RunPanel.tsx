@@ -53,6 +53,7 @@ export function RunPanel(props: {
     changed: () => void
     /** Open the dialog that attaches, changes or removes the supervisor. */
     editSupervisor: (run: WorkRunDetail) => void
+    resumePipeline: (run: WorkRunDetail) => void
 }) {
     const [busy, setBusy] = createOptimistic("")
     const { capture, clear, Banner } = useError()
@@ -229,17 +230,21 @@ export function RunPanel(props: {
                             disabled={!!busy()}
                             title={
                                 props.run.kind === "pipeline"
-                                    ? "Start the stage it stopped on again. Stages already done stay done."
+                                    ? "Review agent settings and resume from the stage it stopped on."
                                     : "Start the loop again. The task it stopped on goes to a fresh agent, handed the task and what the last agent left behind."
                             }
-                            onClick={() =>
-                                act("resume", () =>
+                            onClick={() => {
+                                if (props.run.kind === "pipeline") {
+                                    props.resumePipeline(props.run)
+                                    return
+                                }
+                                void act("resume", () =>
                                     api.resumeWorkRun(
                                         props.workPackage.ref,
                                         props.run.id,
                                     ),
                                 )
-                            }>
+                            }}>
                             Resume run
                         </button>
                     </Show>

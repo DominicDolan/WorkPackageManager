@@ -68,6 +68,8 @@ interface TaskRow {
     dev_completed_at: string | null
     verified_at: string | null
     closed_at: string | null
+    git_error: string | null
+    git_error_at: string | null
 }
 
 /**
@@ -159,6 +161,10 @@ function toTask(
         devCompletedAt: row.dev_completed_at,
         verifiedAt: row.verified_at,
         closedAt: row.closed_at,
+        gitError:
+            row.git_error && row.git_error_at
+                ? { message: row.git_error, at: row.git_error_at }
+                : null,
     }
 }
 
@@ -1727,6 +1733,37 @@ export function ownCommitsFrom(ref: string): string | null {
     )
 }
 
+export function branchedFrom(ref: string): string | null {
+    return (
+        getDb()
+            .query<{ branched_from: string | null }, { $ref: string }>(
+                "SELECT branched_from FROM tasks WHERE ref = $ref COLLATE NOCASE",
+            )
+            .get({ $ref: ref })?.branched_from ?? null
+    )
+}
+
+export function recordBranchedFrom(ref: string, sha: string): void {
+    getDb()
+        .query(
+            "UPDATE tasks SET branched_from = $sha WHERE ref = $ref COLLATE NOCASE",
+        )
+        .run({ $sha: sha, $ref: ref })
+}
+
+/** Record a failed Git operation on the task, or clear it with null. */
+export function recordGitError(ref: string, message: string | null): void {
+    getDb()
+        .query(
+            "UPDATE tasks SET git_error = $message, git_error_at = $at WHERE ref = $ref COLLATE NOCASE",
+        )
+        .run({
+            $message: message,
+            $at: message ? new Date().toISOString() : null,
+            $ref: ref,
+        })
+}
+
 export function recordOwnCommitsFrom(ref: string, sha: string): void {
     getDb()
         .query(
@@ -2354,6 +2391,7 @@ interface WorkPackageRunRow {
     current_ref: string | null
     worked_json: string
     excluded_json: string
+    selected_json: string | null
     run_ids_json: string
     supervisor_json: string | null
     resumed_at: string | null
@@ -2375,6 +2413,9 @@ function toWorkPackageRun(row: WorkPackageRunRow): WorkPackageRun {
         currentRef: row.current_ref,
         worked: JSON.parse(row.worked_json) as string[],
         excluded: JSON.parse(row.excluded_json) as string[],
+        selected: row.selected_json
+            ? (JSON.parse(row.selected_json) as string[])
+            : null,
         runIds: JSON.parse(row.run_ids_json) as number[],
         supervisor: row.supervisor_json
             ? (JSON.parse(row.supervisor_json) as RunSupervisor)
@@ -2468,14 +2509,15 @@ export function createWorkPackageRun(input: {
     permissionMode: AgentPermissionMode
     extra: string
     excluded: string[]
+    selected?: string[]
     supervisor?: RunSupervisor | null
 }): WorkPackageRun {
     const row = getDb()
         .query<{ id: number }, Record<string, string | null>>(
             `INSERT INTO work_package_runs
-         (work_package_ref, harness, model, permission_mode, extra, status, worked_json, excluded_json,
+         (work_package_ref, harness, model, permission_mode, extra, status, worked_json, excluded_json, selected_json,
           supervisor_json, created_at)
-       VALUES ($ref, $harness, $model, $permission, $extra, 'running', '[]', $excluded, $supervisor, $at)
+       VALUES ($ref, $harness, $model, $permission, $extra, 'running', '[]', $excluded, $selected, $supervisor, $at)
        RETURNING id`,
         )
         .get({
@@ -2485,6 +2527,10 @@ export function createWorkPackageRun(input: {
             $permission: input.permissionMode,
             $extra: input.extra,
             $excluded: JSON.stringify(input.excluded),
+            $selected:
+                input.selected === undefined
+                    ? null
+                    : JSON.stringify(input.selected),
             $supervisor: input.supervisor
                 ? JSON.stringify(input.supervisor)
                 : null,
@@ -2557,14 +2603,33 @@ export function setWorkPackageRunSupervisor(
 export function reopenWorkPackageRun(
     id: number,
     runIds: number[],
+    settings?: Pick<
+        WorkPackageRun,
+        "harness" | "model" | "permissionMode" | "extra" | "supervisor"
+    >,
 ): WorkPackageRun {
+    const current = requireWorkPackageRun(id)
+    const chosen = settings ?? current
     const reopened = getDb()
         .query(
             `UPDATE work_package_runs SET status = 'running', stop_reason = '', finished_at = NULL,
-                run_ids_json = $runs, resumed_at = $at
+                run_ids_json = $runs, resumed_at = $at,
+                harness = $harness, model = $model, permission_mode = $permission,
+                extra = $extra, supervisor_json = $supervisor
         WHERE id = $id AND status != 'running'`,
         )
-        .run({ $id: id, $runs: JSON.stringify(runIds), $at: nowIso() })
+        .run({
+            $id: id,
+            $runs: JSON.stringify(runIds),
+            $at: nowIso(),
+            $harness: chosen.harness,
+            $model: chosen.model,
+            $permission: chosen.permissionMode,
+            $extra: chosen.extra,
+            $supervisor: chosen.supervisor
+                ? JSON.stringify(chosen.supervisor)
+                : null,
+        })
     if (!reopened.changes)
         throw new Error(`Work package run ${id} is already running.`)
     return requireWorkPackageRun(id)
