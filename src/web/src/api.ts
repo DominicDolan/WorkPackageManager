@@ -431,6 +431,7 @@ export const api = {
         recommendedTier?: ModelTier | null
         tags?: string[]
         useGitWorkflow?: boolean
+        useVisualRegression?: boolean
         branchName?: string
         investigationRef?: string
         workPackageRef?: string | null
@@ -451,6 +452,7 @@ export const api = {
             recommendedTier?: ModelTier | null
             tags?: string[]
             useGitWorkflow?: boolean
+            useVisualRegression?: boolean
             branchName?: string
             workPackageRef?: string | null
             dependsOn?: string[]

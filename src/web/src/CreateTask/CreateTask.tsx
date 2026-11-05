@@ -28,6 +28,7 @@ export function CreateTask(props: {
     )
     const [tags, setTags] = createSignal("")
     const [useGitWorkflow, setUseGitWorkflow] = createSignal(true)
+    const [useVisualRegression, setUseVisualRegression] = createSignal(true)
     const [branchName, setBranchName] = createSignal("")
     const [busy, setBusy] = createOptimistic(false)
     const { handle, hasError, Banner } = useError()
@@ -57,6 +58,7 @@ export function CreateTask(props: {
                     ),
                 ],
                 useGitWorkflow: useGitWorkflow(),
+                useVisualRegression: useVisualRegression(),
                 branchName: useGitWorkflow()
                     ? branchName().trim() || undefined
                     : undefined,
@@ -188,6 +190,23 @@ export function CreateTask(props: {
                     />
                 </label>
             </Show>
+            <label class="choice mt-4 flex items-start gap-[0.75rem] p-[0.85rem]">
+                <input
+                    type="checkbox"
+                    class="w-[1rem] h-[1rem] mt-[0.12rem]"
+                    checked={useVisualRegression()}
+                    onChange={(event) =>
+                        setUseVisualRegression(event.currentTarget.checked)
+                    }
+                />
+                <span class="grid gap-[0.22rem]">
+                    <strong>Visual regression</strong>
+                    <small>
+                        Drive this task through before/after checkpoints. Off
+                        leaves them out of the agent's instructions.
+                    </small>
+                </span>
+            </label>
             <Banner />
             <div class="mt-5 flex justify-end gap-2">
                 <button

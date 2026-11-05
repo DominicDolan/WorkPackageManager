@@ -39,6 +39,7 @@ export function TaskDetailPanel(props: {
     let description!: HTMLTextAreaElement
     let priority!: HTMLSelectElement
     let recommendedTier!: HTMLSelectElement
+    let visualRegression!: HTMLInputElement
     return (
         <article class="document p-5 sm:p-8 lg:p-10 min-w-0 max-w-[1320px]">
             <Show when={props.error}>
@@ -174,6 +175,22 @@ export function TaskDetailPanel(props: {
                             </select>
                         </label>
                     </div>
+                    <label class="choice mt-4 flex items-start gap-[0.75rem] p-[0.85rem]">
+                        <input
+                            ref={visualRegression}
+                            type="checkbox"
+                            class="w-[1rem] h-[1rem] mt-[0.12rem]"
+                            checked={props.task.useVisualRegression}
+                        />
+                        <span class="grid gap-[0.22rem]">
+                            <strong>Visual regression</strong>
+                            <small>
+                                Drive this task through before/after
+                                checkpoints. Off leaves them out of the agent's
+                                instructions.
+                            </small>
+                        </span>
+                    </label>
                     <button
                         class="primary mt-4"
                         disabled={!!props.busy}
@@ -189,6 +206,8 @@ export function TaskDetailPanel(props: {
                                         recommendedTier:
                                             (recommendedTier.value ||
                                                 null) as TaskDetail["recommendedTier"],
+                                        useVisualRegression:
+                                            visualRegression.checked,
                                     }),
                                 () => props.setEditing(false),
                             )
@@ -261,6 +280,14 @@ export function TaskDetailPanel(props: {
                             label="Git workflow"
                             value={
                                 props.task.useGitWorkflow
+                                    ? "Enabled"
+                                    : "Disabled"
+                            }
+                        />
+                        <Detail
+                            label="Visual regression"
+                            value={
+                                props.task.useVisualRegression
                                     ? "Enabled"
                                     : "Disabled"
                             }

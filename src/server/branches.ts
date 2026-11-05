@@ -140,10 +140,26 @@ export function refExists(ref: string): boolean {
     )
 }
 
-/** The repository's default branch, as GitHub sees it — the natural PR base
- *  when a combined branch has no recorded one. Falls back to `master`. */
+const DISCOVERY_TTL_MS = 60_000
+let defaultBaseCache: { name: string; expires: number } | undefined
+
+/** Prefer Git's local record of origin's default branch. Repositories without
+ * it use GitHub discovery at most once a minute, including failed lookups. */
 export function defaultBaseBranch(): string {
     if (ws.config.baseBranch) return ws.config.baseBranch
+
+    const remoteHead = git([
+        "symbolic-ref",
+        "--quiet",
+        "refs/remotes/origin/HEAD",
+    ])
+    if (remoteHead.code === 0) {
+        const ref = remoteHead.stdout.trim()
+        if (ref.startsWith("refs/remotes/origin/") && refExists(ref))
+            return ref.slice("refs/remotes/origin/".length)
+    }
+    if (defaultBaseCache && defaultBaseCache.expires > Date.now())
+        return defaultBaseCache.name
 
     const viewed = runSync(
         [
@@ -157,13 +173,12 @@ export function defaultBaseBranch(): string {
         ],
         30_000,
     )
-    const name = viewed.stdout.trim()
-    if (viewed.code === 0 && name) return name
-
-    for (const candidate of ["main", "master"]) {
-        if (branchExists(candidate)) return candidate
+    let name = viewed.code === 0 ? viewed.stdout.trim() : ""
+    if (!name) {
+        name = ["main", "master"].find(branchExists) ?? "master"
     }
-    return "master"
+    defaultBaseCache = { name, expires: Date.now() + DISCOVERY_TTL_MS }
+    return name
 }
 
 /** A fetch is a network round trip, and an unreachable remote must fail rather
@@ -1120,19 +1135,52 @@ export async function createPullRequest(input: {
     }
 }
 
-/** Whether the CLIs the Branches view depends on are on PATH. */
-export function toolAvailability(): ToolAvailability {
+let toolCache:
+    | {
+          agent: string | null
+          expires: number
+          result: Promise<
+              Pick<ToolAvailability, "prAgentAvailable" | "gh" | "ghAuthed">
+          >
+      }
+    | undefined
+
+/** Probe without blocking saves or other requests. Concurrent refreshes share
+ * one probe; login/install changes become visible within a minute. */
+export async function toolAvailability(): Promise<ToolAvailability> {
     const agent = ws.config.prAgent?.[0] ?? null
-    const prAgentAvailable =
-        agent !== null && runSync([agent, "--version"], 15_000).code === 0
-    const gh = runSync(["gh", "--version"], 15_000).code === 0
-    const ghAuthed = gh && runSync(["gh", "auth", "status"], 15_000).code === 0
+    if (
+        !toolCache ||
+        toolCache.agent !== agent ||
+        toolCache.expires <= Date.now()
+    ) {
+        const available = async (command: string[]) => {
+            try {
+                return (await run(command, 15_000)).code === 0
+            } catch {
+                return false
+            }
+        }
+        const result = Promise.all([
+            agent ? available([agent, "--version"]) : Promise.resolve(false),
+            (async () => {
+                const gh = await available(["gh", "--version"])
+                return {
+                    gh,
+                    ghAuthed: gh && (await available(["gh", "auth", "status"])),
+                }
+            })(),
+        ]).then(([prAgentAvailable, github]) => ({
+            prAgentAvailable,
+            ...github,
+        }))
+        toolCache = { agent, expires: Date.now() + DISCOVERY_TTL_MS, result }
+    }
+    const availability = await toolCache.result
     return {
         prAgent: agent,
-        prAgentAvailable,
+        ...availability,
         checkCount: ws.config.checks.length,
         checkNames: ws.config.checks.map((check) => check.name),
-        gh,
-        ghAuthed,
     }
 }

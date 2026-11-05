@@ -28,6 +28,9 @@ const SCHEMA = [
      -- False for work confined to ignored/local files that should not branch,
      -- commit, or merge. Visual checkpoints remain independent of this flag.
      use_git_workflow INTEGER NOT NULL DEFAULT 1,
+     -- False leaves visual-regression checkpoints out of the agent's instructions
+     -- and skips the after-capture on done. Checkpoints can still be run by hand.
+     use_visual_regression INTEGER NOT NULL DEFAULT 1,
      branch_name      TEXT,
      checkpoint_name  TEXT,
      created_at       TEXT    NOT NULL,
@@ -375,6 +378,11 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
     {
         table: "tasks",
         column: "use_git_workflow",
+        definition: "INTEGER NOT NULL DEFAULT 1",
+    },
+    {
+        table: "tasks",
+        column: "use_visual_regression",
         definition: "INTEGER NOT NULL DEFAULT 1",
     },
     // Null means push to origin under the same name as the local branch, which

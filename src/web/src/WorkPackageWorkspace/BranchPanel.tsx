@@ -134,12 +134,12 @@ export function BranchPanel(props: {
                 "New commits pushed to the pull request.",
             )
     }
-    const openPr = action(async function* (draft: boolean) {
+    const openPr = action(async function* (draft: boolean, force = false) {
         if (busy()) return
 
         const branch = current()
         if (!branch) return
-        setBusy(draft ? "pr-draft" : "pr")
+        setBusy(force ? "pr-force" : draft ? "pr-draft" : "pr")
         clear()
         setNotice("")
         try {
@@ -151,7 +151,7 @@ export function BranchPanel(props: {
                 })
                 yield
             }
-            const result = await api.createPr(latest.branchName, draft)
+            const result = await api.createPr(latest.branchName, draft, force)
             yield
             applyBranch(result.branch)
             const opened = draft
@@ -677,7 +677,7 @@ export function BranchPanel(props: {
                         <BranchSection
                             variant="elevated"
                             title="Pull request"
-                            description="Available after the description is ready and the latest checks pass.">
+                            description="Open after the latest checks pass, or force open to bypass checks.">
                             <Show
                                 when={branch().prUrl}
                                 fallback={
@@ -729,6 +729,32 @@ export function BranchPanel(props: {
                                                 Open pull request
                                             </button>
                                         </div>
+                                        <Show when={checksBlocking()}>
+                                            <div class="mt-2 border-t border-current/10 pt-3">
+                                                <p class="hint m-[0_0_0.6rem]">
+                                                    Open a pull request without
+                                                    waiting for checks to pass.
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    class="outlined"
+                                                    aria-busy={
+                                                        busy() === "pr-force"
+                                                            ? "true"
+                                                            : "false"
+                                                    }
+                                                    disabled={
+                                                        !!busy() ||
+                                                        !title().trim() ||
+                                                        !branch().git.exists
+                                                    }
+                                                    onClick={() =>
+                                                        openPr(false, true)
+                                                    }>
+                                                    Force open pull request
+                                                </button>
+                                            </div>
+                                        </Show>
                                     </div>
                                 }>
                                 <div class="pull-request-open flex flex-wrap items-center justify-between gap-[1rem]">
@@ -773,19 +799,18 @@ export function BranchPanel(props: {
                         </BranchSection>
 
                         <Show when={checkAgentOpen()}>
-                            <Show when={report()} keyed>
-                                {(checks) => (
-                                    <BranchCheckLauncher
-                                        branch={branch()}
-                                        report={checks}
-                                        close={() => setCheckAgentOpen(false)}
-                                        started={() =>
-                                            setNotice(
-                                                "Agent started with the failed check report.",
-                                            )
-                                        }
-                                    />
-                                )}
+                            {/* Not keyed: the report object is replaced on every refresh, which would remount the dialog and reset its inputs. */}
+                            <Show when={!!report()}>
+                                <BranchCheckLauncher
+                                    branch={branch()}
+                                    report={report()!}
+                                    close={() => setCheckAgentOpen(false)}
+                                    started={() =>
+                                        setNotice(
+                                            "Agent started with the failed check report.",
+                                        )
+                                    }
+                                />
                             </Show>
                         </Show>
                     </>

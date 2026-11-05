@@ -44,6 +44,7 @@ export function WorkPackageOverview(props: {
                             <TaskRow
                                 task={task}
                                 index={index()}
+                                known={props.workPackage.tasks}
                                 onClick={() => props.openTask(task.ref)}
                             />
                         )}

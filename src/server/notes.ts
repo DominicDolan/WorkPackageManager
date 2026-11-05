@@ -376,8 +376,15 @@ export function listNotesWithBodies(
 
     walk(root)
 
+    return filterNotes(found, options)
+}
+
+function filterNotes(
+    notes: NoteListItem[],
+    options: { tag?: string; folder?: string; search?: string },
+): NoteListItem[] {
     const search = options.search?.trim().toLowerCase()
-    return found
+    return notes
         .filter((note) =>
             options.tag ? note.tags.includes(options.tag) : true,
         )
@@ -395,25 +402,31 @@ export function listNotesWithBodies(
 }
 
 /** Every folder that holds at least one note, for the sidebar's filter. */
-export function listFolders(): string[] {
-    return [
-        ...new Set(
-            listNotes()
-                .map((note) => note.folder)
-                .filter(Boolean),
-        ),
-    ].sort()
+export function listFolders(notes: NoteSummary[] = listNotes()): string[] {
+    return [...new Set(notes.map((note) => note.folder).filter(Boolean))].sort()
 }
 
 /** Every tag in use, most-used first. */
-export function listTags(): string[] {
+export function listTags(notes: NoteSummary[] = listNotes()): string[] {
     const counts = new Map<string, number>()
-    for (const note of listNotes()) {
+    for (const note of notes) {
         for (const tag of note.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1)
     }
     return [...counts.entries()]
         .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
         .map(([tag]) => tag)
+}
+
+/** Read and parse each file once for both the results and unfiltered facets. */
+export function listNoteListing(
+    options: { tag?: string; folder?: string; search?: string } = {},
+) {
+    const notes = listNotesWithBodies()
+    return {
+        notes: filterNotes(notes, options),
+        folders: listFolders(notes),
+        tags: listTags(notes),
+    }
 }
 
 /**

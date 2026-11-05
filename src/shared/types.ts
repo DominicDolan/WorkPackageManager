@@ -101,6 +101,11 @@ export interface Task {
      *  work package's branch. False is useful for ignored workspace files such as
      *  visual-regression scenarios, while checkpoints remain available. */
     useGitWorkflow: boolean
+    /** Whether this task is driven through visual-regression checkpoints. False
+     *  leaves them out of the instructions an agent is given, and `tasks done`
+     *  does not capture an after-checkpoint for it. Checkpoints can still be run
+     *  by hand. Defaults to true. */
+    useVisualRegression: boolean
     /** The assigned Git branch. Null when the Git workflow is disabled, and on
      *  some legacy completed tasks. */
     branchName: string | null

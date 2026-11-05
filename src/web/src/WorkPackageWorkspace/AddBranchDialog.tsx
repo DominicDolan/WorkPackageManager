@@ -4,6 +4,8 @@ import {
     createMemo,
     createOptimistic,
     createSignal,
+    Loading,
+    refresh,
     Show,
 } from "solid-js"
 import { api } from "../api"
@@ -14,6 +16,7 @@ import {
     toNewBranchInput,
 } from "../components/BranchFields"
 import { Modal } from "../components/Modal"
+import { createQuery } from "../hooks/createQuery"
 import { useError } from "../hooks/useError"
 import type { WorkspaceSnapshot } from "../types/workspace"
 
@@ -26,6 +29,35 @@ export function AddBranchDialog(props: {
     const [draft, setDraft] = createSignal(emptyBranchDraft())
     const [busy, setBusy] = createOptimistic(false)
     const { capture, clear, Banner } = useError()
+    const [refreshing, setRefreshing] = createOptimistic(false)
+    let lastBranches = {
+        localBranches: props.snapshot.localBranches,
+        currentBranch: props.snapshot.currentBranch,
+    }
+    // Each dialog opening mounts a fresh query. Keep the last usable list if
+    // Git cannot be read, and leave the draft intact when refreshing it.
+    const branches = createQuery(async () => {
+        try {
+            const result = await api.listBranches()
+            lastBranches = {
+                localBranches: result.localBranches,
+                currentBranch: result.currentBranch,
+            }
+            return { ...lastBranches, error: "" }
+        } catch (caught) {
+            return {
+                ...lastBranches,
+                error: `Unable to refresh branches: ${caught instanceof Error ? caught.message : String(caught)}`,
+            }
+        }
+    })
+    // JSX fallback controls can evaluate before Loading has a first result.
+    const branchList = () => branches.value ?? props.snapshot
+    const refreshBranches = action(function* () {
+        if (refreshing()) return
+        setRefreshing(true)
+        yield refresh(branches)
+    })
     const claimed = createMemo(
         () =>
             new Set(
@@ -56,7 +88,7 @@ export function AddBranchDialog(props: {
     const [added, setAdded] = createSignal<number | null>(null)
     const [partialDelivery, setPartialDelivery] = createSignal("")
     const problem = () =>
-        branchDraftProblem(draft(), props.snapshot.localBranches, claimed())
+        branchDraftProblem(draft(), branchList().localBranches, claimed())
 
     const submit = action(async function* () {
         if (busy() || problem()) return
@@ -82,64 +114,85 @@ export function AddBranchDialog(props: {
 
     return (
         <Modal title="Add a branch" close={props.close}>
-            <BranchFields
-                id="add-branch"
-                draft={draft()}
-                change={setDraft}
-                localBranches={props.snapshot.localBranches}
-                currentBranch={props.snapshot.currentBranch}
-                claimed={claimed()}
-                baseBranch={props.workPackage.baseBranch}
-            />
-            <p class="description mt-4">
-                {open().length
-                    ? `${open().length} task(s) go on it: those not yet Dev Complete, and finished ones no other branch has, whose commits are added now. Change that from the branch's tab.`
-                    : "No tasks are waiting, so it starts empty. New tasks join the newest branch."}
-            </p>
-            <Show when={partialDelivery()}>
-                <section class="notice error mt-4" role="alert">
-                    <strong>Branch created with incomplete delivery.</strong>
-                    <p class="m-[0.35rem_0_0]">
-                        Tasks whose commits could not be replayed were left off
-                        this branch. Resolve the conflict, then add them from
-                        the branch’s Tasks section.
+            <Loading fallback={<p class="hint">Loading branches…</p>}>
+                <div class="mb-3 flex justify-end">
+                    <button
+                        type="button"
+                        class="outlined px-2 py-1 text-sm"
+                        title="Reload local Git branches"
+                        disabled={refreshing()}
+                        aria-busy={refreshing() ? "true" : "false"}
+                        onClick={refreshBranches}>
+                        <span aria-hidden="true">↻</span>{" "}
+                        {refreshing() ? "Refreshing…" : "Refresh branches"}
+                    </button>
+                </div>
+                <Show when={branches.value?.error}>
+                    <p class="notice error mb-4" role="alert">
+                        {branches.value?.error}
                     </p>
-                    <pre class="m-[0.75rem_0_0] whitespace-pre-wrap text-sm">
-                        {partialDelivery()}
-                    </pre>
-                </section>
-            </Show>
-            <Banner />
-            <div class="mt-5 flex justify-end gap-2">
-                <button
-                    class="outlined"
-                    onClick={() => {
-                        const id = added()
-                        if (id === null) props.close()
-                        else props.created(id)
-                    }}>
-                    {added() === null ? "Cancel" : "Close"}
-                </button>
-                <Show
-                    when={added()}
-                    fallback={
-                        <button
-                            class="primary"
-                            aria-busy={busy() ? "true" : "false"}
-                            disabled={busy() || !!problem()}
-                            onClick={submit}>
-                            Add branch
-                        </button>
-                    }>
-                    {(id) => (
-                        <button
-                            class="primary"
-                            onClick={() => props.created(id())}>
-                            Open branch
-                        </button>
-                    )}
                 </Show>
-            </div>
+                <BranchFields
+                    id="add-branch"
+                    draft={draft()}
+                    change={setDraft}
+                    localBranches={branchList().localBranches}
+                    currentBranch={branchList().currentBranch}
+                    claimed={claimed()}
+                    baseBranch={props.workPackage.baseBranch}
+                />
+                <p class="description mt-4">
+                    {open().length
+                        ? `${open().length} task(s) go on it: those not yet Dev Complete, and finished ones no other branch has, whose commits are added now. Change that from the branch's tab.`
+                        : "No tasks are waiting, so it starts empty. New tasks join the newest branch."}
+                </p>
+                <Show when={partialDelivery()}>
+                    <section class="notice error mt-4" role="alert">
+                        <strong>
+                            Branch created with incomplete delivery.
+                        </strong>
+                        <p class="m-[0.35rem_0_0]">
+                            Tasks whose commits could not be replayed were left
+                            off this branch. Resolve the conflict, then add them
+                            from the branch’s Tasks section.
+                        </p>
+                        <pre class="m-[0.75rem_0_0] whitespace-pre-wrap text-sm">
+                            {partialDelivery()}
+                        </pre>
+                    </section>
+                </Show>
+                <Banner />
+                <div class="mt-5 flex justify-end gap-2">
+                    <button
+                        class="outlined"
+                        onClick={() => {
+                            const id = added()
+                            if (id === null) props.close()
+                            else props.created(id)
+                        }}>
+                        {added() === null ? "Cancel" : "Close"}
+                    </button>
+                    <Show
+                        when={added()}
+                        fallback={
+                            <button
+                                class="primary"
+                                aria-busy={busy() ? "true" : "false"}
+                                disabled={busy() || !!problem()}
+                                onClick={submit}>
+                                Add branch
+                            </button>
+                        }>
+                        {(id) => (
+                            <button
+                                class="primary"
+                                onClick={() => props.created(id())}>
+                                Open branch
+                            </button>
+                        )}
+                    </Show>
+                </div>
+            </Loading>
         </Modal>
     )
 }

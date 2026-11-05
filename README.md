@@ -502,49 +502,49 @@ is guessing. Nothing here touches the task database either.
 Run `tasks help` for the full list. Every command takes `--json`, which is what
 agents should use.
 
-| Command                                                                            | What it does                                                                                                |
-| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `tasks init [--dir <path>] [--track]`                                              | Scaffold `.tasks/` in this repository                                                                       |
-| `tasks investigation list [--status s]`                                            | All investigations, unrun first                                                                             |
-| `tasks investigation show <ref>`                                                   | The brief, the findings, and the tasks it filed                                                             |
-| `tasks investigation new "<title>"`                                                | Create one. `--brief`, `--work-package`                                                                     |
-| `tasks investigation edit <ref>`                                                   | Change `--title`, `--brief`, `--findings`, `--status`                                                       |
-| `tasks investigation start\|complete <ref>`                                        | Move it along; `complete` takes `--findings`                                                                |
-| `tasks investigation rm <ref>`                                                     | Delete it; the tasks it filed are kept, unlinked                                                            |
-| `tasks list [--status s] [--tag t]`                                                | All tasks, in list order, in work package sections. `--investigation <ref>`, `--work-package <g>`, `--flat` |
-| `tasks show <ref>`                                                                 | One task with its history and checkpoint results                                                            |
-| `tasks new "<title>" --work-package <g>`                                           | Create in a work package and assign a generated branch. Use `--no-git` for ignored/local-only work.         |
-| `tasks edit <ref>`                                                                 | Change metadata and dependencies; `--git` / `--no-git` toggles the task's Git workflow.                     |
-| `tasks note <ref> <text>`                                                          | Append a note to the history                                                                                |
-| `tasks work-package list`                                                          | Every work package, in the order the list draws them                                                        |
-| `tasks work-package show <ref\|name>`                                              | One work package and everything in it                                                                       |
-| `tasks work-package new "<name>"`                                                  | Create one. `--brief` writes an investigation, `--with-branch` adds a branch, `--color`                     |
-| `tasks work-package edit <ref\|name>`                                              | Change `--name`, `--color`                                                                                  |
-| `tasks work-package branch list\|add\|edit\|rm <ref\|name>`                        | Its branches. `add --existing <b>` adopts one; `--name`, `--base`, `--label`, `--tasks`                     |
-| `tasks work-package branch assign\|unassign <ref> <branch> <task-ref>...`          | Which tasks a branch carries                                                                                |
-| `tasks work-package queue <ref\|name>`                                             | What is left in it, in dependency order — what `/work-package` follows                                      |
-| `tasks work-package add <ref\|name> <task-ref>...`                                 | Put tasks in it                                                                                             |
-| `tasks work-package rm <ref\|name>`                                                | Delete an empty work package                                                                                |
-| `tasks dep add <ref> <blocker-ref>...`                                             | Make the task wait for each blocker                                                                         |
-| `tasks dep rm <ref> <blocker-ref>...`                                              | Stop waiting for them                                                                                       |
-| `tasks dep list [<ref>]`                                                           | The dependency graph, or one task's corner of it                                                            |
-| `tasks move <ref> --top\|--bottom\|--up\|--down`                                   | Reorder the list                                                                                            |
-| `tasks move <ref> --before\|--after <ref>`                                         | Reorder relative to another task                                                                            |
-| `tasks branch <ref> [--from <branch>]`                                             | Create or switch to the task's assigned branch                                                              |
-| `tasks start\|done\|verify\|reopen <ref>`                                          | Move through status; branch enforcement and work package merging apply only when the task uses Git.         |
-| `tasks merge <ref>`                                                                | Merge the task into each of its target branches and register it there                                       |
-| `tasks checkpoint before\|after\|status <ref>`                                     | Drive aio-vr for one task                                                                                   |
-| `tasks checkpoint before <ref> --retro [--at <commit>] [--settle <s>] [--dry-run]` | Capture `before` at the commit the task started from                                                        |
-| `tasks baselines [--all]`                                                          | What has drifted from its approved baseline                                                                 |
-| `tasks baselines run [scenario...]`                                                | Re-run against the baselines                                                                                |
-| `tasks baselines approve <scenario>`                                               | Accept the current capture as the new baseline                                                              |
-| `tasks scratch new <name> [--url <base-url>]`                                      | Scaffold a throwaway scenario                                                                               |
-| `tasks scratch run [name...] [--headed]`                                           | Run it and stream everything the page logged                                                                |
-| `tasks scratch list\|log [name]\|clean [--all]`                                    | What exists, the last run's console output, and cleanup                                                     |
-| `tasks scratch requests [name]`                                                    | The API calls the last run made, with status, timing and bodies                                             |
-| `tasks probe --url <url> [--wait-for <sel>] [--out <path>]`                        | One screenshot of one URL, no scenario file                                                                 |
-| `tasks web [--port n] [--dev]`                                                     | Serve the Solid UI                                                                                          |
-| `tasks rm <ref>`                                                                   | Delete a task (the checkpoint on disk is left alone)                                                        |
+| Command                                                                            | What it does                                                                                                                                                |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tasks init [--dir <path>] [--track]`                                              | Scaffold `.tasks/` in this repository                                                                                                                       |
+| `tasks investigation list [--status s]`                                            | All investigations, unrun first                                                                                                                             |
+| `tasks investigation show <ref>`                                                   | The brief, the findings, and the tasks it filed                                                                                                             |
+| `tasks investigation new "<title>"`                                                | Create one. `--brief`, `--work-package`                                                                                                                     |
+| `tasks investigation edit <ref>`                                                   | Change `--title`, `--brief`, `--findings`, `--status`                                                                                                       |
+| `tasks investigation start\|complete <ref>`                                        | Move it along; `complete` takes `--findings`                                                                                                                |
+| `tasks investigation rm <ref>`                                                     | Delete it; the tasks it filed are kept, unlinked                                                                                                            |
+| `tasks list [--status s] [--tag t]`                                                | All tasks, in list order, in work package sections. `--investigation <ref>`, `--work-package <g>`, `--flat`                                                 |
+| `tasks show <ref>`                                                                 | One task with its history and checkpoint results                                                                                                            |
+| `tasks new "<title>" --work-package <g>`                                           | Create in a work package and assign a generated branch. Use `--no-git` for ignored/local-only work. `--no-visual` leaves visual-regression checkpoints out. |
+| `tasks edit <ref>`                                                                 | Change metadata and dependencies; `--git` / `--no-git` toggles the task's Git workflow; `--visual` / `--no-visual` toggles visual regression.               |
+| `tasks note <ref> <text>`                                                          | Append a note to the history                                                                                                                                |
+| `tasks work-package list`                                                          | Every work package, in the order the list draws them                                                                                                        |
+| `tasks work-package show <ref\|name>`                                              | One work package and everything in it                                                                                                                       |
+| `tasks work-package new "<name>"`                                                  | Create one. `--brief` writes an investigation, `--with-branch` adds a branch, `--color`                                                                     |
+| `tasks work-package edit <ref\|name>`                                              | Change `--name`, `--color`                                                                                                                                  |
+| `tasks work-package branch list\|add\|edit\|rm <ref\|name>`                        | Its branches. `add --existing <b>` adopts one; `--name`, `--base`, `--label`, `--tasks`                                                                     |
+| `tasks work-package branch assign\|unassign <ref> <branch> <task-ref>...`          | Which tasks a branch carries                                                                                                                                |
+| `tasks work-package queue <ref\|name>`                                             | What is left in it, in dependency order — what `/work-package` follows                                                                                      |
+| `tasks work-package add <ref\|name> <task-ref>...`                                 | Put tasks in it                                                                                                                                             |
+| `tasks work-package rm <ref\|name>`                                                | Delete an empty work package                                                                                                                                |
+| `tasks dep add <ref> <blocker-ref>...`                                             | Make the task wait for each blocker                                                                                                                         |
+| `tasks dep rm <ref> <blocker-ref>...`                                              | Stop waiting for them                                                                                                                                       |
+| `tasks dep list [<ref>]`                                                           | The dependency graph, or one task's corner of it                                                                                                            |
+| `tasks move <ref> --top\|--bottom\|--up\|--down`                                   | Reorder the list                                                                                                                                            |
+| `tasks move <ref> --before\|--after <ref>`                                         | Reorder relative to another task                                                                                                                            |
+| `tasks branch <ref> [--from <branch>]`                                             | Create or switch to the task's assigned branch                                                                                                              |
+| `tasks start\|done\|verify\|reopen <ref>`                                          | Move through status; branch enforcement and work package merging apply only when the task uses Git.                                                         |
+| `tasks merge <ref>`                                                                | Merge the task into each of its target branches and register it there                                                                                       |
+| `tasks checkpoint before\|after\|status <ref>`                                     | Drive aio-vr for one task                                                                                                                                   |
+| `tasks checkpoint before <ref> --retro [--at <commit>] [--settle <s>] [--dry-run]` | Capture `before` at the commit the task started from                                                                                                        |
+| `tasks baselines [--all]`                                                          | What has drifted from its approved baseline                                                                                                                 |
+| `tasks baselines run [scenario...]`                                                | Re-run against the baselines                                                                                                                                |
+| `tasks baselines approve <scenario>`                                               | Accept the current capture as the new baseline                                                                                                              |
+| `tasks scratch new <name> [--url <base-url>]`                                      | Scaffold a throwaway scenario                                                                                                                               |
+| `tasks scratch run [name...] [--headed]`                                           | Run it and stream everything the page logged                                                                                                                |
+| `tasks scratch list\|log [name]\|clean [--all]`                                    | What exists, the last run's console output, and cleanup                                                                                                     |
+| `tasks scratch requests [name]`                                                    | The API calls the last run made, with status, timing and bodies                                                                                             |
+| `tasks probe --url <url> [--wait-for <sel>] [--out <path>]`                        | One screenshot of one URL, no scenario file                                                                                                                 |
+| `tasks web [--port n] [--dev]`                                                     | Serve the Solid UI                                                                                                                                          |
+| `tasks rm <ref>`                                                                   | Delete a task (the checkpoint on disk is left alone)                                                                                                        |
 
 `tasks investigation` shortens to `tasks inv`. Its `--brief` and `--findings`
 accept `-` to read the text from stdin, which is how an agent gets multi-line
@@ -699,6 +699,16 @@ tasks branch T-4                      # cut from feature/wp-1-search-rework
 tasks done T-4                        # merged back into it, and registered
 tasks branch T-5                      # cut from it too, so it has T-4's work
 ```
+
+#### Tasks without visual regression
+
+Not every task changes what a user sees. A task with visual regression turned
+off is sent to the agent without the checkpoint steps: the instructions never
+mention the visual-regression workflow, `tasks done` does not capture an
+after-checkpoint, and the task still follows its work package, dependencies and
+status. Set it when filing with `tasks new ... --no-visual`, change it with
+`tasks edit <ref> --visual` or `--no-visual`, or tick or untick **Visual
+regression** in the web task dialog. Checkpoints can still be taken by hand.
 
 #### The work package page
 

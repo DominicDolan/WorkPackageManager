@@ -28,6 +28,7 @@ export function LegacyWorkPackage(props: {
                         <TaskRow
                             task={task}
                             index={index()}
+                            known={props.tasks}
                             onClick={() => props.openTask(task.ref)}
                         />
                     )}

@@ -505,6 +505,9 @@ function commandShow(args: Args): void {
     print(
         `  ${dim("branch:")} ${detail.branchName ?? (detail.useGitWorkflow ? "(none — legacy completed task)" : "(not used)")}`,
     )
+    print(
+        `  ${dim("visual regression:")} ${detail.useVisualRegression ? "enabled" : "disabled"}`,
+    )
     print(`  ${dim("checkpoint:")} ${detail.checkpointName ?? "(none)"}`)
 
     if (detail.attachments.length) {
@@ -563,7 +566,7 @@ function commandNew(args: Args): void {
     const title = args.positional.slice(1).join(" ")
     if (!title) {
         throw new Error(
-            'Usage: tasks new "<title>" (--work-package <ref> | --investigation <ref>) [--branch <name> | --no-git] [--desc <text>] [--priority high] [--tier <t>] [--units <n>]',
+            'Usage: tasks new "<title>" (--work-package <ref> | --investigation <ref>) [--branch <name> | --no-git] [--no-visual] [--desc <text>] [--priority high] [--tier <t>] [--units <n>]',
         )
     }
 
@@ -589,6 +592,7 @@ function commandNew(args: Args): void {
         recommendedTier: tier as ModelTier | undefined,
         tags: flagList(args, "tag"),
         useGitWorkflow: args.flags.git === false ? false : undefined,
+        useVisualRegression: args.flags.visual === false ? false : undefined,
         branchName: flagString(args, "branch"),
         investigationRef: flagString(args, "investigation"),
         workPackageRef: flagString(args, "work-package"),
@@ -617,14 +621,20 @@ function commandNew(args: Args): void {
                 : "Git workflow: disabled (no task branch or work package merge)",
         ),
     )
-    print(dim(`checkpoint name will be '${task.checkpointName}'`))
+    print(
+        dim(
+            task.useVisualRegression
+                ? `checkpoint name will be '${task.checkpointName}'`
+                : "visual regression: off (no checkpoint; agents are not told about it)",
+        ),
+    )
 }
 
 function commandEdit(args: Args): void {
     const ref = args.positional[1]
     if (!ref) {
         throw new Error(
-            "Usage: tasks edit <ref> [--title x] [--desc x] [--priority x] [--tier <t>] [--tag x] [--units <n>] [--git | --no-git]",
+            "Usage: tasks edit <ref> [--title x] [--desc x] [--priority x] [--tier <t>] [--tag x] [--units <n>] [--git | --no-git] [--visual | --no-visual]",
         )
     }
 
@@ -669,6 +679,10 @@ function commandEdit(args: Args): void {
             tierFlag === false ? null : (tier as ModelTier | undefined),
         useGitWorkflow:
             typeof args.flags.git === "boolean" ? args.flags.git : undefined,
+        useVisualRegression:
+            typeof args.flags.visual === "boolean"
+                ? args.flags.visual
+                : undefined,
         tags: flagList(args, "tag"),
         investigationRef:
             investigation === false ? null : flagString(args, "investigation"),
@@ -2872,7 +2886,11 @@ async function commandTransition(args: Args, status: Status): Promise<void> {
     // Capturing on the way into dev_complete is the whole workflow: the task is
     // only "done" once there is something to look at. Skipped when no `before`
     // was ever taken, since `after` has nothing to compare against.
-    if (status === "dev_complete" && flagBool(args, "checkpoint", true)) {
+    if (
+        status === "dev_complete" &&
+        task.useVisualRegression &&
+        flagBool(args, "checkpoint", true)
+    ) {
         const before = latestRun(task.id, "before")
 
         if (before && checkpointExists(task.checkpointName ?? "")) {
@@ -2890,6 +2908,14 @@ async function commandTransition(args: Args, status: Status): Promise<void> {
                 ),
             )
         }
+    }
+
+    if (status === "dev_complete" && !task.useVisualRegression && !asJson) {
+        print(
+            dim(
+                `Visual regression is off for ${task.ref}; no after-checkpoint captured.`,
+            ),
+        )
     }
 
     const updated = setStatus(task.ref, status, flagString(args, "note"))
@@ -3034,7 +3060,7 @@ ${bold("Tasks")}
   tasks list [--status <s>] [--tag <t>] [--investigation <ref>] [--work-package <g>|none]
              [--flat] [--json]
   tasks show <ref> [--json]
-  tasks new "<title>" [--branch <name> | --no-git] [--desc <text>] [--priority low|medium|high]
+  tasks new "<title>" [--branch <name> | --no-git] [--no-visual] [--desc <text>] [--priority low|medium|high]
                       [--tier fast|standard|frontier] [--tag <t>]
                       (--investigation <ref> | --work-package <g>) [--depends-on <ref>]
   tasks edit <ref> [--title <t>] [--desc <t>] [--priority <p>] [--status <s>] [--tag <t>]
@@ -3042,6 +3068,7 @@ ${bold("Tasks")}
                    [--investigation <ref> | --no-investigation]
                    [--work-package <g>]
                    [--depends-on <ref> | --no-depends-on] [--git | --no-git]
+                   [--visual | --no-visual]
   tasks note <ref> <text>
   tasks rm <ref>
     The list is drawn in sections by work package; --flat prints the bare queue.
@@ -3097,9 +3124,9 @@ ${bold("Workflow")}   backlog → in_progress → dev_complete → verified
     depends on when that task is finished and its work is only there.
   tasks start <ref>              move to in_progress (requires its branch only
                                  when the task uses the Git workflow)
-  tasks done <ref>               capture the after-checkpoint, move to dev_complete,
-                                 and, for Git tasks, merge into each of its target branches
-                                 (--no-checkpoint / --no-merge to skip either)
+  tasks done <ref>               capture the after-checkpoint (visual-regression tasks only),
+                                 move to dev_complete, and, for Git tasks, merge into each
+                                 of its target branches (--no-checkpoint / --no-merge to skip either)
   tasks merge <ref>              do that merge on its own — after --no-merge, or
                                  after resolving a conflict by hand
   tasks verify <ref>             sign off after reviewing the screenshots

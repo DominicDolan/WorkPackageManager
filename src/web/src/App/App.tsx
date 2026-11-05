@@ -51,6 +51,7 @@ export function App() {
     )
     const [creating, setCreating] = createSignal(false)
     const [workspaceRevision, setWorkspaceRevision] = createSignal(0)
+    const [notesRevision, setNotesRevision] = createSignal(0)
 
     // Solid 2 replaces onMount + component-level onCleanup with one lifecycle
     // callback whose return value performs teardown.
@@ -73,9 +74,19 @@ export function App() {
         // The CLI and agents write through the same API server. Keep this view in
         // sync with those writes instead of leaving a stale snapshot until reload.
         const events = new EventSource("/api/events")
-        const changed = () => {
-            refresh(snapshot)
-            setWorkspaceRevision((revision) => revision + 1)
+        const changed = (event: MessageEvent) => {
+            let channel: unknown
+            try {
+                channel = JSON.parse(event.data).channel
+            } catch {
+                // Older servers/fixtures without a channel refresh both stores.
+            }
+            if (channel !== "notes") {
+                refresh(snapshot)
+                setWorkspaceRevision((revision) => revision + 1)
+            }
+            if (channel !== "tasks")
+                setNotesRevision((revision) => revision + 1)
         }
         events.addEventListener("change", changed)
         return () => {
@@ -150,7 +161,7 @@ export function App() {
                         openWorkPackage={openWorkPackage}
                         initialPath={notePath()}
                         initialIssueId={issueId()}
-                        revision={workspaceRevision()}
+                        revision={notesRevision()}
                     />
                 </Show>
                 <Show when={view() === "transcripts" && snapshot.value}>
@@ -158,7 +169,7 @@ export function App() {
                         select={selectView}
                         snapshot={snapshot.value!}
                         initialPath={transcriptPath()}
-                        revision={workspaceRevision()}
+                        revision={workspaceRevision() + notesRevision()}
                     />
                 </Show>
                 <Show when={view() === "work-packages"}>

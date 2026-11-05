@@ -1,5 +1,8 @@
-Work a development task through to **Dev Complete**, with visual before/after
-evidence attached to it.
+Work a development task through to **Dev Complete**.
+<!-- visual-regression -->
+
+Its before/after visual evidence is attached to the task.
+<!-- /visual-regression -->
 
 Task ref (may be empty): `$1`
 
@@ -26,9 +29,8 @@ If that returns **any** task, work stops here — with one exception.
     Then stop and wait. Only work a different task if the user, having been told,
     says to anyway.
 
-One in-progress task at a time keeps visual checkpoints attributable: two tasks
-in flight can give one task a "before" state containing the other's half-finished
-changes. Most tasks also own a branch, but tasks with `useGitWorkflow: false` do
+One in-progress task at a time keeps the work attributable: two tasks in flight
+can mix one task's half-finished changes into another's record. Most tasks also own a branch, but tasks with `useGitWorkflow: false` do
 not.
 
 ## 1. Pick the task
@@ -60,7 +62,7 @@ this procedure:
 - `true` — use the task branch, clean-tree checks, commits, and work package merge.
 - `false` — work in the current checkout. Do not fetch, create or switch branches,
   commit, merge, or require a clean working tree for this task. This mode is for
-  work in ignored/local files. Visual checkpoints and task status still apply.
+  work in ignored/local files. Task status still applies.
 
 ## 1a. Check what the task is waiting for
 
@@ -100,6 +102,8 @@ proceed. The judgement is the user's, so it has to be theirs to make.
 
 ## 2. Check the preconditions
 
+<!-- visual-regression -->
+
 Capturing checkpoints drives a real browser against the running frontend:
 
 ```bash
@@ -115,6 +119,8 @@ docker compose -f Infrastructure/Local/docker/docker-compose.fullstack.yml --pro
 
 Do not silently skip the checkpoint steps — the visual evidence is the point of
 this workflow.
+
+<!-- /visual-regression -->
 
 If `useGitWorkflow` is true, also check the working tree is clean
 (`git status --short`). If it is dirty, ask the user what to do rather than
@@ -168,10 +174,9 @@ report.**
 not just the one it was cut from. `tasks done` does that for you (step 9); your
 job is to check its output says so for each of them.
 
-When you are branching off a work package branch or a dependency, the baseline you
-capture in step 5 includes that other work's changes. That is correct — the diff
-you are about to produce should show _your_ change and not the one you built on
-top of.
+When you are branching off a work package branch or a dependency, the starting
+state includes that other work's changes. That is correct — the diff you are about
+to produce should show _your_ change and not the one you built on top of.
 
 Never work directly on `master`, and never force-push or merge.
 
@@ -211,6 +216,8 @@ tasks start <ref>
 
 Skip this if it is already `in_progress` — which, per step 0, means you are
 resuming the task the user named.
+
+<!-- visual-regression -->
 
 ## 5. Make sure a scenario will show the change, then capture "before"
 
@@ -289,6 +296,8 @@ tasks checkpoint before <ref> --scenario login.page
 The filter is remembered, so `after` reuses it automatically. Report which
 scenarios were captured, and which of them you wrote or changed for this task.
 
+<!-- /visual-regression -->
+
 ## 6. Make the change
 
 Do the actual work described by the task. Read `tasks show <ref> --json` for the
@@ -326,6 +335,8 @@ Add notes to the task as you go when something is worth remembering:
 ```bash
 tasks note <ref> "<what you learned>"
 ```
+
+<!-- visual-regression -->
 
 ## 7. Capture "after" and check your work
 
@@ -407,6 +418,8 @@ task, continue to skip step 8.
 Say in your final report that the before state was recaptured retroactively, and
 which scenarios you added or changed.
 
+<!-- /visual-regression -->
+
 ## 8. Commit only for a Git-workflow task
 
 If `useGitWorkflow` is false, skip this entire step. The task is expected to
@@ -420,7 +433,7 @@ git commit -m "<message>"
 ```
 
 Commit to the task branch only. **Do not push, merge, or touch master** — the
-user reviews the screenshots first.
+user reviews the work first.
 
 Before moving on, confirm the branch is still a straight line:
 
@@ -437,18 +450,31 @@ and read "Keep the branch a straight line" in step 3.
 tasks done <ref>
 ```
 
-This captures a final `after` checkpoint and moves the task to `dev_complete`.
+This moves the task to `dev_complete`.
+<!-- visual-regression -->
+
+It captures a final `after` checkpoint first.
+<!-- /visual-regression -->
+
 For a Git-workflow task it also merges the task into **every one of its target
 branches** and returns to the task branch. It prints one `merged into` (or
 `already on`) line per target branch; check there is one for each branch in
 `targetBranches`. A no-Git task performs no merge.
+<!-- visual-regression -->
+
 If you just ran step 7 and do not want to re-drive the browser, use
 `tasks done <ref> --no-checkpoint`.
+<!-- /visual-regression -->
 
-Read the output. Two things can go wrong independently of the status change,
+Read the output. Things can go wrong independently of the status change,
 which happens either way:
 
+<!-- visual-regression -->
+
 - **the capture failed** — reported as `captureError` with `--json`. Say so.
+
+<!-- /visual-regression -->
+
 - **the task's commits do not replay onto a target branch** — reported as
   `mergeError`, naming the branch. On the first target its commits are rebased
   onto the branch and fast-forwarded in; on any later target just its own
@@ -468,7 +494,7 @@ which happens either way:
 the target branches alone.
 
 Leave the task at `dev_complete`. **Do not run `tasks verify`** — that is the
-user signing off after looking at the before/after themselves.
+user signing off after reviewing the work themselves.
 
 Getting the task out of `in_progress` is also what unblocks the next task, so do
 not leave it hanging there.
@@ -481,10 +507,16 @@ Tell the user:
 - for a Git-workflow task: the branch name, **what it was cut from**, and which
   of its target branches it was merged into
 - for a no-Git task: say that the Git workflow was intentionally skipped
+
+<!-- visual-regression -->
+
 - the per-scenario checkpoint result (`unchanged` / `changed` + percentage)
 - which scenarios you wrote or extended for this task, and whether the before
   state had to be recaptured with `--retro`; or, if the task changed nothing
   visible, say that plainly so the absence of a diff is not read as a miss
+
+<!-- /visual-regression -->
+
 - anything you deliberately left out, and any new tasks you filed — including
   any you filed with `--depends-on`
 - whether the task was blocked and worked anyway, if that is what happened

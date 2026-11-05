@@ -11,6 +11,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import { workspace } from "../config/paths"
 import { getDb, nowIso } from "./db"
+import { findTask } from "./repo"
 import {
     AGENT_COMMANDS,
     AGENT_HARNESSES,
@@ -453,6 +454,29 @@ function promptTemplate(command: AgentCommand): string {
 }
 
 /**
+ * Marks the parts of a command's instructions that only apply when a task is
+ * driven through visual-regression checkpoints. A block is left out of the
+ * message entirely when the task has them off, so the agent is never told about
+ * a workflow it is not using.
+ */
+const VISUAL_BLOCK =
+    /<!-- visual-regression -->[\s\S]*?<!-- \/visual-regression -->\n?/g
+const VISUAL_MARKER = /<!-- \/?visual-regression -->\n?/g
+
+function applyVisualRegression(body: string, enabled: boolean): string {
+    if (enabled) return body.replace(VISUAL_MARKER, "")
+    return body.replace(VISUAL_BLOCK, "").replace(/\n{3,}/g, "\n\n")
+}
+
+/** Whether the task is driven through checkpoints. An empty or unknown ref has
+ *  no task to read, so the full procedure is kept, as it always was. */
+function visualRegressionFor(target: string): boolean {
+    const ref = target.trim()
+    if (!ref) return true
+    return findTask(ref)?.useVisualRegression ?? true
+}
+
+/**
  * The message the agent receives.
  *
  * There used to be a slash command for this — `/plan-tasks`, `/work-task` —
@@ -473,10 +497,18 @@ export function buildPrompt(
     extra: string,
 ): string {
     let body = promptTemplate(command).replace(/\$1/g, target.trim())
+    if (command === "work-task") {
+        body = applyVisualRegression(body, visualRegressionFor(target))
+    }
     if (command === "work-package") {
         // Left unsubstituted deliberately: the appendix's `$1` means "whichever
         // task the loop is on", not the work package ref this template's own `$1` means.
-        body = body.replace("$WORK_TASK_PROCEDURE", promptTemplate("work-task"))
+        // The loop spans many tasks, so the procedure keeps its visual-regression
+        // sections; each headless `/work-task` run it starts is built per task.
+        body = body.replace(
+            "$WORK_TASK_PROCEDURE",
+            applyVisualRegression(promptTemplate("work-task"), true),
+        )
     }
 
     const note = extra.trim()

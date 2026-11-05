@@ -60,6 +60,7 @@ interface TaskRow {
     investigation_ref: string | null
     work_package_ref: string | null
     use_git_workflow: number
+    use_visual_regression: number
     branch_name: string | null
     checkpoint_name: string | null
     created_at: string
@@ -152,6 +153,7 @@ function toTask(
         investigationRef: row.investigation_ref,
         workPackageRef: row.work_package_ref,
         useGitWorkflow: row.use_git_workflow !== 0,
+        useVisualRegression: row.use_visual_regression !== 0,
         branchName: row.branch_name,
         targetBranches: edges.targets.get(row.ref.toLowerCase()) ?? [],
         checkpointName: row.checkpoint_name,
@@ -447,6 +449,8 @@ export interface CreateInput {
     tags?: string[]
     /** Defaults to true. False skips task branching, committing and merging. */
     useGitWorkflow?: boolean
+    /** Defaults to true. False keeps visual-regression checkpoints out of the agent's instructions. */
+    useVisualRegression?: boolean
     branchName?: string
     /** The investigation this task came out of, if any. Validated here so a typo'd
      *  ref fails loudly rather than producing a task nothing links to. */
@@ -526,10 +530,10 @@ export function createTask(input: CreateInput): Task {
     getDb()
         .query(
             `INSERT INTO tasks (ref, title, description, status, priority, recommended_tier, position, tags,
-                          estimate_units, use_git_workflow, branch_name, investigation_ref, work_package_ref, checkpoint_name,
+                          estimate_units, use_git_workflow, use_visual_regression, branch_name, investigation_ref, work_package_ref, checkpoint_name,
                           created_at, updated_at)
        VALUES ($ref, $title, $description, 'backlog', $priority, $tier, $position, $tags,
-               $units, $useGitWorkflow, $branch, $investigation, $workPackage, $checkpoint, $at, $at)`,
+               $units, $useGitWorkflow, $useVisualRegression, $branch, $investigation, $workPackage, $checkpoint, $at, $at)`,
         )
         .run({
             $ref: ref,
@@ -544,6 +548,7 @@ export function createTask(input: CreateInput): Task {
             $tags: JSON.stringify(input.tags ?? []),
             $units: estimateUnits,
             $useGitWorkflow: useGitWorkflow ? 1 : 0,
+            $useVisualRegression: (input.useVisualRegression ?? true) ? 1 : 0,
             $branch: branchName,
             $investigation: investigation,
             $workPackage: workPackage,
@@ -573,6 +578,8 @@ export interface UpdateInput {
     recommendedTier?: ModelTier | null
     /** Enable or disable task-level branching and merging. */
     useGitWorkflow?: boolean
+    /** Enable or disable visual-regression checkpoints for this task. */
+    useVisualRegression?: boolean
     tags?: string[]
     /** Link the task to an investigation, or pass null to unlink it. */
     investigationRef?: string | null
@@ -635,6 +642,11 @@ export function updateTask(ref: string, input: UpdateInput): Task {
                 workspace().config.branchPrefix,
             )
         }
+    }
+    if (input.useVisualRegression !== undefined) {
+        assignments.push("use_visual_regression = $useVisualRegression")
+        params.$useVisualRegression = input.useVisualRegression ? 1 : 0
+        changed.push("visual regression")
     }
     if (input.tags !== undefined) {
         assignments.push("tags = $tags")

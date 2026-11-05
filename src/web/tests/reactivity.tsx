@@ -235,7 +235,11 @@ async function run() {
         run: null,
         workRuns: [],
     } as WorkPackageDetail
-    api.listWorkPackages = async () => [clone(detail)]
+    let workspaceReads = 0
+    api.listWorkPackages = async () => {
+        workspaceReads++
+        return [clone(detail)]
+    }
     api.listTasks = async () => []
     api.listInvestigations = async () => [clone(investigation)]
     api.listBranches = async () => ({
@@ -260,6 +264,27 @@ async function run() {
         el.textContent?.includes("Workspace"),
     )!
     check(!!card, "app snapshot loads the work package home")
+    const initialReads = workspaceReads
+    events.dispatchEvent(
+        new MessageEvent("change", {
+            data: JSON.stringify({ channel: "notes" }),
+        }),
+    )
+    await tick()
+    check(
+        workspaceReads === initialReads,
+        "notes events skip task, branch, and tool discovery refreshes",
+    )
+    events.dispatchEvent(
+        new MessageEvent("change", {
+            data: JSON.stringify({ channel: "tasks" }),
+        }),
+    )
+    await tick()
+    check(
+        workspaceReads === initialReads + 1,
+        "task events still refresh the workspace",
+    )
     events.dispatchEvent(new Event("change"))
     await tick()
     check(

@@ -107,9 +107,7 @@ import {
     createNote,
     deleteNote,
     initNotes,
-    listFolders,
-    listNotesWithBodies,
-    listTags,
+    listNoteListing,
     indexImageFolders,
     notesWorkspaceInfo,
     pullNotes,
@@ -1117,13 +1115,11 @@ async function handleNotes(
             // note to overwrite.
             indexImageFolders()
             return json({
-                notes: listNotesWithBodies({
+                ...listNoteListing({
                     tag: url.searchParams.get("tag") ?? undefined,
                     folder: url.searchParams.get("folder") ?? undefined,
                     search: url.searchParams.get("q") ?? undefined,
                 }),
-                folders: listFolders(),
-                tags: listTags(),
                 workspace: notesWorkspaceInfo(),
             })
         }
@@ -2055,7 +2051,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
             aioVrInstalled: aioVrAvailable(),
             aioVrWorkspaceExists: existsSync(ws.aioVrDir),
             notes: notesWorkspaceInfo(),
-            tools: toolAvailability(),
+            tools: await toolAvailability(),
         })
     }
 
@@ -2153,6 +2149,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
                 recommendedTier?: string | null
                 tags?: unknown
                 useGitWorkflow?: boolean
+                useVisualRegression?: boolean
                 branchName?: string
                 investigationRef?: string
                 workPackageRef?: string | null
@@ -2173,6 +2170,12 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
             ) {
                 return fail("useGitWorkflow must be a boolean.")
             }
+            if (
+                input.useVisualRegression !== undefined &&
+                typeof input.useVisualRegression !== "boolean"
+            ) {
+                return fail("useVisualRegression must be a boolean.")
+            }
 
             return json(
                 {
@@ -2183,6 +2186,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
                         recommendedTier: input.recommendedTier as never,
                         tags: parseTags(input.tags),
                         useGitWorkflow: input.useGitWorkflow,
+                        useVisualRegression: input.useVisualRegression,
                         branchName: input.branchName,
                         investigationRef: input.investigationRef,
                         workPackageRef: input.workPackageRef,
@@ -2338,6 +2342,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
                 recommendedTier?: string | null
                 tags?: unknown
                 useGitWorkflow?: boolean
+                useVisualRegression?: boolean
                 investigationRef?: string | null
                 workPackageRef?: string | null
                 branchName?: string
@@ -2358,6 +2363,12 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
                 return fail("useGitWorkflow must be a boolean.")
             }
             if (
+                input.useVisualRegression !== undefined &&
+                typeof input.useVisualRegression !== "boolean"
+            ) {
+                return fail("useVisualRegression must be a boolean.")
+            }
+            if (
                 input.useGitWorkflow === false &&
                 input.branchName !== undefined
             ) {
@@ -2375,6 +2386,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
                 recommendedTier: input.recommendedTier as never,
                 tags: parseTags(input.tags),
                 useGitWorkflow: input.useGitWorkflow,
+                useVisualRegression: input.useVisualRegression,
                 investigationRef: input.investigationRef,
                 workPackageRef: input.workPackageRef,
                 dependsOn: parseRefs(input.dependsOn, "dependsOn"),
