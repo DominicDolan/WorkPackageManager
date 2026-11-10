@@ -15,9 +15,12 @@ import {
     createEffect,
     createSignal,
     deep,
+    snapshot,
     type Element,
 } from "solid-js"
 import { api } from "../api"
+import { createRecord } from "../hooks/createQuery"
+import { ResumeSessionButton } from "../components/ResumeSessionButton"
 import { SupervisorPickerDialog } from "../components/SupervisorPickerDialog"
 import { useError } from "../hooks/useError"
 import { renderMarkdown } from "../markdown"
@@ -39,9 +42,9 @@ export function BranchPanel(props: {
     /** A rebase stopped on conflicts; the workspace owns the resolution dialog. */
     conflicted: (conflict: GitConflict) => void
 }) {
-    const [current, setCurrent] = createSignal<
-        CombinedBranchDetail | undefined
-    >()
+    // Reconciled, not replaced: the checks poll writes a fresh copy every few
+    // seconds, and replacing it would rebuild every row beneath it.
+    const [current, setCurrent] = createRecord<CombinedBranchDetail>()
     // Unsaved edits only. Until the field is touched it shows the saved value,
     // so nothing has to copy server data into it, and a refetch or the checks
     // poll replacing `current` cannot wipe what is being typed.
@@ -665,11 +668,14 @@ export function BranchPanel(props: {
                                 names={props.tools.checkNames}
                                 disabled={!!busy()}
                                 stale={checksStale()}
-                                updated={(checks) =>
-                                    setCurrent((value) =>
-                                        value ? { ...value, ...checks } : value,
-                                    )
-                                }
+                                updated={(checks) => {
+                                    const value = current()
+                                    if (value)
+                                        setCurrent({
+                                            ...snapshot(value),
+                                            ...checks,
+                                        })
+                                }}
                                 investigate={() => setCheckAgentOpen(true)}
                             />
                         </BranchSection>
@@ -855,14 +861,23 @@ function RebaseSupervisionStatus(props: { supervision: RebaseSupervision }) {
             </p>
             <Show when={props.supervision.agent}>
                 {(agent) => (
-                    <details open={props.supervision.status === "resolving"}>
-                        <summary class="cursor-pointer">
-                            Supervisor output
-                        </summary>
-                        <div class="mt-2">
-                            <AgentOutput agent={agent()} label="Supervisor" />
+                    <>
+                        <div class="justify-self-start">
+                            <ResumeSessionButton agent={agent()} />
                         </div>
-                    </details>
+                        <details
+                            open={props.supervision.status === "resolving"}>
+                            <summary class="cursor-pointer">
+                                Supervisor output
+                            </summary>
+                            <div class="mt-2">
+                                <AgentOutput
+                                    agent={agent()}
+                                    label="Supervisor"
+                                />
+                            </div>
+                        </details>
+                    </>
                 )}
             </Show>
         </div>

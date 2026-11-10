@@ -3,6 +3,7 @@ import {
     unattendedSupervisor,
     onRunSettled,
     runResult,
+    runUsageLimit,
     runTrail,
     startRun,
     stopRun,
@@ -623,6 +624,16 @@ function advance(agentRunId: number, status: AgentRunStatus): void {
     const agent = findAgentRun(agentRunId)
     const supervising = !!agent && isSupervisor(agent)
     const whose = supervising ? `The supervisor on ${ref}` : `${ref}'s agent`
+
+    const limit = runUsageLimit(agentRunId)
+    if (limit && status !== "stopped") {
+        settleWorkPackageRun(
+            workPackageRun.id,
+            "blocked",
+            `${whose} reached Claude's ${limit.type.replaceAll("_", " ")} usage limit. Reset: ${new Date(limit.resetsAt * 1000).toLocaleString()}. Resume the run after the limit resets.`,
+        )
+        return
+    }
 
     if (status === "stopped") {
         settleWorkPackageRun(

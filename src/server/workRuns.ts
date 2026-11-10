@@ -459,6 +459,7 @@ function headlessAgentsFor(ids: number[]): Map<string, WorkRunAgent[]> {
                 exitCode: agent.exitCode,
                 createdAt: agent.createdAt,
                 finishedAt: agent.finishedAt,
+                sessionId: agent.sessionId,
                 ...(supervising && {
                     calledFor: supervisorCalledFor(agent.prompt),
                     verdict:

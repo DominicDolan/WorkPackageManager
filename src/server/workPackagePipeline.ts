@@ -904,6 +904,7 @@ export function pipelineDetail(id: number): PipelineDetail | null {
                                   exitCode: agent.exitCode,
                                   createdAt: agent.createdAt,
                                   finishedAt: agent.finishedAt,
+                                  sessionId: agent.sessionId,
                               },
                           ]
                         : []

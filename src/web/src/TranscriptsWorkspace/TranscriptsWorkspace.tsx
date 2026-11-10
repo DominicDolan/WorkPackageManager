@@ -34,17 +34,10 @@ export function TranscriptsWorkspace(props: {
     const selected = createQuery(async () =>
         selectedPath() ? api.getTranscript(selectedPath()) : null,
     )
-    const targets = createMemo(() =>
-        kind() === "task"
-            ? props.snapshot.tasks.map((task) => ({
-                  ref: task.ref,
-                  title: task.title,
-              }))
-            : props.snapshot.investigations.map((investigation) => ({
-                  ref: investigation.ref,
-                  title: investigation.title,
-              })),
-    )
+    // The snapshot's own rows, not copies: copies are new objects on every
+    // refresh, which would rebuild the options under an open select.
+    const targets = (): readonly { ref: string; title: string }[] =>
+        kind() === "task" ? props.snapshot.tasks : props.snapshot.investigations
     const visible = createMemo(() => {
         const term = search().trim().toLowerCase()
         return transcriptList().filter(
@@ -66,7 +59,9 @@ export function TranscriptsWorkspace(props: {
     )
     createEffect(
         () => props.revision,
-        () => {
+        (_revision, previous) => {
+            // The queries fetched on creation; refresh only on later changes.
+            if (previous === undefined) return
             refresh(transcripts)
             refresh(selected)
         },

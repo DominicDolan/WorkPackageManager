@@ -1,6 +1,7 @@
 import type { WorkRunAgent } from "@shared/types"
 import { createSignal, Show } from "solid-js"
 import { AgentOutput } from "./AgentOutput"
+import { ResumeSessionButton } from "./ResumeSessionButton"
 
 /** Rows that are unfolded, kept across refreshes that remount the list. */
 const [unfolded, setUnfolded] = createSignal<ReadonlySet<number>>(new Set())
@@ -96,6 +97,9 @@ export function SupervisorRow(props: {
                     )}
                 </Show>
                 <p class="m-0">{consequence()}</p>
+                <div>
+                    <ResumeSessionButton agent={props.agent} />
+                </div>
                 {/* Mounted only when unfolded: it fetches the agent's log. */}
                 <Show when={open()}>
                     <AgentOutput agent={props.agent} label={null} />

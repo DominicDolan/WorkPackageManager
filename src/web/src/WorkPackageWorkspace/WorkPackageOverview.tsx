@@ -3,14 +3,15 @@ import {
     nextWorkableTask,
     type WorkPackageDetail,
 } from "@shared/types"
-import { For, Show } from "solid-js"
+import { Show } from "solid-js"
 import { api } from "../api"
 import { InfoCard } from "../components/InfoCard"
-import { TaskRow } from "./TaskRow"
+import { EditableTaskList } from "./EditableTaskList"
 
 export function WorkPackageOverview(props: {
     workPackage: WorkPackageDetail
     openTask: (ref: string) => void
+    changed: () => void
     busy: string
     mutate: (label: string, action: () => Promise<unknown>) => Promise<void>
 }) {
@@ -32,24 +33,11 @@ export function WorkPackageOverview(props: {
                         {props.workPackage.taskCount} total
                     </span>
                 </div>
-                <section class="collection">
-                    <For
-                        each={props.workPackage.tasks}
-                        fallback={
-                            <p class="p-10 text-center text-sm text-slate-400">
-                                This work package has no tasks yet.
-                            </p>
-                        }>
-                        {(task, index) => (
-                            <TaskRow
-                                task={task}
-                                index={index()}
-                                known={props.workPackage.tasks}
-                                onClick={() => props.openTask(task.ref)}
-                            />
-                        )}
-                    </For>
-                </section>
+                <EditableTaskList
+                    workPackage={props.workPackage}
+                    openTask={props.openTask}
+                    changed={props.changed}
+                />
                 <Show when={props.workPackage.outsideBlockers.length}>
                     <p class="mt-4 p-4 text-sm notice warning">
                         This work package is waiting on{" "}

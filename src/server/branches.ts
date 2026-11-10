@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { workspace } from "../config/paths"
+import { describePushFailure } from "./pushErrors"
 import type {
     BranchCommit,
     BranchGitInfo,
@@ -1019,7 +1020,14 @@ export async function pushBranch(input: {
     const push = await run(args, GH_TIMEOUT_MS)
     if (push.timedOut) throw new Error(`Pushing '${branch}' timed out.`)
     if (push.code !== 0)
-        throw new Error(push.stderr.trim() || `Could not push '${branch}'.`)
+        throw new Error(
+            describePushFailure({
+                stderr: push.stderr,
+                branch,
+                remoteBranch,
+                force,
+            }),
+        )
 }
 
 export interface CreatePrResult {

@@ -1,5 +1,5 @@
 import type { AgentRunDetail, WorkRunAgent } from "@shared/types"
-import { createSignal, onSettled, Show } from "solid-js"
+import { createEffect, createSignal, onSettled, Show, untrack } from "solid-js"
 import { api } from "../api"
 import { useError } from "../hooks/useError"
 import { renderMarkdown } from "../markdown"
@@ -146,14 +146,63 @@ export function AgentOutput(props: {
                     ref={log}
                     onScroll={rememberScroll}
                     class="mt-2 mb-0 max-h-[28rem] overflow-auto whitespace-pre-wrap p-3 text-xs">
-                    {detail() === null
-                        ? "Loading…"
-                        : detail()!.output ||
-                          (status() === "running"
-                              ? "Nothing written yet."
-                              : "This agent wrote no output.")}
+                    <GrowingText
+                        text={
+                            detail() === null
+                                ? "Loading…"
+                                : detail()!.output ||
+                                  (status() === "running"
+                                      ? "Nothing written yet."
+                                      : "This agent wrote no output.")
+                        }
+                    />
                 </pre>
             </Show>
         </div>
     )
+}
+
+/** How much of the previous text locates it inside a log that was trimmed. */
+const OVERLAP_PROBE = 256
+
+/**
+ * A text node for a log that keeps growing. Rewriting a text node's data
+ * collapses any selection inside it, so someone highlighting a running agent's
+ * output would lose it on every poll. New output is appended instead, and when
+ * the server only sends the log's tail, the start that scrolled off is deleted.
+ * Both are edits the browser maps selections across.
+ */
+function GrowingText(props: { text: string }) {
+    const node = document.createTextNode(untrack(() => props.text))
+    createEffect(
+        () => props.text,
+        (next) => {
+            const previous = node.data
+            if (next === previous) return
+            if (previous && next.startsWith(previous)) {
+                node.appendData(next.slice(previous.length))
+                return
+            }
+            // A trimmed log: find where the previous text's end now sits.
+            // Short enough to sit inside the part both copies share.
+            const probe = previous.slice(
+                -Math.min(OVERLAP_PROBE, Math.ceil(previous.length / 4)),
+            )
+            const end = probe ? next.lastIndexOf(probe) : -1
+            if (end >= 0) {
+                const kept = end + probe.length
+                const dropped = previous.length - kept
+                if (
+                    dropped >= 0 &&
+                    previous.slice(dropped) === next.slice(0, kept)
+                ) {
+                    node.deleteData(0, dropped)
+                    node.appendData(next.slice(kept))
+                    return
+                }
+            }
+            node.data = next
+        },
+    )
+    return node
 }

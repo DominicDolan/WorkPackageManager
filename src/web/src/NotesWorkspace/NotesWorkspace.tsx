@@ -111,7 +111,9 @@ export function NotesWorkspace(props: {
     )
     createEffect(
         () => props.revision,
-        () => {
+        (_revision, previous) => {
+            // The queries fetched on creation; refresh only on later changes.
+            if (previous === undefined) return
             refresh(notes)
             refresh(issues)
             refresh(selectedNote)

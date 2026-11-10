@@ -90,6 +90,7 @@ export function rebaseSupervision(branch: string): RebaseSupervision | null {
             exitCode: agent.exitCode,
             createdAt: agent.createdAt,
             finishedAt: agent.finishedAt,
+            sessionId: agent.sessionId,
         },
     }
 }

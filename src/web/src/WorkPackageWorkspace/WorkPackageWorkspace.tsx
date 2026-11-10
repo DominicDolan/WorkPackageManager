@@ -241,7 +241,9 @@ export function WorkPackageWorkspace(props: {
 
     createEffect(
         () => props.revision,
-        () => {
+        (_revision, previous) => {
+            // The queries fetched on creation; refresh only on later changes.
+            if (previous === undefined) return
             void refresh(workPackage)
         },
     )
@@ -439,6 +441,7 @@ export function WorkPackageWorkspace(props: {
                                         <WorkPackageOverview
                                             workPackage={detail()}
                                             openTask={props.openTask}
+                                            changed={changed}
                                             busy={busy()}
                                             mutate={mutate}
                                         />

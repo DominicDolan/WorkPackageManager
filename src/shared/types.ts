@@ -1411,7 +1411,13 @@ export interface WorkRunItem {
 
 export type WorkRunAgent = Pick<
     AgentRun,
-    "id" | "command" | "status" | "exitCode" | "createdAt" | "finishedAt"
+    | "id"
+    | "command"
+    | "status"
+    | "exitCode"
+    | "sessionId"
+    | "createdAt"
+    | "finishedAt"
 > & {
     /** For a supervisor: why it was called in. */
     calledFor?: string | null

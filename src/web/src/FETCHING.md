@@ -26,6 +26,14 @@ const listing = createQuery(() => api.listNotes({ q: query() }))
 </Loading>
 ```
 
+Never hold a server record in a plain signal. Every response is a new object
+graph, so swapping it in rebuilds every keyed `<For>` row and `<Show keyed>`
+beneath it, losing text selection, focus, scroll and open `<details>`. Records
+that arrive from mutations or polls rather than one fetcher (the branch panel's
+delivery record, for instance) use `createRecord` from `hooks/createQuery`. It
+reconciles each copy into the last with the same keys as `createQuery`.
+Likewise, render the store's own rows rather than `.map()`ped copies of them.
+
 Keep `createMemo` for scalar/computed values, and async sources such as model
 catalogues whose whole value should change together. Use keyed projections for
 derived lists that manufacture row objects (for example, workspace tabs).

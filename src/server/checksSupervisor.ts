@@ -4,6 +4,7 @@ import {
     unattendedSupervisor,
     onRunSettled,
     runResult,
+    runUsageLimit,
     startRun,
     stopRun,
     supervisorVerdict,
@@ -105,6 +106,7 @@ export function checksSupervision(branch: string): ChecksSupervision | null {
                               exitCode: agent.exitCode,
                               createdAt: agent.createdAt,
                               finishedAt: agent.finishedAt,
+                              sessionId: agent.sessionId,
                               calledFor,
                               verdict:
                                   agent.status === "running"
@@ -466,6 +468,15 @@ function supervisorSettled(agentRunId: number, status: AgentRunStatus): void {
             supervision,
             "stopped",
             `The supervisor on ${check} was stopped, so the checks stopped with it.`,
+        )
+        return
+    }
+    const limit = runUsageLimit(agentRunId)
+    if (limit && status !== "stopped") {
+        settle(
+            supervision,
+            "blocked",
+            `The supervisor reached Claude's ${limit.type.replaceAll("_", " ")} usage limit. Reset: ${new Date(limit.resetsAt * 1000).toLocaleString()}. Resume the checks after the limit resets.`,
         )
         return
     }

@@ -6,6 +6,7 @@ import {
     readdirSync,
     readFileSync,
     readSync,
+    writeFileSync,
 } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -248,7 +249,13 @@ const HARNESSES: HarnessDef[] = [
             // The flag governs an interactive session too, which is the whole point of
             // offering it here: `auto` is what the terminal UI reaches with Shift+Tab,
             // available at launch instead of two keystrokes in.
-            if (mode === "print") argv.push("--print")
+            if (mode === "print")
+                argv.push(
+                    "--print",
+                    "--output-format",
+                    "stream-json",
+                    "--verbose",
+                )
             argv.push(prompt)
             return argv
         },
@@ -260,7 +267,13 @@ const HARNESSES: HarnessDef[] = [
             if (model) argv.push("--model", model)
             if (permissionMode !== "manual")
                 argv.push("--permission-mode", permissionMode)
-            argv.push("--print", prompt)
+            argv.push(
+                "--print",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                prompt,
+            )
             return argv
         },
     },
@@ -893,6 +906,23 @@ function resultPath(id: number): string {
     return join(LOG_DIR, `${id}.out`)
 }
 
+/** A confirmed usage limit reported by Claude Code, kept beside the run log. */
+export function runUsageLimit(
+    id: number,
+): { resetsAt: number; type: string } | null {
+    try {
+        const value = JSON.parse(
+            readFileSync(join(LOG_DIR, `${id}.limit.json`), "utf8"),
+        )
+        return typeof value.resetsAt === "number" &&
+            typeof value.type === "string"
+            ? value
+            : null
+    } catch {
+        return null
+    }
+}
+
 /**
  * Headless runs are detached from any terminal, so their output has to go
  * somewhere durable — a file, streamed as it arrives rather than buffered until
@@ -933,6 +963,46 @@ function spawnHeadless(id: number, argv: string[], cwd: string): void {
     let needsSessionCapture = readRow(id).session_id === null
     let sessionText = ""
     const decoder = new TextDecoder()
+    const claude = readRow(id).harness === "claude"
+    let claudeBuffer = ""
+    let claudeResult = ""
+    const writeClaudeLine = (line: string) => {
+        let event: any
+        try {
+            event = JSON.parse(line)
+        } catch {
+            // Older Claude versions and test harnesses may still print plain text.
+            sink.write(line + "\n")
+            resultSink.write(line + "\n")
+            return
+        }
+        if (
+            event.type === "rate_limit_event" &&
+            event.rate_limit_info?.status === "rejected"
+        ) {
+            const info = event.rate_limit_info
+            if (
+                typeof info.resetsAt === "number" &&
+                typeof info.rateLimitType === "string"
+            )
+                writeFileSync(
+                    join(LOG_DIR, `${id}.limit.json`),
+                    JSON.stringify({
+                        resetsAt: info.resetsAt,
+                        type: info.rateLimitType,
+                    }),
+                )
+        }
+        if (event.type === "assistant") {
+            for (const block of event.message?.content ?? []) {
+                if (block.type === "text" && typeof block.text === "string") {
+                    sink.write(block.text + "\n")
+                }
+            }
+        }
+        if (event.type === "result" && typeof event.result === "string")
+            claudeResult = event.result
+    }
     const pump = async (
         stream: ReadableStream<Uint8Array> | undefined | null,
         copy?: typeof resultSink,
@@ -943,6 +1013,14 @@ function spawnHeadless(id: number, argv: string[], cwd: string): void {
             const { done, value } = await reader.read()
             if (done) return
             if (value) {
+                if (claude && copy) {
+                    claudeBuffer += decoder.decode(value, { stream: true })
+                    const lines = claudeBuffer.split("\n")
+                    claudeBuffer = lines.pop() ?? ""
+                    for (const line of lines) if (line) writeClaudeLine(line)
+                    sink.flush()
+                    continue
+                }
                 sink.write(value)
                 sink.flush()
                 if (copy) {
@@ -978,6 +1056,11 @@ function spawnHeadless(id: number, argv: string[], cwd: string): void {
         .catch(() => {})
         .then(async () => {
             const code = await child.exited
+            if (claude) {
+                claudeBuffer += decoder.decode()
+                if (claudeBuffer) writeClaudeLine(claudeBuffer)
+                if (claudeResult) resultSink.write(claudeResult)
+            }
             await sink.end()
             await resultSink.end()
             live.delete(id)

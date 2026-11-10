@@ -33,7 +33,9 @@ export function InvestigationPanel(props: {
     // run list, and any conversation id found since, may have too.
     createEffect(
         () => props.investigation.updatedAt,
-        () => {
+        (_updatedAt, previous) => {
+            // The queries fetched on creation; refresh only on later changes.
+            if (previous === undefined) return
             refresh(detail)
             refresh(runs)
         },

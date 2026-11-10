@@ -62,7 +62,9 @@ export function TaskWorkspace(props: {
 
     createEffect(
         () => props.revision,
-        () => {
+        (_revision, previous) => {
+            // The queries fetched on creation; refresh only on later changes.
+            if (previous === undefined) return
             refresh(task)
             refresh(workPackage)
         },
