@@ -1,9 +1,5 @@
 import { createQuery } from "../hooks/createQuery"
-import {
-    workPackageQueueBlockers,
-    type Task,
-    type TaskVisualSync,
-} from "@work-task-manager/shared"
+import { type TaskVisualSync } from "@work-task-manager/shared"
 import {
     action,
     createOptimistic,
@@ -11,7 +7,6 @@ import {
     Loading,
     Show,
     createEffect,
-    createMemo,
     createSignal,
     refresh,
     isPending,
@@ -25,7 +20,7 @@ import { PageSkeleton } from "../components/PageSkeleton"
 import { StatusBadge } from "../components/StatusBadge"
 import { BackIcon } from "../components/icons"
 import type { WorkspaceSnapshot } from "../types/workspace"
-import { statusDetail, statusSince } from "../utils/taskStatus"
+import { statusDetail } from "../utils/taskStatus"
 import { UNASSIGNED_REF } from "../utils/workPackages"
 import { TaskDetailPanel } from "./TaskDetailPanel"
 import styles from "./TaskWorkspace.module.css"
@@ -53,13 +48,6 @@ export function TaskWorkspace(props: {
     const [visualSync, setVisualSync] = createSignal<TaskVisualSync | null>(
         null,
     )
-    const blockers = createMemo(() => {
-        const detail = workPackage.value
-        return detail
-            ? workPackageQueueBlockers(detail)
-            : new Map<string, Task[]>()
-    })
-
     createEffect(
         () => props.revision,
         (_revision, previous) => {
@@ -176,23 +164,18 @@ export function TaskWorkspace(props: {
                                             <span
                                                 class="task-nav-detail mt-[0.25rem] overflow-hidden"
                                                 title={
-                                                    statusSince(item)?.at ??
+                                                    item.statusSince?.at ??
                                                     undefined
                                                 }>
                                                 <Show
                                                     when={
-                                                        blockers().get(item.ref)
-                                                            ?.length
+                                                        item.blockedBy.length
                                                     }>
                                                     <em>
                                                         Blocked by{" "}
-                                                        {blockers()
-                                                            .get(item.ref)!
-                                                            .map(
-                                                                (blocker) =>
-                                                                    blocker.ref,
-                                                            )
-                                                            .join(", ")}
+                                                        {item.blockedBy.join(
+                                                            ", ",
+                                                        )}
                                                         {" · "}
                                                     </em>
                                                 </Show>

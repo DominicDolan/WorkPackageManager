@@ -39,6 +39,9 @@
       "dependencies": {
         "@work-task-manager/shared": "workspace:*",
       },
+      "devDependencies": {
+        "@work-task-manager/server": "workspace:*",
+      },
     },
     "packages/core": {
       "name": "@work-task-manager/core",

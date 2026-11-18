@@ -1391,12 +1391,46 @@ repository can ship one shaped around its own workflow.
     case its origin goes in `origins`.
 
 `GET /api` answers `{ name, apiVersion, repoRoot }`, so a UI can check it is
-talking to a server whose contract it was built for.
+talking to a server whose contract it was built for. `GET /api/routes` lists
+every route with its method, path and a one-line summary.
+
+What a UI would otherwise work out for itself comes with the data:
+
+| Field                        | Meaning                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------ |
+| `Task.statusSince`           | `{ verb, at }`: when it entered its status and what to call that moment. |
+| `Task.blockedBy`             | Its unfinished blockers, checked across the whole workspace.             |
+| `WorkPackage.lastWorkedAt`   | Latest of creation and any task starting or finishing; sort by it.       |
+| `WorkPackageDetail.nextTask` | The first task in the work order that nothing unfinished holds up.       |
+| `WorkPackageDetail.tabs`     | Investigations, branches and runs in the order added, with stable keys.  |
+| `/api/meta` labels           | `statusLabels` and `investigationStatusLabels` for display.              |
 
 The API can also be embedded rather than run as `tasks web`:
 `@work-task-manager/server` exports `handleApiRequest(request)` (the whole API as
 a `Request → Response` function), `prepareWorkspace()` (call it once first) and
-`startServer({ port, ui, origins })`.
+`startServer({ port, ui, origins })`. It also exports `createRouter` and `route`,
+the same pieces its own routes are built from.
+
+### How the API is organised
+
+- `packages/server/src/routes/` has one module per resource (`tasks.ts`,
+  `workPackages.ts`, `branches.ts`, …). Each exports a list of
+  `route(method, path, summary, handler)` entries. A handler returns a value
+  (sent as JSON) or a `Response`, and throws `HttpError` for a specific status.
+- `router.ts` matches by segment: a literal segment beats a `:param`, so
+  `/tasks/reorder` is never read as a task. Params arrive percent-decoded. A
+  path with no route is a 404, and a known path with the wrong method is a 405.
+- Routes parse and validate the request, then call `@work-task-manager/core`.
+  Business rules (combining branches, signing off a package, rebasing with a
+  supervisor, editing config) live in core, mostly `delivery.ts`, so the CLI and
+  an embedding server get the same behaviour.
+- `packages/client/src/contract.test.ts` calls every client method against a
+  fake `fetch` and checks each request against the route table, in both
+  directions. A route added without a client method, or a client method
+  pointing at a route that does not exist, fails the tests.
+
+Run the tests with `bun run test`. It passes `--isolate`, because each test file
+points the workspace at its own sandbox and the workspace is cached per process.
 
 ### Upgrading to work package tabs
 

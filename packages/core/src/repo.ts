@@ -42,6 +42,8 @@ import {
     type WorkPackage,
     type WorkPackageBranch,
     type WorkPackageSummary,
+    satisfiesDependency,
+    statusSinceOf,
 } from "@work-task-manager/shared"
 
 /* ------------------------------------------------------------------ rows */
@@ -86,6 +88,8 @@ interface DependencyIndex {
     blocks: Map<string, string[]>
     /** Lower-cased task ref → the Git names of its target branches, first first. */
     targets: Map<string, string[]>
+    /** Lower-cased task ref → its status, to tell which blockers are finished. */
+    statuses: Map<string, Status>
 }
 
 function dependencyIndex(): DependencyIndex {
@@ -103,6 +107,7 @@ function dependencyIndex(): DependencyIndex {
         dependsOn: new Map(),
         blocks: new Map(),
         targets: new Map(),
+        statuses: new Map(),
     }
     for (const row of rows) {
         const forward = index.dependsOn.get(row.task_ref)
@@ -130,7 +135,21 @@ function dependencyIndex(): DependencyIndex {
         if (list) list.push(row.branch_name)
         else index.targets.set(key, [row.branch_name])
     }
+    for (const row of getDb()
+        .query<{ ref: string; status: string }, []>(
+            "SELECT ref, status FROM tasks",
+        )
+        .all())
+        index.statuses.set(row.ref.toLowerCase(), row.status as Status)
     return index
+}
+
+/** The blockers of a task that are not finished yet. */
+function blockedBy(row: TaskRow, edges: DependencyIndex): string[] {
+    return (edges.dependsOn.get(row.ref) ?? []).filter((ref) => {
+        const status = edges.statuses.get(ref.toLowerCase())
+        return status !== undefined && !satisfiesDependency(status)
+    })
 }
 
 function toTask(
@@ -167,6 +186,15 @@ function toTask(
             row.git_error && row.git_error_at
                 ? { message: row.git_error, at: row.git_error_at }
                 : null,
+        statusSince: statusSinceOf({
+            status: row.status as Status,
+            createdAt: row.created_at,
+            startedAt: row.started_at,
+            devCompletedAt: row.dev_completed_at,
+            verifiedAt: row.verified_at,
+            closedAt: row.closed_at,
+        }),
+        blockedBy: blockedBy(row, edges),
     }
 }
 
@@ -987,6 +1015,7 @@ export function listWorkPackages(): WorkPackageSummary[] {
                 task_count: number
                 dev_complete_count: number
                 open_count: number
+                last_worked_at: string
             },
             []
         >(
@@ -998,7 +1027,8 @@ export function listWorkPackages(): WorkPackageSummary[] {
             `SELECT g.id, g.ref, g.name, g.color, g.position, g.created_at, g.updated_at,
               COUNT(t.id) AS task_count,
               COUNT(CASE WHEN t.status IN ('dev_complete', 'verified', 'closed') THEN 1 END) AS dev_complete_count,
-              COUNT(CASE WHEN t.status != 'closed' THEN 1 END) AS open_count
+              COUNT(CASE WHEN t.status != 'closed' THEN 1 END) AS open_count,
+              MAX(g.created_at, COALESCE(MAX(t.started_at), ''), COALESCE(MAX(t.dev_completed_at), '')) AS last_worked_at
          FROM work_packages g
          LEFT JOIN tasks t ON t.work_package_ref = g.ref COLLATE NOCASE
         GROUP BY g.id
@@ -1014,6 +1044,7 @@ export function listWorkPackages(): WorkPackageSummary[] {
             taskCount: row.task_count,
             devCompleteCount: row.dev_complete_count,
             openCount: row.open_count,
+            lastWorkedAt: row.last_worked_at,
         }))
 }
 

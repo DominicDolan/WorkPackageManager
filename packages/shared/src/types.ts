@@ -126,6 +126,55 @@ export interface Task {
     /** The last Git operation done for this task that failed — a merge into a
      *  target branch — and when. Null once one succeeds. */
     gitError: { message: string; at: string } | null
+    /**
+     * When the task entered its current status, and the word for it ("Started",
+     * "Dev complete"). Null when that moment was not recorded (some legacy
+     * rows). Derived on the server so every UI words it the same way.
+     */
+    statusSince: TaskStatusSince | null
+    /**
+     * Refs of the blockers in `dependsOn` that are not finished yet (see
+     * `satisfiesDependency`), looked up across the whole workspace, so a UI
+     * never has to load every task to tell.
+     */
+    blockedBy: string[]
+}
+
+export interface TaskStatusSince {
+    /** "Created", "Started", "Dev complete", "Verified" or "Closed". */
+    verb: string
+    at: string
+}
+
+const STATUS_SINCE_VERBS: Record<Status, string> = {
+    backlog: "Created",
+    in_progress: "Started",
+    dev_complete: "Dev complete",
+    verified: "Verified",
+    closed: "Closed",
+}
+
+/** When `task` entered its current status. The server fills `Task.statusSince`
+ *  with this; it is exported for code that builds a task by hand. */
+export function statusSinceOf(
+    task: Pick<
+        Task,
+        | "status"
+        | "createdAt"
+        | "startedAt"
+        | "devCompletedAt"
+        | "verifiedAt"
+        | "closedAt"
+    >,
+): TaskStatusSince | null {
+    const at = {
+        backlog: task.createdAt,
+        in_progress: task.startedAt,
+        dev_complete: task.devCompletedAt,
+        verified: task.verifiedAt,
+        closed: task.closedAt,
+    }[task.status]
+    return at ? { verb: STATUS_SINCE_VERBS[task.status], at } : null
 }
 
 /**
@@ -366,6 +415,13 @@ export interface WorkPackageSummary extends WorkPackage {
     /** Members that are not closed. The count worth showing: a work package whose work
      *  is finished should not read as a work package with ten open tasks in it. */
     openCount: number
+    /**
+     * The latest of: when it was created, and when any of its tasks was started
+     * or reached dev complete. Those timestamps are kept when a task moves on,
+     * which is the activity signal a portfolio wants: sort by this, newest
+     * first, and the package most recently worked on leads.
+     */
+    lastWorkedAt: string
 }
 
 /**
@@ -1013,6 +1069,24 @@ export interface WorkPackageDetail extends WorkPackageSummary {
     run: WorkPackageRun | null
     /** Its Run tabs, oldest first. */
     workRuns: WorkRunDetail[]
+    /**
+     * The task to work next: the first in the work order that nothing
+     * unfinished is holding up (see `nextWorkableTask`). Null when there is none.
+     */
+    nextTask: Task | null
+    /**
+     * Its investigations, branches and runs as one list in the order they were
+     * added: the tabs a work package page shows after its task list.
+     */
+    tabs: WorkPackageTab[]
+}
+
+export interface WorkPackageTab {
+    /** Stable across refreshes: `investigation:<ref>`, `branch:<id>`, `run:<id>`. */
+    key: string
+    kind: "investigation" | "branch" | "run"
+    label: string
+    createdAt: string
 }
 
 /**

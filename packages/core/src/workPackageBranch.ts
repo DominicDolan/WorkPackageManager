@@ -45,6 +45,7 @@ import {
 } from "./repo"
 import {
     dependencyOrder,
+    nextWorkableTask,
     type BranchTaskSync,
     unmetDependencies,
     type GitConflict,
@@ -762,15 +763,19 @@ export function getWorkPackageDetail(refOrName: string): WorkPackageDetail {
         }
     }
 
+    const investigations = listInvestigations({
+        workPackageRef: workPackage.ref,
+    }).sort((left, right) => left.id - right.id)
+    const branches = listWorkPackageBranches(workPackage.ref).map(
+        workPackageBranchDetail,
+    )
+    const workRuns = listWorkRuns(workPackage.ref).map(workRunDetail)
+
     return {
         ...summary,
         tasks,
-        investigations: listInvestigations({
-            workPackageRef: workPackage.ref,
-        }).sort((left, right) => left.id - right.id),
-        branches: listWorkPackageBranches(workPackage.ref).map(
-            workPackageBranchDetail,
-        ),
+        investigations,
+        branches,
         queue,
         outsideBlockers: [...outside.values()],
         // Workspace-wide, not work package-scoped: a task in flight anywhere is what stops
@@ -781,6 +786,31 @@ export function getWorkPackageDetail(refOrName: string): WorkPackageDetail {
         // every button on the work package page is allowed to offer, so it has to arrive
         // with the queue it is working, not a request later.
         run: latestWorkPackageRun(workPackage.ref),
-        workRuns: listWorkRuns(workPackage.ref).map(workRunDetail),
+        workRuns,
+        nextTask: nextWorkableTask({
+            tasks,
+            queue,
+            outsideBlockers: [...outside.values()],
+        }),
+        tabs: [
+            ...investigations.map((one) => ({
+                key: `investigation:${one.ref}`,
+                kind: "investigation" as const,
+                label: one.title,
+                createdAt: one.createdAt,
+            })),
+            ...branches.map((one) => ({
+                key: `branch:${one.id}`,
+                kind: "branch" as const,
+                label: one.label,
+                createdAt: one.createdAt,
+            })),
+            ...workRuns.map((one) => ({
+                key: `run:${one.id}`,
+                kind: "run" as const,
+                label: one.label,
+                createdAt: one.createdAt,
+            })),
+        ].sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
     }
 }

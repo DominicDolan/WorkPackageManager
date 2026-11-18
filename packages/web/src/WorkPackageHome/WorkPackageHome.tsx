@@ -32,46 +32,13 @@ export function WorkPackageHome(props: {
             (workPackage) =>
                 workPackage.taskCount === 0 || workPackage.openCount > 0,
         )
-    // These timestamps are retained when a task subsequently moves on, which is
-    // exactly the activity signal the portfolio needs: the most recently started
-    // or completed work package should remain at the top. Creating a work package
-    // counts too, so a new one leads until another is worked on.
-    const workPackagesByRecentWork = createMemo(() => {
-        const recentWork = new Map<string, string>(
-            props.snapshot.workPackages.map((workPackage) => [
-                workPackage.ref,
-                workPackage.createdAt,
-            ]),
-        )
-        for (const task of props.snapshot.tasks) {
-            if (!task.workPackageRef) continue
-            const at = [task.startedAt, task.devCompletedAt].reduce<
-                string | null
-            >(
-                (latest, timestamp) =>
-                    !timestamp || (latest && latest >= timestamp)
-                        ? latest
-                        : timestamp,
-                null,
-            )
-            if (
-                at &&
-                (!recentWork.has(task.workPackageRef) ||
-                    recentWork.get(task.workPackageRef)! < at)
-            ) {
-                recentWork.set(task.workPackageRef, at)
-            }
-        }
-
-        return [...props.snapshot.workPackages].sort((left, right) => {
-            const leftAt = recentWork.get(left.ref)
-            const rightAt = recentWork.get(right.ref)
-            if (leftAt && rightAt) return rightAt.localeCompare(leftAt)
-            if (leftAt) return -1
-            if (rightAt) return 1
-            return 0
-        })
-    })
+    // The server works out when each package was last worked on (created, or a
+    // task in it started or finished); newest first keeps active work on top.
+    const workPackagesByRecentWork = createMemo(() =>
+        [...props.snapshot.workPackages].sort((left, right) =>
+            right.lastWorkedAt.localeCompare(left.lastWorkedAt),
+        ),
+    )
     return (
         <main
             class={`${styles.scope} app-shell min-h-screen text-slate-950 grid grid-cols-[220px_minmax(0,_1fr)] max-[820px]:block`}>

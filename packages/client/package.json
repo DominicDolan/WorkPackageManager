@@ -12,5 +12,8 @@
     ],
     "dependencies": {
         "@work-task-manager/shared": "workspace:*"
+    },
+    "devDependencies": {
+        "@work-task-manager/server": "workspace:*"
     }
 }

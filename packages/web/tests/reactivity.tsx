@@ -225,6 +225,7 @@ async function run() {
         taskCount: 0,
         devCompleteCount: 0,
         openCount: 0,
+        lastWorkedAt: "2026-09-01",
         tasks: [],
         investigations: [investigation],
         branches: [],
@@ -234,6 +235,15 @@ async function run() {
         baseBranch: "main",
         run: null,
         workRuns: [],
+        nextTask: null,
+        tabs: [
+            {
+                key: `investigation:${investigation.ref}`,
+                kind: "investigation",
+                label: investigation.title,
+                createdAt: investigation.createdAt,
+            },
+        ],
     } as WorkPackageDetail
     let workspaceReads = 0
     api.listWorkPackages = async () => {

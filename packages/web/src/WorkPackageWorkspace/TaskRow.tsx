@@ -1,9 +1,4 @@
-import {
-    MODEL_TIER_LABELS,
-    satisfiesDependency,
-    unmetDependencies,
-    type Task,
-} from "@work-task-manager/shared"
+import { MODEL_TIER_LABELS, type Task } from "@work-task-manager/shared"
 import { For, Show } from "solid-js"
 import { StatusBadge } from "../components/StatusBadge"
 
@@ -17,7 +12,13 @@ export function TaskRow(props: {
 }) {
     const byRef = () =>
         new Map(props.known.map((task) => [task.ref.toLowerCase(), task]))
-    const unmet = () => unmetDependencies(props.task, props.known)
+    /** Unfinished blockers, as the server worked them out across the whole
+     *  workspace; `known` only supplies their titles. */
+    const unmet = () =>
+        props.task.blockedBy.map(
+            (ref) =>
+                byRef().get(ref.toLowerCase()) ?? ({ ref, title: ref } as Task),
+        )
     return (
         <button
             class="card-item row flex w-full items-start gap-4 px-5 py-4 text-left"
@@ -67,21 +68,16 @@ export function TaskRow(props: {
                                     {(ref) => {
                                         const blocker = () =>
                                             byRef().get(ref.toLowerCase())
-                                        const done = () => {
-                                            const task = blocker()
-                                            return (
-                                                !!task &&
-                                                satisfiesDependency(task.status)
+                                        const done = () =>
+                                            !props.task.blockedBy.some(
+                                                (one) =>
+                                                    one.toLowerCase() ===
+                                                    ref.toLowerCase(),
                                             )
-                                        }
                                         return (
                                             <span
-                                                class={`badge inline-flex items-center p-[0.1rem_0.4rem] font-mono ${blocker() ? (done() ? "success" : "warning") : ""}`}
-                                                title={
-                                                    blocker()
-                                                        ? `${blocker()!.title} — ${done() ? "done" : "not done yet"}`
-                                                        : "Outside this list"
-                                                }>
+                                                class={`badge inline-flex items-center p-[0.1rem_0.4rem] font-mono ${done() ? "success" : "warning"}`}
+                                                title={`${blocker()?.title ?? ref} — ${done() ? "done" : "not done yet"}`}>
                                                 {done() ? "✓ " : ""}
                                                 {ref}
                                             </span>

@@ -12,7 +12,6 @@ import {
 import {
     MAX_SUPERVISIONS_PER_TASK,
     RECOMMENDED_MODEL,
-    nextWorkableTask,
     type AgentHarnessId,
     type AgentPermissionMode,
     type AgentRunMode,
@@ -97,7 +96,7 @@ export function AgentLauncher(props: {
     // Until one is picked, the supervisor is the same agent as the tasks'.
     const chosenSupervisorHarness = () => supervisorHarness() || chosenHarness()
 
-    const next = () => props.task ?? nextWorkableTask(props.workPackage)
+    const next = () => props.task ?? props.workPackage.nextTask
     const run = action(async function* () {
         if (busy() || isPending(harness)) return
 

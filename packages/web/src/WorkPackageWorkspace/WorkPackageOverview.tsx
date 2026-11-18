@@ -1,6 +1,5 @@
 import {
     WORK_PACKAGE_RUN_STATUS_LABELS,
-    nextWorkableTask,
     type WorkPackageDetail,
 } from "@work-task-manager/shared"
 import { Show } from "solid-js"
@@ -51,7 +50,7 @@ export function WorkPackageOverview(props: {
             <aside class="space-y-5">
                 <InfoCard title="Next up">
                     <Show
-                        when={nextWorkableTask(props.workPackage)}
+                        when={props.workPackage.nextTask}
                         fallback={
                             <p class="description">
                                 Nothing is currently ready to start.

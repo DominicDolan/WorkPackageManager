@@ -2,13 +2,21 @@ import { existsSync, statSync } from "node:fs"
 import { join, resolve, sep } from "node:path"
 import {
     API_VERSION,
+    describeRoutes,
     handleApiRequest,
     prepareWorkspace,
+    routes,
     serverWorkspace as ws,
 } from "./server"
 import { resolveUi, type ResolveUiOptions, type ResolvedUi } from "./ui"
 
-export { API_VERSION, handleApiRequest, prepareWorkspace }
+export {
+    API_VERSION,
+    describeRoutes,
+    handleApiRequest,
+    prepareWorkspace,
+    routes,
+}
 export {
     defaultUi,
     resolveUi,

@@ -528,6 +528,18 @@ export function createClient(options: ClientOptions = {}) {
                 body: JSON.stringify({ refs }),
             }).then((r) => r.tasks),
 
+        /** Move one task within its list: to the top or bottom, one step up or
+         *  down, or directly before/after `otherRef`. Returns the full list. */
+        moveTask: (
+            ref: string,
+            to: "top" | "bottom" | "up" | "down" | "before" | "after",
+            otherRef?: string,
+        ) =>
+            request<{ tasks: Task[] }>(`/tasks/${ref}/move`, {
+                method: "POST",
+                body: JSON.stringify({ to, ref: otherRef }),
+            }).then((r) => r.tasks),
+
         previewCombine: (refs: string[]) =>
             request<{
                 base: string

@@ -1,26 +1,9 @@
 import type { Task } from "@work-task-manager/shared"
 
-/** The timestamp at which a task entered its current status. */
-export function statusSince(task: Task): { verb: string; at: string } | null {
-    const at = {
-        backlog: task.createdAt,
-        in_progress: task.startedAt,
-        dev_complete: task.devCompletedAt,
-        verified: task.verifiedAt,
-        closed: task.closedAt,
-    }[task.status]
-    const verb = {
-        backlog: "Created",
-        in_progress: "Started",
-        dev_complete: "Dev complete",
-        verified: "Verified",
-        closed: "Closed",
-    }[task.status]
-    return at ? { verb, at } : null
-}
-
+/** "Started 2h ago". The server says which moment and what to call it
+ *  (`statusSince`); only "how long ago" is worked out here, against the clock. */
 export function statusDetail(task: Task): string {
-    const since = statusSince(task)
+    const since = task.statusSince
     return since
         ? `${since.verb} ${timeAgo(since.at)}`
         : `Updated ${timeAgo(task.updatedAt)}`

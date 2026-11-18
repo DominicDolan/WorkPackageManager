@@ -10,37 +10,15 @@ import type { WorkPackageDetail } from "@work-task-manager/shared"
  */
 export type TabKind = "investigation" | "branch" | "run"
 
-export interface WorkPackageTab {
-    key: string
-    kind: TabKind
-    label: string
-    createdAt: string
-}
+export type WorkPackageTab = WorkPackageDetail["tabs"][number]
 
 export const TASKS_TAB = "tasks"
 export const investigationTab = (ref: string) => `investigation:${ref}`
 export const branchTab = (id: number) => `branch:${id}`
 export const runTab = (id: number) => `run:${id}`
 
+/** The server orders a package's tabs (`WorkPackageDetail.tabs`); this only
+ *  narrows the type for the page. */
 export function workPackageTabs(detail: WorkPackageDetail): WorkPackageTab[] {
-    return [
-        ...detail.investigations.map((investigation) => ({
-            key: investigationTab(investigation.ref),
-            kind: "investigation" as const,
-            label: investigation.title,
-            createdAt: investigation.createdAt,
-        })),
-        ...detail.branches.map((branch) => ({
-            key: branchTab(branch.id),
-            kind: "branch" as const,
-            label: branch.label,
-            createdAt: branch.createdAt,
-        })),
-        ...detail.workRuns.map((run) => ({
-            key: runTab(run.id),
-            kind: "run" as const,
-            label: run.label,
-            createdAt: run.createdAt,
-        })),
-    ].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    return detail.tabs
 }

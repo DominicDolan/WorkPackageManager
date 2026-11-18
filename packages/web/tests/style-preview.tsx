@@ -31,6 +31,8 @@ const task = {
     devCompletedAt: null,
     verifiedAt: null,
     closedAt: null,
+    statusSince: { verb: "Started", at: date },
+    blockedBy: [] as string[],
     events: [],
     runs: [],
     attachments: [],
@@ -44,6 +46,7 @@ const tasks = [
         title: "Review mobile layouts and keyboard focus",
         status: "dev_complete",
         devCompletedAt: date,
+        statusSince: { verb: "Dev complete", at: date },
     },
 ]
 const note = {
@@ -101,6 +104,7 @@ const workPackage = {
     taskCount: 2,
     devCompleteCount: 1,
     openCount: 2,
+    lastWorkedAt: date,
     tasks,
     investigations: [investigation],
     branches: [
@@ -126,6 +130,16 @@ const workPackage = {
     baseBranch: "main",
     run: null,
     workRuns: [],
+    nextTask: task,
+    tabs: [
+        {
+            key: "investigation:INV-1",
+            kind: "investigation",
+            label: "Investigation",
+            createdAt: date,
+        },
+        { key: "branch:1", kind: "branch", label: "Branch", createdAt: date },
+    ],
 }
 const branch = {
     branchName: "feature/shared-style",
