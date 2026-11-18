@@ -10,10 +10,12 @@ export function planChecks(input: {
     base: string
     headSha: string | null
     check?: string
+    from?: string
     resume?: boolean
     previous?: ChecksReport | null
 }) {
-    const { names, branch, base, headSha, check, resume, previous } = input
+    const { names, branch, base, headSha, check, from, resume, previous } =
+        input
     const valid =
         previous?.branch === branch &&
         previous.base === base &&
@@ -24,11 +26,13 @@ export function planChecks(input: {
     const passed = new Set(valid.filter(checkPassed).map((run) => run.name))
     const selected = check
         ? names.filter((name) => name === check)
-        : resume
-          ? names.filter((name) => !passed.has(name))
-          : names
+        : from
+          ? names.slice(names.indexOf(from))
+          : resume
+            ? names.filter((name) => !passed.has(name))
+            : names
     const retained =
-        check || resume
+        check || from || resume
             ? valid.filter((run) => !selected.includes(run.name))
             : []
     return { selected, retained }

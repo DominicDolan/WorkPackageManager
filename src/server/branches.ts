@@ -233,7 +233,7 @@ export function refreshBaseBranch(base: string): BaseRefresh {
     }
     if (fetched.code !== 0) {
         throw new Error(
-            `Could not fetch '${base}' from origin, so the delivery branch would be cut from a stale base: ${
+            `Could not fetch '${base}' from origin, so the base could not be brought up to date: ${
                 fetched.stderr.trim() || `git fetch exited ${fetched.code}`
             }`,
         )
@@ -282,7 +282,7 @@ export function refreshBaseBranch(base: string): BaseRefresh {
             return { fetched: true, advanced: false, aheadOfRemote: true }
         throw new Error(
             `Local '${base}' has diverged from origin/${base} — they each have commits the other does not. ` +
-                `Reconcile '${base}' by hand before building a delivery branch from it.`,
+                `Reconcile '${base}' by hand before continuing.`,
         )
     }
 

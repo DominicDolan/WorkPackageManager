@@ -304,7 +304,7 @@ export function BranchPanel(props: {
     }
 
     return (
-        <section class="branch-workspace mx-auto max-w-4xl grid gap-[1.1rem]">
+        <section class="branch-workspace mx-auto grid max-w-4xl grid-cols-1 gap-[1.1rem]">
             <TabHeading
                 title={props.branch.label}
                 description={

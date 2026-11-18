@@ -396,6 +396,11 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
     },
     // Null preserves the open queue used by older runs.
     { table: "work_package_runs", column: "selected_json", definition: "TEXT" },
+    {
+        table: "work_package_runs",
+        column: "fallback",
+        definition: "TEXT NOT NULL DEFAULT 'stop'",
+    },
     // Every agent the loop launched, so each task's output can be found again.
     // Older runs only remembered the one in flight.
     {

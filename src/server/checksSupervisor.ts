@@ -472,7 +472,7 @@ function supervisorSettled(agentRunId: number, status: AgentRunStatus): void {
         return
     }
     const limit = runUsageLimit(agentRunId)
-    if (limit && status !== "stopped") {
+    if (limit) {
         settle(
             supervision,
             "blocked",

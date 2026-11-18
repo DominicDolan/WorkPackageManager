@@ -48,6 +48,7 @@ export function AgentLauncher(props: {
     const [label, setLabel] = createSignal("")
     // The supervisor an unattended run calls in when a task stops short.
     const [supervised, setSupervised] = createSignal(false)
+    const [fallback, setFallback] = createSignal<"stop" | "codex">("stop")
     const [supervisorHarness, setSupervisorHarness] = createSignal("")
     const [supervisorModel, setSupervisorModel] = createSignal("")
     const [supervisorPermission, setSupervisorPermission] =
@@ -133,6 +134,7 @@ export function AgentLauncher(props: {
                     mode: launchMode,
                     permissionMode: permission(),
                     extra: extra(),
+                    fallback: choice() === "unattended" ? fallback() : "stop",
                     supervisor:
                         choice() === "unattended" && supervised()
                             ? {
@@ -252,6 +254,34 @@ export function AgentLauncher(props: {
                 />
             </label>
             <Show when={choice() === "unattended"}>
+                <details class="mt-5 border-t border-slate-200 pt-5">
+                    <summary class="cursor-pointer font-semibold">
+                        Fallback
+                    </summary>
+                    <p class="caption muted mt-2">
+                        When Claude reaches a usage limit, choose how this task
+                        run continues.
+                    </p>
+                    <label class="field mt-3">
+                        <span>When Claude usage runs out</span>
+                        <select
+                            value={fallback()}
+                            onChange={(event) =>
+                                setFallback(
+                                    event.currentTarget.value as
+                                        "stop" | "codex",
+                                )
+                            }>
+                            <option value="stop">Stop and wait for me</option>
+                            <option value="codex">Continue with Codex</option>
+                        </select>
+                    </label>
+                    <p class="caption muted mt-2">
+                        Codex starts a new conversation with the interrupted
+                        task's handoff and works the remaining tasks. A Claude
+                        supervisor also switches to Codex.
+                    </p>
+                </details>
                 <section class="mt-5 border-t border-slate-200 pt-5">
                     <label class="choice flex items-start gap-[0.75rem] p-[0.85rem]">
                         <input

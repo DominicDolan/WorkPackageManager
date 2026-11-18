@@ -84,12 +84,16 @@ export function BranchChecks(props: {
     // Invalidate any read that was started before a new run was requested.
     let generation = 0
     let disposed = false
-    const start = action(async function* (check?: string, resume = false) {
+    const start = action(async function* (
+        check?: string,
+        resume = false,
+        from?: string,
+    ) {
         if (disabled()) return
         generation++
         setRequesting(true)
         setRequestedCheck(
-            check ?? (resume ? remaining()[0] : props.names[0]) ?? null,
+            from ?? check ?? (resume ? remaining()[0] : props.names[0]) ?? null,
         )
         setError("")
         try {
@@ -97,6 +101,7 @@ export function BranchChecks(props: {
                 props.branch.branchName,
                 check,
                 resume,
+                from,
             )
             yield
             if (!disposed) {
@@ -334,11 +339,11 @@ export function BranchChecks(props: {
                             return (
                                 <>
                                     <li
-                                        class="check-row flex items-start"
+                                        class="check-row flex items-start max-[700px]:flex-wrap"
                                         aria-busy={
                                             running() ? "true" : "false"
                                         }>
-                                        <details class="min-w-0 flex-1">
+                                        <details class="min-w-0 flex-1 max-[700px]:basis-full">
                                             <summary class="grid min-h-[3.4rem] grid-cols-[6rem_minmax(7rem,_1fr)_minmax(0,_2fr)_5.5rem] items-center gap-[0.7rem] p-[0.7rem_0.8rem] max-[560px]:grid-cols-[5rem_minmax(0,_1fr)_4.5rem]">
                                                 <span
                                                     class="badge inline-flex items-center justify-center p-[0.18rem_0.5rem]"
@@ -401,13 +406,29 @@ export function BranchChecks(props: {
                                                 </p>
                                             </Show>
                                         </details>
-                                        <button
-                                            class="outlined check-run-button flex-[0_0_auto] m-[0.45rem_0.7rem_0.45rem_0]"
-                                            disabled={disabled()}
-                                            aria-label={`Run ${name}`}
-                                            onClick={() => start(name)}>
-                                            Run
-                                        </button>
+                                        <div class="flex flex-wrap justify-end gap-[0.4rem] m-[0.45rem_0.7rem_0.45rem_0] max-[700px]:ml-auto">
+                                            <button
+                                                class="outlined check-run-button flex-[0_0_auto]"
+                                                disabled={disabled()}
+                                                aria-label={`Run ${name}`}
+                                                onClick={() => start(name)}>
+                                                Run
+                                            </button>
+                                            <button
+                                                class="outlined check-run-button flex-[0_0_auto]"
+                                                disabled={disabled()}
+                                                aria-label={`Run from ${name}`}
+                                                title="Run this check and the checks below it"
+                                                onClick={() =>
+                                                    start(
+                                                        undefined,
+                                                        false,
+                                                        name,
+                                                    )
+                                                }>
+                                                Run from here
+                                            </button>
+                                        </div>
                                     </li>
                                     <For each={supervisors()}>
                                         {(agent) => (

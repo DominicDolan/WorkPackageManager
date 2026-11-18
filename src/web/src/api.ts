@@ -265,6 +265,7 @@ export const api = {
             permissionMode: AgentPermissionMode
             extra: string
             supervisor?: RunSupervisor | null
+            fallback?: "stop" | "codex"
             /** Start-to-finish runs only. */
             plan?: PipelinePlan
         },
@@ -698,12 +699,14 @@ export const api = {
         >(`/branches/${branchPath(name)}/checks`),
 
     /** Starts all checks, a single check, or resumes an incomplete suite. */
-    runChecks: (name: string, check?: string, resume = false) =>
+    runChecks: (name: string, check?: string, resume = false, from?: string) =>
         request<{ branch: CombinedBranchDetail }>(
             `/branches/${branchPath(name)}/checks`,
             {
                 method: "POST",
-                body: JSON.stringify(check ? { check } : { resume }),
+                body: JSON.stringify(
+                    from ? { from } : check ? { check } : { resume },
+                ),
             },
         ).then((r) => r.branch),
 

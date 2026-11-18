@@ -105,6 +105,7 @@ export interface StartWorkPackageRunInput {
     selected?: string[]
     /** Who to call in when a task stops short, if anyone. */
     supervisor?: RunSupervisor | null
+    fallback?: "stop" | "codex"
 }
 
 function includedTasks(
@@ -248,6 +249,7 @@ export function startWorkPackageRun(input: StartWorkPackageRunInput): {
         excluded,
         selected,
         supervisor,
+        fallback: input.fallback,
     })
 
     let run: AgentRun
@@ -632,6 +634,30 @@ function advance(agentRunId: number, status: AgentRunStatus): void {
             "blocked",
             `${whose} reached Claude's ${limit.type.replaceAll("_", " ")} usage limit. Reset: ${new Date(limit.resetsAt * 1000).toLocaleString()}. Resume the run after the limit resets.`,
         )
+        if (
+            workPackageRun.fallback === "codex" &&
+            agent?.harness === "claude"
+        ) {
+            try {
+                const supervisor = workPackageRun.supervisor
+                resumeWorkPackageRun(workPackageRun.id, workPackageRun.runIds, {
+                    harness: "codex",
+                    model: RECOMMENDED_MODEL,
+                    permissionMode: workPackageRun.permissionMode,
+                    extra: workPackageRun.extra,
+                    supervisor:
+                        supervisor?.harness === "claude"
+                            ? { ...supervisor, harness: "codex", model: "" }
+                            : supervisor,
+                })
+            } catch (caught) {
+                settleWorkPackageRun(
+                    workPackageRun.id,
+                    "blocked",
+                    `Claude reached its usage limit and the Codex fallback could not start: ${caught instanceof Error ? caught.message : String(caught)}`,
+                )
+            }
+        }
         return
     }
 

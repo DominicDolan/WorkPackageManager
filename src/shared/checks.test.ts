@@ -90,3 +90,13 @@ test("timeouts and configuration errors are retried", () => {
         ).toEqual(["tests", "build"])
     }
 })
+
+test("run from a check reruns it and all following checks, retaining only earlier current results", () => {
+    const plan = planChecks({ ...input, from: "lint" })
+    expect(plan.selected).toEqual(["lint", "tests", "build"])
+    expect(plan.retained.map((run) => run.name)).toEqual(["typecheck"])
+    expect(
+        planChecks({ ...input, from: "lint", headSha: "new" }).retained,
+    ).toEqual([])
+    expect(planChecks({ ...input, from: "build" }).selected).toEqual(["build"])
+})

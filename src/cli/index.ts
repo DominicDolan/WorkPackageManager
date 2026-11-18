@@ -54,7 +54,12 @@ import {
     updateWorkPackageBranch,
     type MoveTarget,
 } from "../server/repo"
-import { defaultBaseBranch, isAncestor } from "../server/branches"
+import {
+    defaultBaseBranch,
+    isAncestor,
+    refreshBaseBranch,
+    workingTreeClean,
+} from "../server/branches"
 import { configuredChecks, runChecks } from "../server/checks"
 import {
     approveBaseline,
@@ -76,6 +81,7 @@ import {
     ensureWorkPackageBranch,
     mergeTaskIntoTargetBranches,
     primaryTargetOf,
+    targetBranchesOf,
 } from "../server/workPackageBranch"
 import { findIssue, issueFacets, listIssues } from "../server/issues"
 import {
@@ -2681,7 +2687,9 @@ function branchStartPoint(
                     `Merge that in first (tasks merge ${absent[0]!.ref}), or pass --from to choose a start point.`,
             )
         }
-        const others = task.targetBranches.slice(1)
+        const others = targetBranchesOf(task)
+            .slice(1)
+            .map((one) => one.branchName)
         return {
             start: branch,
             reason:
@@ -2744,6 +2752,12 @@ function commandBranch(args: Args): void {
     const cwd = workspace().repoRoot
     const exists = localBranchExists(task.branchName)
     const requestedFrom = flagString(args, "from")
+    if (!workingTreeClean())
+        throw new Error(
+            "The working tree is not clean. Resolve your changes before switching task branches.",
+        )
+    const target = primaryTargetOf(task)
+    refreshBaseBranch(target?.baseBranch ?? defaultBaseBranch())
     // An existing branch is switched to as-is: it already has a history, and
     // rebasing it onto something else is not this command's business.
     const from = exists ? null : branchStartPoint(task, requestedFrom)

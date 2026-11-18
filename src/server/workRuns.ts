@@ -114,6 +114,7 @@ export interface StartWorkRunInput {
     extra: string
     /** Unattended runs only: who to call in when a task stops short. */
     supervisor?: RunSupervisor | null
+    fallback?: "stop" | "codex"
     /** Start-to-finish runs only: what to work, and in which order. */
     plan?: PipelinePlan
 }
@@ -157,6 +158,7 @@ export function startWorkRun(input: StartWorkRunInput): WorkRunDetail {
             extra: input.extra,
             excluded: [],
             supervisor: input.supervisor,
+            fallback: input.fallback,
         })
         workPackageRunId = started.workPackageRun.id
         agentRunId = started.run.id

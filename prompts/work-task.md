@@ -136,13 +136,13 @@ If `useGitWorkflow` is true, branch from the work package, from master, or from 
 dependency:
 
 ```bash
-git fetch origin
 tasks branch <ref>
 ```
 
 The task already owns a branch name — `tasks show <ref> --json` reports it as
 `branchName`, and every other `tasks` command refuses to run from anywhere else.
-`tasks branch` creates it and switches to it. Do not invent your own name; you
+`tasks branch` refreshes the base from origin, then creates or switches to the
+task branch. Existing task and work package branches keep their history. Do not invent your own name; you
 will only have to delete it and re-branch.
 
 **It also chooses the start point, and it is not always master.** `tasks branch`

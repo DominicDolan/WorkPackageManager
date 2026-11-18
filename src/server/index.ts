@@ -830,12 +830,14 @@ async function handleBranches(
         }
         const input = await body<{
             check?: unknown
+            from?: unknown
             resume?: unknown
             supervisor?: SupervisorInput | null
         }>(request).catch(
             () =>
                 ({}) as {
                     check?: unknown
+                    from?: unknown
                     resume?: unknown
                     supervisor?: SupervisorInput | null
                 },
@@ -847,13 +849,30 @@ async function handleBranches(
         ) {
             return fail("Unknown check.", 400)
         }
+        if (
+            input.from !== undefined &&
+            (typeof input.from !== "string" ||
+                !configuredChecks().some((check) => check.name === input.from))
+        )
+            return fail("Unknown starting check.", 400)
         if (input.resume !== undefined && typeof input.resume !== "boolean")
             return fail("Resume must be a boolean.", 400)
-        if (input.check !== undefined && input.resume)
-            return fail("Choose either a single check or resume.", 400)
+        if (
+            Number(input.check !== undefined) +
+                Number(input.from !== undefined) +
+                Number(input.resume === true) >
+            1
+        )
+            return fail(
+                "Choose a single check, a starting check, or resume.",
+                400,
+            )
         const supervisor = parseSupervisor(input.supervisor)
         if (typeof supervisor === "string") return fail(supervisor, 400)
-        if (input.check !== undefined && supervisor)
+        if (
+            (input.check !== undefined || input.from !== undefined) &&
+            supervisor
+        )
             return fail(
                 "A supervisor runs the whole suite, not one check.",
                 400,
@@ -880,6 +899,7 @@ async function handleBranches(
             branch: branch.branchName,
             base,
             check: input.check as string | undefined,
+            from: input.from as string | undefined,
             resume: input.resume === true,
             previous: branch.checks,
         })
@@ -1642,11 +1662,18 @@ async function handleWorkPackages(
                 permissionMode?: string
                 extra?: string
                 supervisor?: SupervisorInput | null
+                fallback?: string
                 plan?: unknown
             }>(request)
             if (!input.harness) return fail("A harness is required.")
             const supervisor = parseSupervisor(input.supervisor)
             if (typeof supervisor === "string") return fail(supervisor)
+            if (
+                input.fallback !== undefined &&
+                input.fallback !== "stop" &&
+                input.fallback !== "codex"
+            )
+                return fail("fallback must be stop or codex.")
             const plan =
                 input.kind === "pipeline"
                     ? parsePipelinePlan(input.plan)
@@ -1673,6 +1700,7 @@ async function handleWorkPackages(
                     "manual") as AgentPermissionMode,
                 extra: input.extra ?? "",
                 supervisor,
+                fallback: input.fallback as "stop" | "codex" | undefined,
                 plan,
             })
             return json(

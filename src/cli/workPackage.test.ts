@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { Database } from "bun:sqlite"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -55,6 +56,45 @@ function sandbox() {
         dispose: () => rmSync(directory, { recursive: true, force: true }),
     }
 }
+
+test("task branches start from a freshly fetched base", () => {
+    for (const withPackage of [false, true]) {
+        const { directory, git, cli, run, dispose } = sandbox()
+        try {
+            const remote = join(directory, ".tasks", "remote.git")
+            git("init", "--bare", remote)
+            git("remote", "add", "origin", remote)
+            git("push", "-u", "origin", "main")
+            const old = git("rev-parse", "main")
+            git("commit", "--allow-empty", "-m", "Remote update")
+            const latest = git("rev-parse", "main")
+            git("push", "origin", "main")
+            git("update-ref", "refs/heads/main", old)
+
+            const pkg = cli(
+                "work-package",
+                "new",
+                "Fresh base",
+                ...(withPackage ? ["--with-branch"] : []),
+            ).workPackage
+            const task = cli(
+                "new",
+                "Fresh task",
+                "--work-package",
+                pkg.ref,
+            ).task
+            run("branch", task.ref)
+            expect(git("rev-parse", "main")).toBe(latest)
+            expect(git("rev-parse", "HEAD")).toBe(latest)
+            if (withPackage)
+                expect(git("rev-parse", pkg.branches[0].branchName)).toBe(
+                    latest,
+                )
+        } finally {
+            dispose()
+        }
+    }
+})
 
 test("work package CLI creates, lists, filters and moves tasks", () => {
     const { git, cli, dispose } = sandbox()
@@ -249,6 +289,70 @@ test("a task cut from its second target replays only its own commits onto the fi
         // And the second target got it too, on top of main's real history.
         expect(git("log", "--format=%s", "main..next")).toBe("The workload")
         expect(git("rev-list", "--merges", "main", "-1")).not.toBe("")
+    } finally {
+        dispose()
+    }
+})
+
+test("a target branch that already has a pull request is left out while another has none", () => {
+    const { directory, git, cli, run, dispose } = sandbox()
+    try {
+        const pkg = cli(
+            "work-package",
+            "new",
+            "Import",
+            "--with-branch",
+        ).workPackage
+        const shipped = pkg.branches[0].branchName
+        // The first branch went out as a PR, and main moved on after it.
+        git("branch", shipped)
+        const shippedTip = git("rev-parse", shipped)
+        writeFileSync(join(directory, "later.txt"), "later\n")
+        git("add", "later.txt")
+        git("commit", "-m", "Later work on main")
+        git("branch", "next")
+
+        const task = cli("new", "Follow-up", "--work-package", pkg.ref).task
+        cli(
+            "work-package",
+            "branch",
+            "add",
+            pkg.ref,
+            "--existing",
+            "next",
+            "--label",
+            "Next",
+        )
+        expect(cli("show", task.ref).task.targetBranches).toEqual([
+            shipped,
+            "next",
+        ])
+        // As \`tasks\` records it when it opens the PR.
+        const db = new Database(join(directory, ".tasks", "tasks.db"))
+        const at = new Date().toISOString()
+        db.query(
+            `INSERT INTO combined_branches (branch_name, base_branch, pr_url, pr_number, created_at, updated_at)
+             VALUES ($name, 'main', 'https://example.invalid/pull/1', 1, $at, $at)
+             ON CONFLICT(branch_name) DO UPDATE SET pr_url = 'https://example.invalid/pull/1', pr_number = 1`,
+        ).run({ $name: shipped, $at: at })
+        db.close()
+
+        // Cut from the branch without a PR, so it has main's later work.
+        expect(run("branch", task.ref)).not.toContain("also merges it into")
+        expect(git("log", "--format=%s", "-1")).toBe("Later work on main")
+        cli("start", task.ref)
+        writeFileSync(join(directory, "follow.txt"), "follow\n")
+        git("add", "follow.txt")
+        git("commit", "-m", "The follow-up")
+
+        const done = cli("done", task.ref)
+        expect(done.mergeError).toBeNull()
+        expect(git("log", "--format=%s", "main..next")).toBe("The follow-up")
+        // The PR's branch is untouched.
+        expect(git("rev-parse", shipped)).toBe(shippedTip)
+        // And the task reads as merged everywhere it still has to go.
+        expect(cli("merge", task.ref).mergeError).toBeNull()
+        expect(git("rev-parse", shipped)).toBe(shippedTip)
     } finally {
         dispose()
     }

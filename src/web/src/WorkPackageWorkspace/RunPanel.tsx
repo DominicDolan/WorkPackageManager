@@ -86,7 +86,7 @@ export function RunPanel(props: {
         props.run.items.filter((item) => item.state === "done").length
 
     return (
-        <section class="mx-auto grid max-w-4xl gap-[1.1rem]">
+        <section class="mx-auto grid max-w-4xl grid-cols-1 gap-[1.1rem]">
             <TabHeading
                 title={props.run.label}
                 description={WORK_RUN_KIND_LABELS[props.run.kind]}
@@ -124,7 +124,7 @@ export function RunPanel(props: {
             </Show>
 
             <article class="tonal p-5">
-                <dl class="m-0 grid gap-x-6 gap-y-3 sm:grid-cols-4 [&_dt]:text-xs [&_dt]:text-slate-400 [&_dd]:m-0 [&_dd]:text-sm">
+                <dl class="m-0 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-4 [&_dt]:text-xs [&_dt]:text-slate-400 [&_dd]:m-0 [&_dd]:text-sm">
                     <div>
                         <dt>Kind</dt>
                         <dd>{WORK_RUN_KIND_LABELS[props.run.kind]}</dd>
@@ -290,7 +290,7 @@ export function RunPanel(props: {
                             </span>
                         </header>
                         <ol
-                            class="mt-4 grid gap-1 p-0"
+                            class="mt-4 grid grid-cols-1 gap-1 p-0"
                             style={{ "list-style": "none" }}>
                             <For each={pipeline().steps}>
                                 {(step, index) => (
@@ -315,7 +315,7 @@ export function RunPanel(props: {
                     </span>
                 </header>
                 <ol
-                    class="mt-4 grid gap-1 p-0"
+                    class="mt-4 grid grid-cols-1 gap-1 p-0"
                     style={{ "list-style": "none" }}>
                     <For
                         each={props.run.items}
@@ -441,7 +441,7 @@ function RunItem(props: {
                 </button>
             </div>
             <Show when={open() && hasOutput()}>
-                <div class="mt-1 mb-2 ml-8 grid gap-2">
+                <div class="mt-1 mb-2 ml-8 grid grid-cols-1 gap-2">
                     <For each={workers()}>
                         {(agent) => (
                             <AgentOutput
@@ -554,7 +554,7 @@ function PipelineStepRow(props: {
                 </div>
             </div>
             <Show when={open() && hasOutput()}>
-                <div class="mt-1 mb-2 ml-8 grid gap-2">
+                <div class="mt-1 mb-2 ml-8 grid grid-cols-1 gap-2">
                     <For each={props.step.agents}>
                         {(agent, attempt) => (
                             <AgentOutput

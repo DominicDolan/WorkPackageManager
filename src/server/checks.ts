@@ -191,6 +191,8 @@ export async function runChecks(input: {
     base: string
     /** Run only this named check. Omit to run the complete suite. */
     check?: string
+    /** Run this check and all following checks. */
+    from?: string
     /** Retry failed checks and run missing checks, retaining current passes. */
     resume?: boolean
     /** Results to retain when rerunning one check against the same commit. */
@@ -205,14 +207,16 @@ export async function runChecks(input: {
         branch,
         base,
         check,
+        from,
         resume,
         previous,
         onProgress,
         onCheckComplete,
     } = input
     const definitions = configuredChecks()
-    if (check && !definitions.some((definition) => definition.name === check))
-        throw new Error(`Unknown check '${check}'.`)
+    for (const name of [check, from])
+        if (name && !definitions.some((definition) => definition.name === name))
+            throw new Error(`Unknown check '${name}'.`)
 
     const onBranch = git(["branch", "--show-current"]).stdout.trim()
     const touched = changedFiles(branch, base)
@@ -225,6 +229,7 @@ export async function runChecks(input: {
         base,
         headSha: checkedHead,
         check,
+        from,
         resume,
         previous,
     })
@@ -443,15 +448,17 @@ export function startChecks(input: {
     branch: string
     base: string
     check?: string
+    from?: string
     resume?: boolean
     previous?: ChecksReport | null
     /** Told the finished report once it is stored, or null when the run died
      *  without one. Not called when a run was already going and this joined it. */
     onFinished?: (report: ChecksReport | null) => void
 }): ChecksProgress {
-    const { branch, base, check, resume, previous, onFinished } = input
-    if (check && !configuredChecks().some((item) => item.name === check))
-        throw new Error(`Unknown check '${check}'.`)
+    const { branch, base, check, from, resume, previous, onFinished } = input
+    for (const name of [check, from])
+        if (name && !configuredChecks().some((item) => item.name === name))
+            throw new Error(`Unknown check '${name}'.`)
 
     const existing = inFlight.get(branch)
     if (existing) {
@@ -477,6 +484,7 @@ export function startChecks(input: {
         branch,
         base,
         check,
+        from,
         resume,
         previous,
         onPlan: (names, retained) => {

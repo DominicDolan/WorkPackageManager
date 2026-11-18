@@ -71,11 +71,25 @@ import { rebaseSupervision } from "./rebaseSupervisor"
  */
 
 /** The branches a task has to land on, first first. Assignments naming a branch
- *  that has since gone are skipped: the task is still perfectly workable. */
+ *  that has since gone are skipped: the task is still perfectly workable.
+ *
+ *  So is a branch that already has a pull request, while the task has another
+ *  branch without one. A branch out for review, or already merged, is finished
+ *  delivering: cutting from it writes the task against whatever the base looked
+ *  like back then, and copying onto it puts unreviewed work into a PR that was
+ *  raised without it. A task whose every target has a PR keeps them all, so a
+ *  fix filed for a PR still under review lands on that PR's branch. */
 export function targetBranchesOf(task: Task): WorkPackageBranch[] {
-    return task.targetBranches
+    const targets = task.targetBranches
         .map((name) => findWorkPackageBranchByName(name))
         .filter((branch): branch is WorkPackageBranch => branch !== null)
+    const open = targets.filter((branch) => !hasPullRequest(branch))
+    return open.length ? open : targets
+}
+
+/** Whether a pull request was raised for the branch, as this tool recorded it. */
+function hasPullRequest(branch: WorkPackageBranch): boolean {
+    return !!findCombinedBranch(branch.branchName)?.prUrl
 }
 
 /** The branch a task is cut from, or null when it has no target branch. */
@@ -660,16 +674,18 @@ export function rebaseBranchOnBase(
 /**
  * The target branches a finished task's work is missing from.
  *
- * Answered from Git for the first target, because the record is written by the
- * merge that may not have happened: ancestry holds precisely because that merge
- * is a rebase and fast-forward. Later targets hold a *copy*, so ancestry cannot
- * see them, and the delivery record is what says they landed.
+ * Answered from Git for the branch the task was cut from, because the record is
+ * written by the merge that may not have happened: ancestry holds precisely
+ * because that merge is a rebase and fast-forward. Other targets hold a *copy*,
+ * so ancestry cannot see them, and the delivery record is what says they landed.
+ * Which target was the first can change once a branch gains a pull request (see
+ * `targetBranchesOf`), so either answer counts for any target.
  */
 export function missingTargets(task: Task): WorkPackageBranch[] {
     if (!task.useGitWorkflow || !task.branchName) return targetBranchesOf(task)
-    return targetBranchesOf(task).filter((target, index) => {
+    return targetBranchesOf(task).filter((target) => {
         if (!branchExists(target.branchName)) return true
-        if (index === 0) return !isAncestor(task.branchName!, target.branchName)
+        if (isAncestor(task.branchName!, target.branchName)) return false
         const record = findCombinedBranch(target.branchName)
         return !record?.taskRefs.some(
             (one) => one.toLowerCase() === task.ref.toLowerCase(),

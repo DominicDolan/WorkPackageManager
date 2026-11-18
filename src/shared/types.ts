@@ -1321,6 +1321,8 @@ export interface WorkPackageRun {
     /** Who is called in when a task stops short, or null for nobody — the run
      *  stops and waits for a person instead. */
     supervisor: RunSupervisor | null
+    /** Switch the task loop to Codex after Claude reaches a usage limit. */
+    fallback?: "stop" | "codex"
     status: WorkPackageRunStatus
     /** The `agent_runs` row working right now, or the last one that worked. */
     currentRunId: number | null
