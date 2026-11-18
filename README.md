@@ -16,16 +16,23 @@ holding a config file and a SQLite database. This is the same arrangement
 `aio-vr` uses with `.aio-vr/`.
 
 ```text
-work-task-manager/          the tool (this repo, installed globally)
-  bin/tasks                 CLI entry point — resolves bun, then runs the CLI
-  dist/web/                 built web UI, shipped with the package
-  src/
-    config/                 workspace discovery + per-repo settings
-    shared/                 types shared by the CLI, server and web app
-    server/                 bun HTTP API + SQLite + the aio-vr integration
-                            (watch.ts streams workspace changes to open tabs)
-    cli/                    the `tasks` command
-    web/                    Solid 2.0 single-page app
+work-task-manager/          the tool (this repo, a Bun workspace monorepo)
+  bin/tasks                 symlink to packages/cli/bin/tasks
+  packages/
+    shared/                 @work-task-manager/shared — API types + pure helpers,
+                            safe in a browser
+    core/                   @work-task-manager/core — workspace discovery, config,
+                            SQLite, Git, checks, agents, notes; prompts/
+    server/                 @work-task-manager/server — the HTTP API, plus hosting
+                            for whichever UI is configured
+    client/                 @work-task-manager/client — typed, framework-agnostic
+                            API client; what any UI is built on
+    web/                    @work-task-manager/web — the default Solid 2.0 UI
+    cli/                    work-task-manager — the `tasks` command
+  examples/minimal-ui/      a repository UI in one file, as a template
+
+  dependency direction:     shared ← core ← server ← cli
+                            shared ← client ← web (and any repository's own UI)
 
 <your-repo>/.tasks/         the workspace (per repository, never committed)
   tasks.config.json         that repo's settings
@@ -54,7 +61,7 @@ Notes are the exception to "it lives in the database": see [Notes](#notes).
 git clone <this repo> ~/Source/WorkTaskManager
 cd ~/Source/WorkTaskManager
 bun install
-bun run build          # builds the Solid UI into dist/web
+bun run build          # builds the default UI into packages/web/dist
 npm link               # or: npm install -g .
 tasks help
 ```
@@ -1308,24 +1315,88 @@ This is also how `/plan-tasks` reads an issue named in an investigation brief: i
 looks the issue up and works from the reporter's own words rather than from the
 one-line pointer. It never fetches — if the file is not there, it says so.
 
-Adding a provider is a `fromX()` adapter in `src/server/issues.ts`, a line in
+Adding a provider is a `fromX()` adapter in `packages/core/src/issues.ts`, a line in
 `ISSUE_SOURCE_LABELS`, and a colour for `.issue-card.source-x` in the stylesheet.
 The view, the filters and the card need no changes.
 
 ## Web UI
 
-`tasks web` serves the Solid 2.0 frontend from `dist/web` on the configured
-API port. `tasks web --dev` runs Vite on the web port alongside the API server
-and requires this checkout's development dependencies.
+`tasks web` serves the API under `/api` and a UI at everything else, on the
+configured API port. The UI is the repository's own when its config has a `ui`
+key (see [A repository's own UI](#a-repositorys-own-ui)), and the default Solid
+2.0 frontend otherwise. `tasks web --default-ui` serves the default one
+regardless. `tasks web --dev` runs the chosen UI's dev server alongside the API.
 
-The frontend lives in `src/web`. Build it with `bun run build`; the former
-Vue frontend and separate `web-new` build have been removed. The rail opens
+The default frontend lives in `packages/web` and talks to the server only
+through `@work-task-manager/client`, exactly as a repository's UI would. Build
+it with `bun run build`. The rail opens
 **Work packages**, **Notes**, and **Issues**. Each work package brings together
 its investigation, tasks, agent runs, branch checks, and delivery controls.
 Selecting a task opens its workflow and visual evidence.
 
 The Solid prerelease references are vendored in
 [`docs/solid-2.0`](docs/solid-2.0/README.md).
+
+### A repository's own UI
+
+The backend owns the domain: membership, ordering, dependency order, status
+transitions, Git state, what a check run means. A UI renders what the API
+returns and sends intents back. That is what makes a second UI cheap, and a
+repository can ship one shaped around its own workflow.
+
+1. Build it against `@work-task-manager/client`:
+
+    ```ts
+    import { createClient, STATUS_LABELS } from "@work-task-manager/client"
+
+    const api = createClient() // same origin; or { baseUrl: "http://localhost:5199" }
+    const workPackages = await api.listWorkPackages()
+    const detail = await api.getWorkPackage(workPackages[0].ref)
+    const stop = api.subscribe(({ channel }) => {
+        if (channel === "tasks") rerender() // the CLI, an agent or another tab wrote
+    })
+    ```
+
+    Every method is typed with the API's own types, which the package re-exports.
+    Errors come back as `Error`s carrying the server's message. Nothing depends on a
+    UI framework. [`examples/minimal-ui`](examples/minimal-ui/src/main.ts) is a
+    complete one in about 70 lines.
+
+2. Point the repository's `.tasks/tasks.config.json` at it. Paths are relative to
+   the repository root:
+
+    ```json
+    {
+        "ui": {
+            "dist": "tools/tasks-ui/dist",
+            "cwd": "tools/tasks-ui",
+            "build": ["bun", "run", "build"],
+            "dev": ["bun", "run", "dev"],
+            "origins": ["http://localhost:5300"]
+        }
+    }
+    ```
+
+    | Key       | Meaning                                                                                        |
+    | --------- | ---------------------------------------------------------------------------------------------- |
+    | `dist`    | The built static files (required). `"ui": "path/to/dist"` is shorthand for only this.          |
+    | `cwd`     | Where `build` and `dev` run. Defaults to the repository root.                                  |
+    | `build`   | Run by `tasks web` when `dist` has no `index.html` yet.                                        |
+    | `dev`     | Run by `tasks web --dev` beside the API, with `TASKS_API_URL` and `TASKS_API_PORT` in its env. |
+    | `origins` | Browser origins allowed to call the API cross-origin. Exact matches only, never a wildcard.    |
+
+    Served by `tasks web`, the UI shares the API's origin and needs no
+    configuration. A dev server either proxies `/api` to `$TASKS_API_URL` (as the
+    default UI's Vite config does) or calls it directly with `baseUrl`, in which
+    case its origin goes in `origins`.
+
+`GET /api` answers `{ name, apiVersion, repoRoot }`, so a UI can check it is
+talking to a server whose contract it was built for.
+
+The API can also be embedded rather than run as `tasks web`:
+`@work-task-manager/server` exports `handleApiRequest(request)` (the whole API as
+a `Request → Response` function), `prepareWorkspace()` (call it once first) and
+`startServer({ port, ui, origins })`.
 
 ### Upgrading to work package tabs
 
@@ -1364,7 +1435,7 @@ existing `work-group.md` overrides remain a fallback.
 ## How it fits together
 
 - **Two roots, deliberately.** The _package_ is where the tool is installed —
-  the server entry point, the built SPA. The _workspace_ is the `.tasks/` folder
+  the core and its prompts, the server, the default UI. The _workspace_ is the `.tasks/` folder
   of whichever repo you are in — the config and the database. One package, as
   many workspaces as you have repositories. The web server runs with the package
   as its working directory (that is where its dependencies are), so the CLI
@@ -1382,7 +1453,7 @@ existing `work-group.md` overrides remain a fallback.
   history intact but the images stop rendering. `tasks rm` deliberately does not
   touch the aio-vr workspace.
 - **Live updates carry no data, only a channel.** There is nothing to subscribe
-  to in SQLite or in a folder of Markdown, so `src/server/watch.ts` watches what
+  to in SQLite or in a folder of Markdown, so `packages/core/src/watch.ts` watches what
   they actually are — files — and says "the database moved" or "the notes folder
   moved". Sending the new state down that stream would mean a second definition
   of what each view needs, in parallel with the one the views already have, and
@@ -1406,7 +1477,7 @@ existing `work-group.md` overrides remain a fallback.
   provider flattens a file into a common card; everything downstream of that —
   the board, the filters, the detail view — knows nothing about GitHub or Azure
   DevOps. That is what stops the second provider being a rewrite of the first.
-- The Markdown preview is rendered by a small renderer in `src/web/src/markdown.ts`
+- The Markdown preview is rendered by a small renderer in `packages/web/src/markdown.ts`
   rather than a dependency. It escapes the source before any rule runs, so the
   only markup in the output is the markup it emits — which is what makes it safe
   to preview a note written by an agent or pulled from someone else's clone.

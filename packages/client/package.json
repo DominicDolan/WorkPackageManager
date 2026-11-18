@@ -1,0 +1,16 @@
+{
+    "name": "@work-task-manager/client",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "Typed, framework-agnostic client for the work-task-manager API. Build a repository's own UI on this.",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "files": [
+        "src/**/*.ts",
+        "!src/**/*.test.ts"
+    ],
+    "dependencies": {
+        "@work-task-manager/shared": "workspace:*"
+    }
+}

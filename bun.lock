@@ -4,19 +4,74 @@
   "workspaces": {
     "": {
       "name": "foundry-tasks",
+      "devDependencies": {
+        "@types/bun": "^1.3.0",
+        "husky": "^9.1.7",
+        "lint-staged": "^17.5.0",
+        "prettier": "^3.9.6",
+        "typescript": "^5.9.2",
+      },
+    },
+    "examples/minimal-ui": {
+      "name": "@work-task-manager/example-minimal-ui",
+      "dependencies": {
+        "@work-task-manager/client": "workspace:*",
+      },
+    },
+    "packages/cli": {
+      "name": "work-task-manager",
+      "version": "1.0.0",
+      "bin": {
+        "tasks": "./bin/tasks",
+      },
+      "dependencies": {
+        "@work-task-manager/core": "workspace:*",
+        "@work-task-manager/server": "workspace:*",
+        "@work-task-manager/shared": "workspace:*",
+      },
+      "devDependencies": {
+        "@work-task-manager/web": "workspace:*",
+      },
+    },
+    "packages/client": {
+      "name": "@work-task-manager/client",
+      "version": "1.0.0",
+      "dependencies": {
+        "@work-task-manager/shared": "workspace:*",
+      },
+    },
+    "packages/core": {
+      "name": "@work-task-manager/core",
+      "version": "1.0.0",
+      "dependencies": {
+        "@work-task-manager/shared": "workspace:*",
+      },
+    },
+    "packages/server": {
+      "name": "@work-task-manager/server",
+      "version": "1.0.0",
+      "dependencies": {
+        "@work-task-manager/core": "workspace:*",
+        "@work-task-manager/shared": "workspace:*",
+      },
+    },
+    "packages/shared": {
+      "name": "@work-task-manager/shared",
+      "version": "1.0.0",
+    },
+    "packages/web": {
+      "name": "@work-task-manager/web",
+      "version": "1.0.0",
       "dependencies": {
         "@solidjs/web": "2.0.0-rc.6",
+        "@work-task-manager/client": "workspace:*",
+        "@work-task-manager/shared": "workspace:*",
         "solid-js": "2.0.0-rc.6",
       },
       "devDependencies": {
         "@solidjs/vite-plugin": "3.0.0-next.35",
         "@tailwindcss/vite": "^4.1.14",
-        "@types/bun": "^1.3.0",
-        "husky": "^9.1.7",
-        "lint-staged": "^17.5.0",
-        "prettier": "^3.9.6",
         "tailwindcss": "^4.1.14",
-        "typescript": "^5.9.2",
         "vite": "^8.2.1",
       },
     },
@@ -178,6 +233,18 @@
 
     "@types/node": ["@types/node@26.2.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
 
+    "@work-task-manager/client": ["@work-task-manager/client@workspace:packages/client"],
+
+    "@work-task-manager/core": ["@work-task-manager/core@workspace:packages/core"],
+
+    "@work-task-manager/example-minimal-ui": ["@work-task-manager/example-minimal-ui@workspace:examples/minimal-ui"],
+
+    "@work-task-manager/server": ["@work-task-manager/server@workspace:packages/server"],
+
+    "@work-task-manager/shared": ["@work-task-manager/shared@workspace:packages/shared"],
+
+    "@work-task-manager/web": ["@work-task-manager/web@workspace:packages/web"],
+
     "baseline-browser-mapping": ["baseline-browser-mapping@2.11.21", "", { "bin": { "baseline-browser-mapping": "dist/cli.cjs" } }, "sha512-uh8vpY/1/YyFkunIDFH/12p7/7VdPKA1hejMVEbdkEaWnUz0Hesvx5EbiU6XxjyHZIOju+ZMbQJkRh+es3/spQ=="],
 
     "browserslist": ["browserslist@4.28.8", "", { "dependencies": { "baseline-browser-mapping": "^2.11.12", "caniuse-lite": "^1.0.30001809", "electron-to-chromium": "^1.5.402", "node-releases": "^2.0.53", "update-browserslist-db": "^1.3.0" }, "bin": { "browserslist": "cli.js" } }, "sha512-V2NpofLblG64mfOtSgDhOJESZEGogzDMBv/q+W6oc4LXWP/q75eOXoOaaOu1EOadB9U4Bwx/e0yzbvwKH8zalA=="],
@@ -307,6 +374,8 @@
     "vite": ["vite@8.2.2", "", { "dependencies": { "lightningcss": "^1.33.0", "picomatch": "^4.0.5", "postcss": "^8.5.26", "rolldown": "~1.2.4", "tinyglobby": "^0.2.17" }, "optionalDependencies": { "fsevents": "~2.3.3" }, "peerDependencies": { "@types/node": "^20.19.0 || >=22.12.0", "@vitejs/devtools": "^0.4.0 || ^0.5.0", "esbuild": "^0.27.0 || ^0.28.0", "jiti": ">=1.21.0", "less": "^4.0.0", "sass": "^1.70.0", "sass-embedded": "^1.70.0", "stylus": ">=0.54.8", "sugarss": "^5.0.0", "terser": "^5.16.0", "tsx": "^4.8.1", "yaml": "^2.4.2" }, "optionalPeers": ["@types/node", "@vitejs/devtools", "esbuild", "jiti", "less", "sass", "sass-embedded", "stylus", "sugarss", "terser", "tsx", "yaml"], "bin": { "vite": "bin/vite.js" } }, "sha512-cFKLV/PRgAUlIRm5WjMjJ86jrftzpqcgH+Us+DS8mI3CDNiH30Whrz8uHL3+MOLPAgqbMBAqWdAHAphOAM+z/Q=="],
 
     "vitefu": ["vitefu@1.1.3", "", { "peerDependencies": { "vite": "^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" }, "optionalPeers": ["vite"] }, "sha512-ub4okH7Z5KLjb6hDyjqrGXqWtWvoYdU3IGm/NorpgHncKoLTCfRIbvlhBm7r0YstIaQRYlp4yEbFqDcKSzXSSg=="],
+
+    "work-task-manager": ["work-task-manager@workspace:packages/cli"],
 
     "yallist": ["yallist@3.1.1", "", {}, "sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g=="],
 

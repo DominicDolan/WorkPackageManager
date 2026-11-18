@@ -4,7 +4,7 @@
         "module": "ESNext",
         "moduleResolution": "bundler",
         "lib": ["ESNext", "DOM", "DOM.Iterable"],
-        "types": ["bun", "vite/client"],
+        "types": ["bun"],
         "strict": true,
         "noUnusedLocals": true,
         "noFallthroughCasesInSwitch": true,
@@ -14,11 +14,13 @@
         "isolatedModules": true,
         "noEmit": true,
         "jsx": "preserve",
-        "jsxImportSource": "@solidjs/web",
-        "baseUrl": ".",
-        "paths": {
-            "@shared/*": ["src/shared/*"]
-        }
+        "jsxImportSource": "@solidjs/web"
     },
-    "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
+    "include": [
+        "packages/*/src/**/*.ts",
+        "packages/*/src/**/*.tsx",
+        "packages/*/tests/**/*.tsx",
+        "packages/*/vite.config.ts",
+        "examples/*/src/**/*.ts"
+    ]
 }

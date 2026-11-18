@@ -1,0 +1,14 @@
+{
+    "name": "@work-task-manager/shared",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "Types and pure helpers shared by the work-task-manager API and every client. No runtime dependencies, safe in a browser.",
+    "exports": {
+        ".": "./src/types.ts",
+        "./checks": "./src/checks.ts"
+    },
+    "files": [
+        "src/**/*.ts",
+        "!src/**/*.test.ts"
+    ]
+}

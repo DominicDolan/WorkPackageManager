@@ -1,0 +1,19 @@
+{
+    "name": "@work-task-manager/server",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "The work-task-manager HTTP API. Serves any UI: the default one, or one a repository supplies.",
+    "exports": {
+        ".": "./src/index.ts",
+        "./ui": "./src/ui.ts",
+        "./main": "./src/main.ts"
+    },
+    "files": [
+        "src/**/*.ts",
+        "!src/**/*.test.ts"
+    ],
+    "dependencies": {
+        "@work-task-manager/core": "workspace:*",
+        "@work-task-manager/shared": "workspace:*"
+    }
+}

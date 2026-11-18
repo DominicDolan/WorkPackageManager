@@ -1,0 +1,13 @@
+{
+    "name": "@work-task-manager/example-minimal-ui",
+    "private": true,
+    "type": "module",
+    "description": "The smallest useful repository UI: work packages and their tasks, live. A template, not a product.",
+    "scripts": {
+        "build": "bun build ./index.html --outdir dist --minify",
+        "dev": "bun ./index.html --port 5300"
+    },
+    "dependencies": {
+        "@work-task-manager/client": "workspace:*"
+    }
+}

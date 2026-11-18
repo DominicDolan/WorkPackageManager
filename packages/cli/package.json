@@ -1,0 +1,32 @@
+{
+    "name": "work-task-manager",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "Repo-local development task tracker with visual before/after evidence, driven by aio-visual-regression.",
+    "bin": {
+        "tasks": "./bin/tasks"
+    },
+    "files": [
+        "bin/**/*",
+        "src/**/*.ts",
+        "!src/**/*.test.ts",
+        "web/**/*"
+    ],
+    "keywords": [
+        "tasks",
+        "cli",
+        "visual-regression",
+        "developer-tools"
+    ],
+    "engines": {
+        "bun": ">=1.2.0"
+    },
+    "dependencies": {
+        "@work-task-manager/core": "workspace:*",
+        "@work-task-manager/server": "workspace:*",
+        "@work-task-manager/shared": "workspace:*"
+    },
+    "devDependencies": {
+        "@work-task-manager/web": "workspace:*"
+    }
+}
