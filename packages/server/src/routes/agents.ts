@@ -64,6 +64,7 @@ export const agentRoutes = [
                 subjectKind?: string
                 subjectRef?: string
                 permissionMode?: string
+                machine?: string | null
                 conflict?: unknown
             }>()
             if (!input.harness) return fail("A harness is required.")
@@ -103,6 +104,7 @@ export const agentRoutes = [
                     // Where the conflict is decides where the agent works: the notes
                     // folder is a repository of its own, beside this one.
                     cwd: conflict?.scope === "notes" ? ws.notesDir : undefined,
+                    machine: input.machine,
                     // A headless run has nobody to answer a prompt, so it defaults to the
                     // only mode that never asks; an interactive one keeps the harness default.
                     permissionMode:

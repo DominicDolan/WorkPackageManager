@@ -21,7 +21,11 @@ import {
 } from "@work-task-manager/shared"
 import { api } from "../api"
 import { useError } from "../hooks/useError"
-import { AgentSettings } from "../components/AgentSettings"
+import {
+    AgentSettings,
+    defaultHarness,
+    usableHarnesses,
+} from "../components/AgentSettings"
 import { SupervisorFields } from "../components/SupervisorFields"
 import { RunHistory } from "../components/RunHistory"
 import { Modal } from "../components/Modal"
@@ -38,6 +42,7 @@ export function AgentLauncher(props: {
     const initial: RunChoice = props.task ? "task" : "guided-work-package"
     const [choice, setChoice] = createSignal<RunChoice>(initial)
     const environment = createMemo(() => api.agentEnvironment())
+    const [machine, setMachine] = createSignal("")
     const [harness, setHarness] = createSignal("")
     const [model, setModel] = createSignal("")
     const [mode, setMode] = createSignal<AgentRunMode>("terminal")
@@ -64,12 +69,7 @@ export function AgentLauncher(props: {
     )
 
     const chosenHarness = () =>
-        harness() ||
-        environment().harnesses.find(
-            (item) => item.id === "codex" && item.available,
-        )?.id ||
-        environment().harnesses.find((item) => item.available)?.id ||
-        ""
+        harness() || defaultHarness(environment(), machine())
 
     // Do not give a select a value it cannot render. The previous Codex default
     // made the browser show its first option (often Claude) while fetching Codex
@@ -77,24 +77,32 @@ export function AgentLauncher(props: {
     createEffect(
         () => environment(),
         (env) => {
+            // A machine removed from the config since this dialog last ran.
+            const where = env.machines.some((item) => item.id === machine())
+                ? machine()
+                : ""
+            if (where !== machine()) setMachine(where)
             if (
-                env.harnesses.some(
-                    (item) => item.id === harness() && item.available,
+                usableHarnesses(env, where).some(
+                    (item) => item.id === harness(),
                 )
             )
                 return
-            setHarness(
-                env.harnesses.find(
-                    (item) => item.id === "codex" && item.available,
-                )?.id ??
-                    env.harnesses.find((item) => item.available)?.id ??
-                    "",
-            )
+            setHarness(defaultHarness(env, where))
         },
     )
 
     // Until one is picked, the supervisor is the same agent as the tasks'.
-    const chosenSupervisorHarness = () => supervisorHarness() || chosenHarness()
+    // A supervisor picked for one machine may not be installed on another.
+    const chosenSupervisorHarness = () => {
+        const picked = supervisorHarness()
+        return picked &&
+            usableHarnesses(environment(), machine()).some(
+                (item) => item.id === picked,
+            )
+            ? picked
+            : chosenHarness()
+    }
 
     const next = () => props.task ?? props.workPackage.nextTask
     const run = action(async function* () {
@@ -134,6 +142,7 @@ export function AgentLauncher(props: {
                     permissionMode: permission(),
                     extra: extra(),
                     fallback: choice() === "unattended" ? fallback() : "stop",
+                    machine: machine() || undefined,
                     supervisor:
                         choice() === "unattended" && supervised()
                             ? {
@@ -163,6 +172,7 @@ export function AgentLauncher(props: {
                 subjectKind: "task",
                 subjectRef: task.ref,
                 permissionMode: permission(),
+                machine: machine() || undefined,
             })
             yield
             refresh(history)
@@ -213,6 +223,8 @@ export function AgentLauncher(props: {
                 }>
                 <AgentSettings
                     environment={environment()}
+                    machine={machine()}
+                    setMachine={setMachine}
                     harness={chosenHarness()}
                     setHarness={setHarness}
                     model={model()}
@@ -307,6 +319,7 @@ export function AgentLauncher(props: {
                         <Loading fallback={null}>
                             <SupervisorFields
                                 environment={environment()}
+                                machine={machine()}
                                 harness={chosenSupervisorHarness()}
                                 setHarness={setSupervisorHarness}
                                 model={supervisorModel()}

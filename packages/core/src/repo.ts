@@ -2438,6 +2438,7 @@ interface WorkPackageRunRow {
     run_ids_json: string
     supervisor_json: string | null
     fallback: string
+    machine: string | null
     resumed_at: string | null
     stop_reason: string
     created_at: string
@@ -2451,6 +2452,7 @@ function toWorkPackageRun(row: WorkPackageRunRow): WorkPackageRun {
         harness: row.harness as AgentHarnessId,
         model: row.model,
         permissionMode: row.permission_mode as AgentPermissionMode,
+        machine: row.machine,
         extra: row.extra,
         status: row.status as WorkPackageRunStatus,
         currentRunId: row.current_run_id,
@@ -2557,13 +2559,14 @@ export function createWorkPackageRun(input: {
     selected?: string[]
     supervisor?: RunSupervisor | null
     fallback?: "stop" | "codex"
+    machine?: string | null
 }): WorkPackageRun {
     const row = getDb()
         .query<{ id: number }, Record<string, string | null>>(
             `INSERT INTO work_package_runs
          (work_package_ref, harness, model, permission_mode, extra, status, worked_json, excluded_json, selected_json,
-          supervisor_json, fallback, created_at)
-       VALUES ($ref, $harness, $model, $permission, $extra, 'running', '[]', $excluded, $selected, $supervisor, $fallback, $at)
+          supervisor_json, fallback, machine, created_at)
+       VALUES ($ref, $harness, $model, $permission, $extra, 'running', '[]', $excluded, $selected, $supervisor, $fallback, $machine, $at)
        RETURNING id`,
         )
         .get({
@@ -2581,6 +2584,7 @@ export function createWorkPackageRun(input: {
                 ? JSON.stringify(input.supervisor)
                 : null,
             $fallback: input.fallback ?? "stop",
+            $machine: input.machine ?? null,
             $at: nowIso(),
         })!
 

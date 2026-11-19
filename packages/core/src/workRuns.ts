@@ -57,6 +57,7 @@ interface WorkRunRow {
     model: string
     mode: string
     permission_mode: string
+    machine: string | null
     extra: string
     task_refs_json: string
     agent_run_id: number | null
@@ -75,6 +76,7 @@ function toWorkRun(row: WorkRunRow): WorkRun {
         model: row.model,
         mode: row.mode as AgentRunMode,
         permissionMode: row.permission_mode as AgentPermissionMode,
+        machine: row.machine,
         extra: row.extra,
         taskRefs: JSON.parse(row.task_refs_json) as string[],
         agentRunId: row.agent_run_id,
@@ -112,6 +114,9 @@ export interface StartWorkRunInput {
     mode: AgentRunMode
     permissionMode: AgentPermissionMode
     extra: string
+    /** The configured machine the agents run on. Not used by start-to-finish
+     *  runs, which always run here. */
+    machine?: string | null
     /** Unattended runs only: who to call in when a task stops short. */
     supervisor?: RunSupervisor | null
     fallback?: "stop" | "codex"
@@ -133,9 +138,14 @@ export function startWorkRun(input: StartWorkRunInput): WorkRunDetail {
     let permissionMode = input.permissionMode
     let label = input.label?.trim() ?? ""
     let pipeline: string | null = null
+    const machine = input.machine || null
 
     if (input.kind === "pipeline") {
         if (!input.plan) throw new Error("A start-to-finish run needs a plan.")
+        if (machine)
+            throw new Error(
+                "A start-to-finish run cannot be sent to another machine yet.",
+            )
         const prepared = preparePipeline(workPackage.ref, input.plan)
         mode = "print"
         permissionMode = prepared.plan.agent.permissionMode
@@ -159,6 +169,7 @@ export function startWorkRun(input: StartWorkRunInput): WorkRunDetail {
             excluded: [],
             supervisor: input.supervisor,
             fallback: input.fallback,
+            machine,
         })
         workPackageRunId = started.workPackageRun.id
         agentRunId = started.run.id
@@ -177,6 +188,7 @@ export function startWorkRun(input: StartWorkRunInput): WorkRunDetail {
             subjectKind: "task",
             subjectRef: next.ref,
             permissionMode,
+            machine,
         }).id
         taskRefs = [next.ref]
         label ||= `Work ${next.ref}`
@@ -193,6 +205,7 @@ export function startWorkRun(input: StartWorkRunInput): WorkRunDetail {
             subjectKind: "work-package",
             subjectRef: workPackage.ref,
             permissionMode,
+            machine,
         }).id
         taskRefs = detail.queue.map((task) => task.ref)
         label ||= "Guided run"
@@ -202,9 +215,9 @@ export function startWorkRun(input: StartWorkRunInput): WorkRunDetail {
     const row = getDb()
         .query<{ id: number }, Record<string, string | number | null>>(
             `INSERT INTO work_runs (work_package_ref, label, kind, harness, model, mode, permission_mode,
-                                extra, task_refs_json, agent_run_id, work_package_run_id, pipeline_json,
-                                created_at, updated_at)
-         VALUES ($ref, $label, $kind, $harness, $model, $mode, $permission, $extra, $tasks,
+                                machine, extra, task_refs_json, agent_run_id, work_package_run_id,
+                                pipeline_json, created_at, updated_at)
+         VALUES ($ref, $label, $kind, $harness, $model, $mode, $permission, $machine, $extra, $tasks,
                  $agentRun, $packageRun, $pipeline, $at, $at)
          RETURNING id`,
         )
@@ -216,6 +229,7 @@ export function startWorkRun(input: StartWorkRunInput): WorkRunDetail {
             $model: input.model,
             $mode: mode,
             $permission: permissionMode,
+            $machine: machine,
             $extra: input.extra,
             $tasks: JSON.stringify(taskRefs),
             $agentRun: agentRunId,

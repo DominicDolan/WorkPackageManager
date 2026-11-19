@@ -1,6 +1,7 @@
 import {
     AGENT_PERMISSION_MODE_LABELS,
     type AgentEnvironment,
+    type AgentHarnessInfo,
     type AgentPermissionMode,
     type AgentRunMode,
     type ModelTier,
@@ -20,8 +21,38 @@ import codexIcon from "../assets/codex-icon.svg"
 import piIcon from "../assets/pi-agent-icon.svg"
 import { ModelPicker } from "./ModelPicker"
 
+/**
+ * The harnesses a run can use on `machine` (empty for this computer). Here,
+ * that is whatever is on PATH. On a configured machine it is whatever the
+ * config lists, since nothing can look.
+ */
+export function usableHarnesses(
+    environment: AgentEnvironment,
+    machine: string,
+): AgentHarnessInfo[] {
+    const remote = environment.machines.find((item) => item.id === machine)
+    if (!remote) return environment.harnesses.filter((item) => item.available)
+    return environment.harnesses.filter((item) =>
+        remote.harnesses.includes(item.id),
+    )
+}
+
+/** The harness a dialog starts on: Codex when it can run there, else the first
+ *  that can, else nothing. */
+export function defaultHarness(
+    environment: AgentEnvironment,
+    machine: string,
+): string {
+    const usable = usableHarnesses(environment, machine)
+    return usable.find((item) => item.id === "codex")?.id ?? usable[0]?.id ?? ""
+}
+
 export function AgentSettings(props: {
     environment: AgentEnvironment
+    /** The configured machine to run on; empty for this computer. The picker
+     *  only appears when `setMachine` is given and machines are configured. */
+    machine?: string
+    setMachine?: (value: string) => void
     harness: string
     setHarness: (value: string) => void
     model: string
@@ -40,7 +71,7 @@ export function AgentSettings(props: {
     // supervisor. Keep the native radio groups independent in that case.
     const radioGroup = `agent-settings-${Math.random().toString(36).slice(2)}`
     const available = () =>
-        props.environment.harnesses.filter((item) => item.available)
+        usableHarnesses(props.environment, props.machine ?? "")
     const selectedHarness = () =>
         props.environment.harnesses.find(
             (item) => item.id === latest(() => props.harness),
@@ -78,6 +109,37 @@ export function AgentSettings(props: {
     )
     return (
         <div class="mt-5 grid gap-4">
+            <Show when={props.setMachine && props.environment.machines.length}>
+                <label class="field">
+                    <span>Machine</span>
+                    <select
+                        value={props.machine ?? ""}
+                        onChange={(event) => {
+                            const machine = event.currentTarget.value
+                            props.setMachine!(machine)
+                            // Keep the agent if it can run there too; a model
+                            // list is per harness, so only reset it on a switch.
+                            if (
+                                !usableHarnesses(
+                                    props.environment,
+                                    machine,
+                                ).some((item) => item.id === props.harness)
+                            ) {
+                                props.setHarness(
+                                    defaultHarness(props.environment, machine),
+                                )
+                                props.setModel("")
+                            }
+                        }}>
+                        <option value="">This computer</option>
+                        <For each={props.environment.machines}>
+                            {(item) => (
+                                <option value={item.id}>{item.label}</option>
+                            )}
+                        </For>
+                    </select>
+                </label>
+            </Show>
             <fieldset class="grid min-w-0 gap-2">
                 <legend class="label">Agent</legend>
                 <div class="grid grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-3">

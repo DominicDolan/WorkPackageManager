@@ -37,6 +37,7 @@ export function RunHistory(props: { runs: AgentRun[] }) {
                                 {entry.mode === "print"
                                     ? "Headless"
                                     : "Terminal"}
+                                {entry.machine ? ` · on ${entry.machine}` : ""}
                             </span>
                             <time class="ml-auto text-slate-400">
                                 {new Date(entry.createdAt).toLocaleString()}

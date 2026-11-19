@@ -204,6 +204,7 @@ export const workPackageRoutes = [
                 extra?: string
                 supervisor?: SupervisorInput | null
                 fallback?: string
+                machine?: string | null
                 plan?: unknown
             }>()
             if (!input.harness) return fail("A harness is required.")
@@ -232,6 +233,7 @@ export const workPackageRoutes = [
                 extra: input.extra ?? "",
                 supervisor,
                 fallback: input.fallback as "stop" | "codex" | undefined,
+                machine: input.machine,
                 plan,
             })
             return created({
@@ -459,6 +461,7 @@ export const workPackageRoutes = [
                 permissionMode?: string
                 extra?: string
                 excluded?: unknown
+                machine?: string | null
             }>()
             if (!input.harness) return fail("A harness is required.")
             const excluded =
@@ -480,6 +483,7 @@ export const workPackageRoutes = [
                     "bypassPermissions",
                 extra: input.extra ?? "",
                 excluded,
+                machine: input.machine,
             })
             return created({
                 workPackageRun: started.workPackageRun,

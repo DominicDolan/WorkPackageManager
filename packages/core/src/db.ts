@@ -425,6 +425,11 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
     // A start-to-finish run's plan and where it has got to. Null for every
     // other kind of run.
     { table: "work_runs", column: "pipeline_json", definition: "TEXT" },
+    // The configured machine an agent ran on (`machines` in tasks.config.json).
+    // Null is this computer, where every run went before machines existed.
+    { table: "agent_runs", column: "machine", definition: "TEXT" },
+    { table: "work_runs", column: "machine", definition: "TEXT" },
+    { table: "work_package_runs", column: "machine", definition: "TEXT" },
 ]
 
 /** Indexes over columns that ADDED_COLUMNS may have only just created, so they

@@ -10,6 +10,7 @@ import {
 } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { LOCAL_MACHINE, type MachineConfig } from "./config/config"
 import { lazyWorkspace } from "./config/paths"
 import { getDb, nowIso } from "./db"
 import { findTask } from "./repo"
@@ -22,6 +23,7 @@ import {
     type AgentEnvironment,
     type AgentHarnessId,
     type AgentHarnessInfo,
+    type AgentMachineInfo,
     type AgentModel,
     type AgentPermissionMode,
     type AgentRun,
@@ -426,6 +428,96 @@ export function terminalCommand(): string[] | null {
     return detectedTerminal
 }
 
+/* -------------------------------------------------------------- machines */
+
+interface Machine extends MachineConfig {
+    id: string
+}
+
+/**
+ * The configured machine a run goes to, or null for this computer. An empty id
+ * and `local` both mean here, so a client that always sends the field need
+ * not special-case the default.
+ */
+function resolveMachine(id: string | null | undefined): Machine | null {
+    if (!id || id === LOCAL_MACHINE) return null
+    const found = ws.config.machines[id]
+    if (!found)
+        throw new Error(
+            `Unknown machine '${id}'. Configured: ${Object.keys(ws.config.machines).join(", ") || "none"}.`,
+        )
+    return { ...found, id }
+}
+
+function machineHarnesses(machine: MachineConfig): AgentHarnessId[] {
+    return machine.harnesses ?? [...AGENT_HARNESSES]
+}
+
+/**
+ * Whether `definition` can be run where the run is going. Here, its binary
+ * has to be on PATH. On another machine nothing can look, so the config's word
+ * is taken for it.
+ */
+function requireHarnessOn(
+    definition: HarnessDef,
+    machine: Machine | null,
+    doing: string,
+): void {
+    if (machine) {
+        if (!machineHarnesses(machine).includes(definition.id))
+            throw new Error(
+                `${definition.label} is not listed for machine '${machine.id}', so it cannot be ${doing} there.`,
+            )
+        return
+    }
+    if (!onPath(definition.bin))
+        throw new Error(
+            `${definition.bin} is not on PATH, so it cannot be ${doing} from here.`,
+        )
+}
+
+/** POSIX single-quoting: safe for any byte string a shell will re-read. */
+export function shellQuote(arg: string): string {
+    return /^[A-Za-z0-9_@%+=:,./-]+$/.test(arg)
+        ? arg
+        : `'${arg.replace(/'/g, `'\\''`)}'`
+}
+
+/**
+ * The agent's argv sent to a machine: the machine's prefix, then the agent.
+ *
+ * Environment set on the local spawn stops at the prefix (`docker exec`,
+ * `ssh`), so what a headless agent depends on is passed through `env` as part
+ * of the command itself. `TASKS_DIR` is deliberately not: the path is this
+ * computer's, and the agent finds its own `.tasks/` from its working directory.
+ */
+export function machineArgv(
+    machine: MachineConfig,
+    agentArgv: string[],
+    interactive: boolean,
+): string[] {
+    const prefix = interactive
+        ? (machine.interactiveCommand ?? machine.command)
+        : machine.command
+    const inner = interactive
+        ? agentArgv
+        : ["env", ...headlessEnvAssignments(), ...agentArgv]
+    return machine.shell
+        ? [...prefix, inner.map(shellQuote).join(" ")]
+        : [...prefix, ...inner]
+}
+
+/**
+ * A headless Claude exits when its turn ends, so a command sent to the
+ * background never reports back: the agent ends on "waiting" with no answer.
+ * Without background tasks it has to wait inline.
+ */
+const HEADLESS_ENV = { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" }
+
+function headlessEnvAssignments(): string[] {
+    return Object.entries(HEADLESS_ENV).map(([key, value]) => `${key}=${value}`)
+}
+
 export function agentEnvironment(): AgentEnvironment {
     const terminal = terminalCommand()
     const harnesses: AgentHarnessInfo[] = HARNESSES.map((definition) => ({
@@ -436,8 +528,17 @@ export function agentEnvironment(): AgentEnvironment {
         modelsLazy: definition.modelsLazy,
     }))
 
+    const machines: AgentMachineInfo[] = Object.entries(ws.config.machines).map(
+        ([id, machine]) => ({
+            id,
+            label: machine.label ?? id,
+            harnesses: machineHarnesses(machine),
+        }),
+    )
+
     return {
         harnesses,
+        machines,
         terminal: terminal ? terminal[0]! : null,
         terminalAvailable: terminal !== null,
         modelTiers: ws.config.modelTiers,
@@ -544,6 +645,7 @@ interface RunRow {
     pid: number | null
     session_id: string | null
     cwd: string | null
+    machine: string | null
     status: string
     exit_code: number | null
     log_path: string | null
@@ -562,6 +664,7 @@ function toRun(row: RunRow): AgentRun {
         subjectRef: row.subject_ref,
         prompt: row.prompt,
         argv: JSON.parse(row.argv_json) as string[],
+        machine: row.machine,
         sessionId: row.session_id,
         pid: row.pid,
         status: row.status as AgentRunStatus,
@@ -684,6 +787,8 @@ export interface StartRunInput {
     /** Where the agent runs. The repository root unless a run belongs elsewhere,
      *  as one resolving a conflict in the notes folder does. */
     cwd?: string
+    /** The configured machine to run on. Absent, empty or `local` is here. */
+    machine?: string | null
     /** What an earlier agent on the same subject left behind, for this one to
      *  pick up from. Appended after the command's own instructions. */
     handoff?: string
@@ -698,11 +803,14 @@ export function startRun(input: StartRunInput): AgentRun {
     if (!AGENT_PERMISSION_MODES.includes(input.permissionMode)) {
         throw new Error(`Unknown permission mode '${input.permissionMode}'.`)
     }
-    if (!onPath(definition.bin)) {
+    const machine = resolveMachine(input.machine)
+    // `cwd` is a path on this computer — the notes folder, so far — and there
+    // is no knowing where, or whether, it exists on another machine.
+    if (machine && input.cwd)
         throw new Error(
-            `${definition.bin} is not on PATH, so it cannot be run from here.`,
+            `This run has to work in ${input.cwd}, which is a path on this computer, so it cannot be sent to machine '${machine.id}'.`,
         )
-    }
+    requireHarnessOn(definition, machine, "run")
 
     const handoff = input.handoff?.trim()
     const prompt =
@@ -728,8 +836,11 @@ export function startRun(input: StartRunInput): AgentRun {
         sessionId,
     })
 
-    let argv = agentArgv
-    if (input.mode === "terminal") {
+    const interactive = input.mode === "terminal"
+    let argv = machine
+        ? machineArgv(machine, agentArgv, interactive)
+        : agentArgv
+    if (interactive) {
         const terminal = terminalCommand()
         if (!terminal) {
             throw new Error(
@@ -737,7 +848,7 @@ export function startRun(input: StartRunInput): AgentRun {
                     'Set "agentTerminal" in .tasks/tasks.config.json, or run headless with -p.',
             )
         }
-        argv = [...terminal, ...agentArgv]
+        argv = [...terminal, ...argv]
     }
 
     return launch({
@@ -751,6 +862,7 @@ export function startRun(input: StartRunInput): AgentRun {
         argv,
         sessionId,
         cwd: input.cwd ?? null,
+        machine: machine?.id ?? null,
     })
 }
 
@@ -778,17 +890,17 @@ export function continueRun(input: {
         throw new Error(
             `Run ${row.id} has no recorded conversation id, so it cannot be continued.`,
         )
-    if (!onPath(definition.bin))
-        throw new Error(
-            `${definition.bin} is not on PATH, so it cannot be run from here.`,
-        )
+    // The conversation lives where the run did, so that is where it carries on.
+    const machine = resolveMachine(row.machine)
+    requireHarnessOn(definition, machine, "run")
 
-    const argv = definition.continueArgv({
+    const agentArgv = definition.continueArgv({
         sessionId: row.session_id,
         prompt: input.prompt,
         model: input.model,
         permissionMode: input.permissionMode,
     })
+    const argv = machine ? machineArgv(machine, agentArgv, false) : agentArgv
     return launch({
         harness: definition.id,
         model: input.model,
@@ -800,6 +912,7 @@ export function continueRun(input: {
         argv,
         sessionId: row.session_id,
         cwd: row.cwd,
+        machine: row.machine,
     })
 }
 
@@ -815,15 +928,16 @@ function launch(input: {
     argv: string[]
     sessionId: string | null
     cwd: string | null
+    machine: string | null
 }): AgentRun {
     const createdAt = nowIso()
     const row = getDb()
         .query<{ id: number }, Record<string, string | number | null>>(
             `INSERT INTO agent_runs
          (harness, model, mode, command, subject_kind, subject_ref, prompt, argv_json,
-          pid, session_id, cwd, status, log_path, created_at)
+          pid, session_id, cwd, machine, status, log_path, created_at)
        VALUES ($harness, $model, $mode, $command, $kind, $ref, $prompt, $argv,
-               NULL, $session, $cwd, $status, $log, $at)
+               NULL, $session, $cwd, $machine, $status, $log, $at)
        RETURNING id`,
         )
         .get({
@@ -837,6 +951,7 @@ function launch(input: {
             $argv: JSON.stringify(input.argv),
             $session: input.sessionId,
             $cwd: input.cwd,
+            $machine: input.machine,
             $status: input.mode === "terminal" ? "launched" : "running",
             $log: null,
             $at: createdAt,
@@ -944,10 +1059,7 @@ function spawnHeadless(id: number, argv: string[], cwd: string): void {
         env: {
             ...process.env,
             TASKS_DIR: ws.tasksDir,
-            // A headless Claude exits when its turn ends, so a command sent to
-            // the background never reports back: the agent ends on "waiting"
-            // with no answer. Without background tasks it has to wait inline.
-            CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+            ...HEADLESS_ENV,
         },
     })
 
@@ -1113,11 +1225,8 @@ export function resumeRun(id: number): AgentRun {
                 "only gets one once its session file appears in ~/.codex/sessions.",
         )
     }
-    if (!onPath(definition.bin)) {
-        throw new Error(
-            `${definition.bin} is not on PATH, so the session cannot be reopened.`,
-        )
-    }
+    const machine = resolveMachine(row.machine)
+    requireHarnessOn(definition, machine, "reopened")
 
     const terminal = terminalCommand()
     if (!terminal) {
@@ -1129,8 +1238,12 @@ export function resumeRun(id: number): AgentRun {
 
     // Reuses the launch path's fire-and-forget spawn for the same reason: the
     // emulator forks its own tree, and the window must outlive this server.
+    const resumeArgv = definition.resumeArgv(row.session_id)
     const child = Bun.spawn(
-        [...terminal, ...definition.resumeArgv(row.session_id)],
+        [
+            ...terminal,
+            ...(machine ? machineArgv(machine, resumeArgv, true) : resumeArgv),
+        ],
         {
             cwd: row.cwd ?? ws.repoRoot,
             stdin: "ignore",

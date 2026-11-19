@@ -298,6 +298,8 @@ export function createClient(options: ClientOptions = {}) {
                 extra: string
                 supervisor?: RunSupervisor | null
                 fallback?: "stop" | "codex"
+                /** A configured machine id. Omit for this computer. */
+                machine?: string | null
                 /** Start-to-finish runs only. */
                 plan?: PipelinePlan
             },
@@ -950,6 +952,8 @@ export function createClient(options: ClientOptions = {}) {
             subjectKind: string
             subjectRef: string
             permissionMode: AgentPermissionMode
+            /** A configured machine id. Omit for this computer. */
+            machine?: string | null
             /** Required by `resolve-conflicts`: what collided, and where. */
             conflict?: GitConflict
         }) =>

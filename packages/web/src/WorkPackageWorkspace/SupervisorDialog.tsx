@@ -73,6 +73,7 @@ export function SupervisorDialog(props: {
                 }>
                 <SupervisorFields
                     environment={environment()}
+                    machine={props.run.machine ?? ""}
                     harness={harness()}
                     setHarness={setHarness}
                     model={model()}

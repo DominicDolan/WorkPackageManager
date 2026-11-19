@@ -1229,9 +1229,26 @@ export interface AgentHarnessInfo {
     modelsLazy: boolean
 }
 
+/**
+ * Somewhere other than this computer that an agent can run: a Docker container,
+ * a host over SSH. Configured per repository under `machines` in
+ * `tasks.config.json`; this is the part the launch dialog needs.
+ */
+export interface AgentMachineInfo {
+    /** The key under `machines`. Sent back as a run's `machine`. */
+    id: string
+    label: string
+    /** The harnesses installed there. Nothing can check this from here, so it
+     *  is whatever the config says. */
+    harnesses: AgentHarnessId[]
+}
+
 /** What the Investigate / Work buttons need before they can offer a run. */
 export interface AgentEnvironment {
     harnesses: AgentHarnessInfo[]
+    /** Configured machines, besides this one. Empty when none are, and the
+     *  dialog then offers no choice at all. */
+    machines: AgentMachineInfo[]
     /** The terminal emulator that `terminal` mode will use, if one was found. */
     terminal: string | null
     /** Whether the whole terminal mode is available at all. */
@@ -1259,6 +1276,8 @@ export interface AgentRun {
     prompt: string
     /** The argv spawned, for when a run does something surprising. */
     argv: string[]
+    /** The configured machine it ran on, or null for this one. */
+    machine: string | null
     pid: number | null
     /**
      * The harness conversation this run created, so it can be reopened.
@@ -1390,6 +1409,10 @@ export interface WorkPackageRun {
     harness: AgentHarnessId
     model: string
     permissionMode: AgentPermissionMode
+    /** The machine every task and supervisor runs on, or null for this one.
+     *  One machine for the whole loop: each agent picks up the working tree
+     *  the one before it left. */
+    machine: string | null
     /** Extra prompt text appended to every task's `/work-task`. */
     extra: string
     /** Who is called in when a task stops short, or null for nobody — the run
@@ -1455,6 +1478,8 @@ export interface WorkRun {
     model: string
     mode: AgentRunMode
     permissionMode: AgentPermissionMode
+    /** The machine its agents run on, or null for this one. */
+    machine: string | null
     extra: string
     /** The tasks it set out to work, in order, as they stood at launch. */
     taskRefs: string[]

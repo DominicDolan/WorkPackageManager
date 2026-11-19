@@ -14,7 +14,11 @@ import type {
 } from "@work-task-manager/shared"
 import { api } from "../api"
 import { useError } from "../hooks/useError"
-import { AgentSettings } from "../components/AgentSettings"
+import {
+    AgentSettings,
+    defaultHarness,
+    usableHarnesses,
+} from "../components/AgentSettings"
 import { Modal } from "../components/Modal"
 
 export function InvestigationLauncher(props: {
@@ -23,6 +27,7 @@ export function InvestigationLauncher(props: {
     started: () => void
 }) {
     const environment = createMemo(() => api.agentEnvironment())
+    const [machine, setMachine] = createSignal("")
     const [harness, setHarness] = createSignal("")
     const [model, setModel] = createSignal("")
     const [mode, setMode] = createSignal<AgentRunMode>("terminal")
@@ -32,28 +37,22 @@ export function InvestigationLauncher(props: {
     const [busy, setBusy] = createOptimistic(false)
     const { capture, clear, Banner } = useError()
     const chosenHarness = () =>
-        harness() ||
-        environment().harnesses.find(
-            (item) => item.id === "codex" && item.available,
-        )?.id ||
-        environment().harnesses.find((item) => item.available)?.id ||
-        ""
+        harness() || defaultHarness(environment(), machine())
     createEffect(
         () => environment(),
         (env) => {
+            // A machine removed from the config since this dialog last ran.
+            const where = env.machines.some((item) => item.id === machine())
+                ? machine()
+                : ""
+            if (where !== machine()) setMachine(where)
             if (
-                env.harnesses.some(
-                    (item) => item.id === harness() && item.available,
+                usableHarnesses(env, where).some(
+                    (item) => item.id === harness(),
                 )
             )
                 return
-            setHarness(
-                env.harnesses.find(
-                    (item) => item.id === "codex" && item.available,
-                )?.id ??
-                    env.harnesses.find((item) => item.available)?.id ??
-                    "",
-            )
+            setHarness(defaultHarness(env, where))
         },
     )
     const run = action(function* () {
@@ -77,6 +76,7 @@ export function InvestigationLauncher(props: {
                 subjectKind: "investigation",
                 subjectRef: props.investigation.ref,
                 permissionMode: permission(),
+                machine: machine() || undefined,
             })
 
             props.started()
@@ -104,6 +104,8 @@ export function InvestigationLauncher(props: {
                 }>
                 <AgentSettings
                     environment={environment()}
+                    machine={machine()}
+                    setMachine={setMachine}
                     harness={chosenHarness()}
                     setHarness={setHarness}
                     model={model()}

@@ -98,6 +98,49 @@ export interface TasksConfig {
      * `{ "dist": <string> }`. See `UiConfig`.
      */
     ui: UiConfig | null
+    /**
+     * Other places agents can run, keyed by an id of your choosing — Docker
+     * containers, hosts over SSH. Empty (the default) means agents only run
+     * here, and the launch dialogs offer no choice. See `MachineConfig`.
+     */
+    machines: Record<string, MachineConfig>
+}
+
+/**
+ * Somewhere other than this computer that an agent can be run.
+ *
+ * A machine is a command prefix, the same idea as `agentTerminal`: the agent's
+ * own argv (`claude --session-id … <prompt>`) is appended to `command`, and the
+ * result is run here. So a container is
+ * `["docker", "exec", "-i", "-w", "/work", "agent-box"]` and a remote host is
+ * `["ssh", "build-box", "cd ~/src/repo &&"]` with `shell: true`.
+ *
+ * Getting the repository there is the machine's business: a bind mount, a clone
+ * of its own. Agents call the `tasks` CLI against whatever `.tasks/` they find
+ * from their working directory, so a machine that should update this
+ * workspace's tasks needs to see this workspace's `.tasks/` folder.
+ */
+export interface MachineConfig {
+    /** Shown in the launch dialog. Defaults to the id. */
+    label?: string
+    /** Prefix for headless runs. No TTY: `docker exec -i`, not `-it`. */
+    command: string[]
+    /**
+     * Prefix for interactive runs, inside the terminal window. Defaults to
+     * `command`. Usually the same command asking for a TTY:
+     * `docker exec -it …`, `ssh -t …`.
+     */
+    interactiveCommand?: string[]
+    /**
+     * Append the agent's argv as one shell-quoted string instead of as separate
+     * arguments. Needed for `ssh`, which joins its arguments and hands them to
+     * a remote shell. A multi-line prompt full of quotes would not survive
+     * that unquoted.
+     */
+    shell?: boolean
+    /** Harnesses installed there. Defaults to all of them, since nothing here
+     *  can look. */
+    harnesses?: AgentHarnessId[]
 }
 
 /**
@@ -187,6 +230,7 @@ export const DEFAULT_CONFIG: TasksConfig = {
     checks: [],
     modelTiers: {},
     ui: null,
+    machines: {},
 }
 
 export const CONFIG_FILENAME = "tasks.config.json"
@@ -325,6 +369,77 @@ function uiConfig(raw: unknown): UiConfig {
     )
     if (unknown.length) fail(`ui has unknown key(s): ${unknown.join(", ")}.`)
     return ui
+}
+
+/** The id that means "this computer". Not configurable, so never a key. */
+export const LOCAL_MACHINE = "local"
+
+/** Validate one entry of `machines`. */
+function machineConfig(raw: unknown, id: string): MachineConfig {
+    const where = `machines.${id}`
+    if (!/^[A-Za-z0-9_-]+$/.test(id))
+        fail(
+            `'machines' key '${id}' may only use letters, digits, '-' and '_'.`,
+        )
+    if (id === LOCAL_MACHINE)
+        fail(
+            `'machines' cannot define '${LOCAL_MACHINE}': it means this computer.`,
+        )
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+        fail(`${where} must be an object.`)
+    }
+    const entry = raw as Record<string, unknown>
+
+    const machine: MachineConfig = {
+        command: commandArgv(entry.command, `${where}.command`),
+    }
+    if (entry.label !== undefined && entry.label !== null) {
+        if (typeof entry.label !== "string" || !entry.label.trim())
+            fail(`${where}.label must be a non-empty string.`)
+        machine.label = entry.label.trim()
+    }
+    if (
+        entry.interactiveCommand !== undefined &&
+        entry.interactiveCommand !== null
+    ) {
+        machine.interactiveCommand = commandArgv(
+            entry.interactiveCommand,
+            `${where}.interactiveCommand`,
+        )
+    }
+    if (entry.shell !== undefined && entry.shell !== null) {
+        if (typeof entry.shell !== "boolean")
+            fail(`${where}.shell must be true or false.`)
+        machine.shell = entry.shell
+    }
+    if (entry.harnesses !== undefined && entry.harnesses !== null) {
+        if (
+            !Array.isArray(entry.harnesses) ||
+            !entry.harnesses.length ||
+            !entry.harnesses.every((one) =>
+                (AGENT_HARNESSES as readonly unknown[]).includes(one),
+            )
+        ) {
+            fail(
+                `${where}.harnesses must be a non-empty array of: ${AGENT_HARNESSES.join(", ")}.`,
+            )
+        }
+        machine.harnesses = [...new Set(entry.harnesses as AgentHarnessId[])]
+    }
+
+    const unknown = Object.keys(entry).filter(
+        (key) =>
+            ![
+                "label",
+                "command",
+                "interactiveCommand",
+                "shell",
+                "harnesses",
+            ].includes(key),
+    )
+    if (unknown.length)
+        fail(`${where} has unknown key(s): ${unknown.join(", ")}.`)
+    return machine
 }
 
 /** Validate one harness's tier map within `modelTiers`. */
@@ -474,6 +589,18 @@ export function merge(raw: Record<string, unknown>): TasksConfig {
 
     if (raw.ui !== undefined) {
         config.ui = raw.ui === null ? null : uiConfig(raw.ui)
+    }
+
+    if (raw.machines !== undefined && raw.machines !== null) {
+        if (typeof raw.machines !== "object" || Array.isArray(raw.machines))
+            fail("'machines' must be an object keyed by machine id.")
+        const machines: TasksConfig["machines"] = {}
+        for (const [id, value] of Object.entries(
+            raw.machines as Record<string, unknown>,
+        )) {
+            machines[id] = machineConfig(value, id)
+        }
+        config.machines = machines
     }
 
     const unknown = Object.keys(raw).filter((key) => !(key in DEFAULT_CONFIG))

@@ -11,6 +11,9 @@ import { AgentSettings } from "./AgentSettings"
  */
 export function SupervisorFields(props: {
     environment: AgentEnvironment
+    /** The loop's machine, which the supervisor runs on too. Fixed by the
+     *  loop, so it narrows the agents offered but is not chosen here. */
+    machine?: string
     harness: string
     setHarness: (value: string) => void
     model: string
@@ -26,6 +29,7 @@ export function SupervisorFields(props: {
                 run mode to choose. */}
             <AgentSettings
                 environment={props.environment}
+                machine={props.machine}
                 harness={props.harness}
                 setHarness={props.setHarness}
                 model={props.model}

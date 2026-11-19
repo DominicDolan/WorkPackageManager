@@ -108,6 +108,7 @@ unknown key is an error rather than a silent no-op.
 | `agentTerminal`           | `null`                                    | Command that opens a terminal window, with the agent's argv appended. `null` autodetects |
 | `checks`                  | `[]`                                      | Commands that must pass before a PR may be opened. Empty leaves PRs ungated              |
 | `modelTiers`              | `{}`                                      | Each harness's `fast`/`standard`/`frontier` tiers, resolved to a real model id           |
+| `machines`                | `{}`                                      | Other places agents can run (containers, SSH hosts). Empty offers no choice              |
 
 `prAgent` is a command plus its flags; the prompt is appended as one final
 argument. Whatever you configure wants the equivalent of `--no-tools`: the
@@ -151,6 +152,60 @@ A harness with no entry, or a tier with no entry within one, just has nothing to
 recommend for that combination — the model dropdown falls back to its own
 default. Nothing else in the app ever names a real model except this file: a
 task only ever carries a tier.
+
+`machines` lists places other than this computer where an agent can run, keyed
+by an id of your choosing. Like `agentTerminal`, a machine is a command prefix,
+and the agent's own argv is appended to it. When any are configured, the launch
+dialogs get a **Machine** picker; with none, nothing changes.
+
+```json
+{
+    "machines": {
+        "box": {
+            "label": "Agent container",
+            "command": ["docker", "exec", "-i", "-w", "/work", "agent-box"],
+            "interactiveCommand": [
+                "docker",
+                "exec",
+                "-it",
+                "-w",
+                "/work",
+                "agent-box"
+            ],
+            "harnesses": ["claude"]
+        },
+        "build": {
+            "command": ["ssh", "build-server", "cd ~/src/repo &&"],
+            "interactiveCommand": [
+                "ssh",
+                "-t",
+                "build-server",
+                "cd ~/src/repo &&"
+            ],
+            "shell": true
+        }
+    }
+}
+```
+
+- `command` runs headless agents, so it must not ask for a TTY (`docker exec -i`,
+  not `-it`). `interactiveCommand` is used inside the terminal window for
+  interactive runs and resumes, and defaults to `command`.
+- `shell: true` appends the agent's argv as one shell-quoted string. `ssh` needs
+  it, because it joins its arguments and hands them to a remote shell.
+- `harnesses` lists what is installed there. It defaults to all three, because
+  nothing here can check.
+- Getting the repository onto the machine is up to you: a bind mount, or a clone
+  of its own. Agents run `tasks` against whichever `.tasks/` they find from
+  their working directory. If the machine should update this workspace's tasks,
+  it has to see this workspace's `.tasks/` folder.
+- A run stays on its machine. Resuming it, continuing it, and an unattended
+  loop's later tasks and supervisor all go back to the same machine.
+- Stopping a headless run kills the local `docker exec` or `ssh` process. Docker
+  does not pass that on to the process inside the container, so the agent there
+  may keep going.
+- Start-to-finish pipelines, conflict resolution in the notes folder, and the
+  checks and rebase supervisors always run on this computer.
 
 ### Pre-PR checks
 

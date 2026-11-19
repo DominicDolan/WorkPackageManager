@@ -106,6 +106,8 @@ export interface StartWorkPackageRunInput {
     /** Who to call in when a task stops short, if anyone. */
     supervisor?: RunSupervisor | null
     fallback?: "stop" | "codex"
+    /** The configured machine every agent in the loop runs on. */
+    machine?: string | null
 }
 
 function includedTasks(
@@ -250,6 +252,7 @@ export function startWorkPackageRun(input: StartWorkPackageRunInput): {
         selected,
         supervisor,
         fallback: input.fallback,
+        machine: input.machine || null,
     })
 
     let run: AgentRun
@@ -310,6 +313,7 @@ function launch(
         subjectKind: "task",
         subjectRef: ref,
         permissionMode: workPackageRun.permissionMode,
+        machine: workPackageRun.machine,
         handoff,
     })
 
@@ -566,6 +570,9 @@ function launchSupervisor(
         subjectKind: "task",
         subjectRef: task.ref,
         permissionMode: supervisor.permissionMode,
+        // The supervisor works on what the task's agent left behind, which is
+        // on the loop's machine.
+        machine: workPackageRun.machine,
         handoff: supervisorBrief(workPackageRun, task, worker, shortfall),
     })
     setWorkPackageRunCurrent(workPackageRun.id, run.id, task.ref)
